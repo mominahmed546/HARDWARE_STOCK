@@ -1,0 +1,157 @@
+/* Items Create Form */
+
+.item-form-container {
+    display: flex;
+    justify-content: center;
+    padding: 30px;
+}
+
+
+.item-form-card {
+
+    background: white;
+    width: 650px;
+    padding: 30px;
+    border-radius: 15px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+
+}
+
+
+.item-form-card h2 {
+
+    margin-bottom:25px;
+    color:#1e293b;
+    font-size:26px;
+
+}
+
+
+
+.form-group {
+
+    margin-bottom:18px;
+
+}
+
+
+.form-group label {
+
+    display:block;
+    margin-bottom:8px;
+    font-weight:600;
+    color:#334155;
+
+}
+
+
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+
+
+    width:100%;
+    padding:12px 14px;
+    border:1px solid #cbd5e1;
+    border-radius:8px;
+    font-size:15px;
+    background:#fff;
+    transition:0.3s;
+
+}
+
+
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+
+    border-color:#2563eb;
+    outline:none;
+    box-shadow:0 0 0 3px rgba(37,99,235,0.15);
+
+}
+
+
+
+/* Two column layout for rates */
+
+.form-row {
+
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:20px;
+
+}
+
+
+
+.form-actions {
+
+    display:flex;
+    gap:15px;
+    margin-top:25px;
+
+}
+
+
+
+.btn-save {
+
+    background:#2563eb;
+    color:white;
+    border:none;
+    padding:12px 25px;
+    border-radius:8px;
+    font-weight:600;
+    cursor:pointer;
+
+}
+
+
+
+.btn-save:hover {
+
+    background:#1d4ed8;
+
+}
+
+
+
+.btn-cancel {
+
+    background:#64748b;
+    color:white;
+    padding:12px 25px;
+    border-radius:8px;
+    text-decoration:none;
+    font-weight:600;
+
+}
+
+
+
+.btn-cancel:hover {
+
+    background:#475569;
+
+}
+
+
+
+/* Responsive */
+
+@media(max-width:700px){
+
+    .item-form-card{
+        width:100%;
+    }
+
+
+    .form-row{
+        grid-template-columns:1fr;
+    }
+
+
+}

@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}Monthly Sales Report - Hardware Stock Management{% endblock %}
+{% block page_title %}Monthly Sales Report{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/reports.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="report-toolbar">
+        <form method="GET" class="report-filter">
+            <label for="year">Year</label>
+            <select id="year" name="year">
+                {% for year in years %}
+                <option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>{{ year }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-primary">View Report</button>
+        </form>
+    </div>
+
+    <div class="report-summary-grid">
+        <div class="report-card">
+            <div class="report-card-label">Total Sales</div>
+            <div class="report-card-value">Rs {{ "{:,.2f}".format(total_sales|default(0)) }}</div>
+        </div>
+        <div class="report-card">
+            <div class="report-card-label">Total Invoices</div>
+            <div class="report-card-value">{{ total_invoices|default(0) }}</div>
+        </div>
+        <div class="report-card">
+            <div class="report-card-label">Best Month</div>
+            <div class="report-card-value">
+                {% if best_month and best_month.total_sales > 0 %}
+                    {{ best_month.month_name }}
+                {% else %}
+                    N/A
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Sales by Month - {{ selected_year }}</h2>
+        </div>
+
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Month</th>
+                    <th>Invoices</th>
+                    <th>Total Sales</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in monthly_rows %}
+                <tr>
+                    <td>{{ row.month_name }}</td>
+                    <td>{{ row.invoice_count }}</td>
+                    <td>Rs {{ "{:,.2f}".format(row.total_sales) }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="3">No sales found.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <th>Total</th>
+                    <th>{{ total_invoices }}</th>
+                    <th>Rs {{ "{:,.2f}".format(total_sales|default(0)) }}</th>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+</div>
+{% endblock %}

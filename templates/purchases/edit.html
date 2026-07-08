@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% from 'macros/form.html' import field_error %}
+
+{% block title %}Edit Purchase - Hardware Stock Management{% endblock %}
+{% block page_title %}Edit Purchase #{{ purchase.PurchaseID }}{% endblock %}
+
+{% block content %}
+{% set fd = form_data or {} %}
+{% set first_item = items[0] if items else None %}
+<div class="container">
+    <div class="card">
+        <p><strong>Date:</strong> {{ purchase.PurchaseDate|date_dmy }}</p>
+        <p><strong>Total Amount:</strong> Rs {{ "{:,.2f}".format(purchase.TotalAmount|default(0)) }}</p>
+
+        <h3>Purchase Items</h3>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Item</th>
+                    <th>Qty</th>
+                    <th>Rate</th>
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr>
+                    <td>{{ item.Particulars or item.ItemName }}</td>
+                    <td>{{ item.Qty }}</td>
+                    <td>Rs {{ "{:,.2f}".format(item.PurchaseRate|default(0)) }}</td>
+                    <td>Rs {{ "{:,.2f}".format(item.LineTotal|default(0)) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <form method="POST" class="form" style="margin-top: 1.5rem;" data-validate novalidate>
+            <h3>Purchase Info</h3>
+
+            <div class="form-group">
+                <label for="supplier_id">Supplier</label>
+                <select id="supplier_id" name="supplier_id" required
+                        class="{% if errors and errors.get('supplier_id') %}is-invalid{% endif %}">
+                    <option value="">Select supplier</option>
+                    {% for supplier in suppliers %}
+                    <option value="{{ supplier.SupplierID }}"
+                        {% if fd.get('supplier_id', purchase.SupplierID)|string == supplier.SupplierID|string %}selected{% endif %}>
+                        {{ supplier.SupplierName }}
+                    </option>
+                    {% endfor %}
+                </select>
+                {{ field_error(errors, 'supplier_id') }}
+            </div>
+
+            <h3>Update Items</h3>
+            {{ field_error(errors, 'item_id[]') }}
+            {{ field_error(errors, 'quantity[]') }}
+
+            <div class="form-group">
+                <label for="item_id_0">Item</label>
+                <select id="item_id_0" name="item_id[]" required
+                        class="{% if errors and errors.get('item_id[]') %}is-invalid{% endif %}">
+                    <option value="">Select item</option>
+                    {% for item in items_list %}
+                    <option value="{{ item.ItemID }}"
+                        {% if fd.get('item_id[]', first_item.ItemID if first_item else '')|string == item.ItemID|string %}selected{% endif %}>
+                        {{ item.ItemName }} - {{ item.CategoryName or 'N/A' }} (Current Qty: {{ item.Qty }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="quantity_0">Quantity</label>
+                <input type="number" id="quantity_0" name="quantity[]" min="1" step="1"
+                       value="{{ fd.get('quantity[]', first_item.Qty if first_item else '1') }}" required
+                       class="{% if errors and errors.get('quantity[]') %}is-invalid{% endif %}">
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Update Purchase</button>
+                <a href="{{ url_for('purchases.list_purchases') }}" class="btn btn-secondary">Back</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

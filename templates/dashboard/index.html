@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Hardware Stock Management{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-page">
+
+    <div class="dashboard-grid">
+        <div class="kpi-widget sales">
+            <div class="kpi-header">Total Sales</div>
+            <div class="kpi-value">Rs {{ "{:,.2f}".format(total_sales|default(0)) }}</div>
+            <div class="kpi-footer">All invoices</div>
+        </div>
+
+        <div class="kpi-widget purchase">
+            <div class="kpi-header">Total Purchases</div>
+            <div class="kpi-value">Rs {{ "{:,.2f}".format(total_purchases|default(0)) }}</div>
+            <div class="kpi-footer">Purchase orders</div>
+        </div>
+
+        <div class="kpi-widget customer">
+            <div class="kpi-header">Customers</div>
+            <div class="kpi-value">{{ total_customers|default(0) }}</div>
+            <div class="kpi-footer">Registered customers</div>
+        </div>
+
+        <div class="kpi-widget product">
+            <div class="kpi-header">Products</div>
+            <div class="kpi-value">{{ total_products|default(0) }}</div>
+            <div class="kpi-footer">Available stock items</div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Quick Actions</h2>
+        </div>
+        <div class="action-buttons">
+            <a href="{{ url_for('suppliers.create_supplier') }}" class="action-btn">+ Add Supplier</a>
+            <a href="{{ url_for('items.create_item') }}" class="action-btn">+ Add Product</a>
+            <a href="{{ url_for('customers.create_customer') }}" class="action-btn">+ Add Customer</a>
+            <a href="{{ url_for('purchases.create_purchase') }}" class="action-btn">+ New Purchase</a>
+            <a href="{{ url_for('invoices.create_invoice') }}" class="action-btn">+ New Invoice</a>
+            <a href="{{ url_for('reports.monthly_sales') }}" class="action-btn">Monthly Sales Report</a>
+        </div>
+    </div>
+
+    <div class="table-grid">
+        <div class="panel">
+            <div class="panel-header">
+                <h2>Low Stock Products</h2>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Quantity</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in low_stock_items|default([]) %}
+                    <tr>
+                        <td>{{ item.ItemName }}</td>
+                        <td>{{ item.Qty }}</td>
+                        <td><span class="danger">Low Stock</span></td>
+                    </tr>
+                    {% else %}
+                    <tr class="empty-row">
+                        <td colspan="3">No low stock items</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h2>Recent Customers</h2>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Contact</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for customer in recent_customers|default([]) %}
+                    <tr>
+                        <td>{{ customer.CustomerName }}</td>
+                        <td>{{ customer.ContactNo or 'N/A' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr class="empty-row">
+                        <td colspan="2">No customers found</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

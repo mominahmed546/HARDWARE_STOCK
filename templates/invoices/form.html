@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% from 'macros/form.html' import field_error %}
+
+{% block title %}Create Invoice - Hardware Stock Management{% endblock %}
+{% block page_title %}Create Invoice{% endblock %}
+
+{% block content %}
+{% set fd = form_data or {} %}
+{% set lines = invoice_lines or [{'item_id': '', 'quantity': '1', 'rate': '0'}] %}
+<div class="container">
+    <div class="card">
+        <form method="POST" class="form" data-validate novalidate>
+            <div class="form-group">
+                <label for="invoice_date">Invoice Date</label>
+                <input type="date" id="invoice_date" name="invoice_date"
+                       value="{{ fd.get('invoice_date', '') }}" required
+                       class="{% if errors and errors.get('invoice_date') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'invoice_date') }}
+            </div>
+
+            <div class="form-group">
+                <label for="customer_id">Customer</label>
+                <select id="customer_id" name="customer_id" required
+                        class="{% if errors and errors.get('customer_id') %}is-invalid{% endif %}">
+                    <option value="">Select customer</option>
+                    {% for customer in customers %}
+                    <option value="{{ customer.CustomerID }}"
+                        {% if fd.get('customer_id')|string == customer.CustomerID|string %}selected{% endif %}>
+                        {{ customer.CustomerName }}
+                    </option>
+                    {% endfor %}
+                </select>
+                {{ field_error(errors, 'customer_id') }}
+            </div>
+
+            <h3>Invoice Items</h3>
+            {{ field_error(errors, 'item_id[]') }}
+            {{ field_error(errors, 'quantity[]') }}
+            {{ field_error(errors, 'rate[]') }}
+
+            <table class="data-table" id="invoice-items-table">
+                <thead>
+                    <tr>
+                        <th>Item</th>
+                        <th>Quantity</th>
+                        <th>Sale Rate</th>
+                        <th>Total</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for line in lines %}
+                    <tr class="invoice-item-row">
+                        <td>
+                            <select name="item_id[]" required
+                                    class="invoice-item-select {% if errors and errors.get('item_id[]') %}is-invalid{% endif %}">
+                                <option value="">Select item</option>
+                                {% for item in items %}
+                                <option value="{{ item.ItemID }}" data-rate="{{ item.SaleRate }}" data-qty="{{ item.Qty }}"
+                                    {% if line.get('item_id')|string == item.ItemID|string %}selected{% endif %}>
+                                    {{ item.ItemName }} (Stock: {{ item.Qty }})
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td>
+                            <input type="number" name="quantity[]" min="1" step="1"
+                                   value="{{ line.get('quantity', '1') }}" required
+                                   class="invoice-quantity {% if errors and errors.get('quantity[]') %}is-invalid{% endif %}">
+                        </td>
+                        <td>
+                            <input type="number" name="rate[]" min="0" step="0.01"
+                                   value="{{ line.get('rate', '0') }}" required
+                                   class="invoice-rate {% if errors and errors.get('rate[]') %}is-invalid{% endif %}">
+                        </td>
+                        <td class="invoice-line-total">Rs 0.00</td>
+                        <td>
+                            <button type="button" class="btn btn-sm btn-danger remove-invoice-item">Remove</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <div class="form-actions" style="justify-content: space-between;">
+                <button type="button" class="btn btn-secondary" id="add-invoice-item">+ Add Item</button>
+                <strong>Grand Total: <span id="invoice-grand-total">Rs 0.00</span></strong>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Create PDF Invoice</button>
+                <a href="{{ url_for('invoices.list_invoices') }}" class="btn btn-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    const invoiceItemsTable = document.getElementById('invoice-items-table');
+    const invoiceItemsBody = invoiceItemsTable.querySelector('tbody');
+    const addInvoiceItem = document.getElementById('add-invoice-item');
+    const grandTotal = document.getElementById('invoice-grand-total');
+
+    function formatMoney(value) {
+        return 'Rs ' + value.toFixed(2);
+    }
+
+    function updateTotals() {
+        let total = 0;
+
+        invoiceItemsBody.querySelectorAll('.invoice-item-row').forEach(function (row) {
+            const quantity = parseFloat(row.querySelector('.invoice-quantity').value) || 0;
+            const rate = parseFloat(row.querySelector('.invoice-rate').value) || 0;
+            const lineTotal = quantity * rate;
+
+            row.querySelector('.invoice-line-total').textContent = formatMoney(lineTotal);
+            total += lineTotal;
+        });
+
+        grandTotal.textContent = formatMoney(total);
+    }
+
+    function syncRemoveButtons() {
+        const rows = invoiceItemsBody.querySelectorAll('.invoice-item-row');
+        rows.forEach(function (row) {
+            row.querySelector('.remove-invoice-item').disabled = rows.length === 1;
+        });
+    }
+
+    function bindRow(row) {
+        const itemSelect = row.querySelector('.invoice-item-select');
+        const quantityInput = row.querySelector('.invoice-quantity');
+        const rateInput = row.querySelector('.invoice-rate');
+        const removeButton = row.querySelector('.remove-invoice-item');
+
+        itemSelect.addEventListener('change', function () {
+            const selected = itemSelect.options[itemSelect.selectedIndex];
+            const rate = selected.getAttribute('data-rate');
+
+            if (rate) {
+                rateInput.value = rate;
+            }
+
+            updateTotals();
+        });
+
+        quantityInput.addEventListener('input', updateTotals);
+        rateInput.addEventListener('input', updateTotals);
+
+        removeButton.addEventListener('click', function () {
+            row.remove();
+            syncRemoveButtons();
+            updateTotals();
+        });
+    }
+
+    addInvoiceItem.addEventListener('click', function () {
+        const row = invoiceItemsBody.querySelector('.invoice-item-row').cloneNode(true);
+
+        row.querySelector('.invoice-item-select').value = '';
+        row.querySelector('.invoice-quantity').value = '1';
+        row.querySelector('.invoice-rate').value = '0';
+        row.querySelector('.invoice-line-total').textContent = formatMoney(0);
+
+        invoiceItemsBody.appendChild(row);
+        bindRow(row);
+        syncRemoveButtons();
+        updateTotals();
+    });
+
+    invoiceItemsBody.querySelectorAll('.invoice-item-row').forEach(bindRow);
+    syncRemoveButtons();
+    updateTotals();
+</script>
+{% endblock %}

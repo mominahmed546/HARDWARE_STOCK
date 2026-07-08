@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}Suppliers - Hardware Stock Management{% endblock %}
+{% block page_title %}Suppliers{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="list-header">
+        <div class="search-bar">
+            <form method="GET" class="search-form">
+                <input type="text" name="search" placeholder="Search suppliers..." value="{{ search }}">
+                <button type="submit" class="btn btn-primary">Search</button>
+            </form>
+        </div>
+        <a href="{{ url_for('suppliers.create_supplier') }}" class="btn btn-success">+ New Supplier</a>
+    </div>
+    
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Supplier Name</th>
+                <th>Contact No</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for supplier in suppliers %}
+            <tr>
+                <td>{{ supplier[0] }}</td>
+                <td>{{ supplier[1] }}</td>
+                <td>{{ supplier[2] or 'N/A' }}</td>
+                <td>
+                    <a href="{{ url_for('suppliers.edit_supplier', id=supplier[0]) }}" class="btn btn-sm btn-info">Edit</a>
+                    <form method="POST" action="{{ url_for('suppliers.delete_supplier', id=supplier[0]) }}" style="display:inline;">                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confifirm('Are you sure you want to delete this supplier?')"></button>
+(Content truncated due to size limit. Use line ranges to read remaining content)
+ Delete
+                        </button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

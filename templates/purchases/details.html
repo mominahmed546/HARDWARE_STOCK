@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Purchase Details - Hardware Stock Management{% endblock %}
+{% block page_title %}Purchase Details{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="list-header">
+        <div>
+            <h3>{{ supplier_name }}</h3>
+            <p>All purchase items for this supplier.</p>
+        </div>
+        <a href="{{ url_for('purchases.list_purchases') }}" class="btn btn-secondary">Back to Purchases</a>
+    </div>
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Purchase ID</th>
+                <th>Date</th>
+                <th>Item</th>
+                <th>Qty</th>
+                <th>Purchase Rate</th>
+                <th>Line Total</th>
+                <th>Purchase Total</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for detail in details %}
+            <tr>
+                <td>{{ detail.PurchaseID }}</td>
+                <td>{{ detail.PurchaseDate|date_dmy }}</td>
+                <td>{{ detail.Particulars or 'N/A' }}</td>
+                <td>{{ detail.Qty or 0 }}</td>
+                <td>Rs {{ "{:,.2f}".format(detail.PurchaseRate|default(0)) }}</td>
+                <td>Rs {{ "{:,.2f}".format(detail.LineTotal|default(0)) }}</td>
+                <td>Rs {{ "{:,.2f}".format(detail.TotalAmount|default(0)) }}</td>
+                <td>
+                    <a href="{{ url_for('purchases.edit_purchase_items', id=detail.PurchaseID) }}" class="btn btn-sm btn-info">Edit</a>
+                    <form method="POST" action="{{ url_for('purchases.delete_purchase', id=detail.PurchaseID) }}" style="display:inline;">
+                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this purchase? Stock quantities from this purchase will be reduced.')">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="8">No purchase details found.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Purchases - Hardware Stock Management{% endblock %}
+{% block page_title %}Purchases{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="list-header">
+        <div class="search-bar">
+            <form method="GET" class="search-form">
+                <input type="text" name="search" placeholder="Search by purchase ID, supplier, item, or date..." value="{{ search }}">
+                <button type="submit" class="btn btn-primary">Search</button>
+                {% if search %}
+                <a href="{{ url_for('purchases.list_purchases') }}" class="btn btn-secondary">Clear</a>
+                {% endif %}
+            </form>
+        </div>
+        <a href="{{ url_for('purchases.create_purchase') }}" class="btn btn-success">+ New Purchase</a>
+    </div>
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Supplier</th>
+                <th>First Purchase</th>
+                <th>Last Purchase</th>
+                <th>Purchases</th>
+                <th>Item Lines</th>
+                <th>Total Qty</th>
+                <th>Total Amount</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for purchase in purchases %}
+            <tr>
+                <td>{{ purchase.SupplierName or 'N/A' }}</td>
+                <td>{{ purchase.FirstPurchaseDate|date_dmy }}</td>
+                <td>{{ purchase.LastPurchaseDate|date_dmy }}</td>
+                <td>{{ purchase.PurchaseCount or 0 }}</td>
+                <td>{{ purchase.ItemLineCount or 0 }}</td>
+                <td>{{ purchase.TotalQty or 0 }}</td>
+                <td>Rs {{ "{:,.2f}".format(purchase.TotalAmount|default(0)) }}</td>
+                <td>
+                    <a href="{{ url_for('purchases.purchase_details', supplier_id=purchase.SupplierID) }}" class="btn btn-sm btn-info">Details</a>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="8">No purchases found.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

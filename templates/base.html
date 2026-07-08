@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Hardware Stock Management{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/forms.css') }}">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <h1>Hardware Stock</h1>
+                <p>Inventory Management</p>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="{{ url_for('dashboard.dashboard') }}" class="nav-link {% if request.endpoint == 'dashboard.dashboard' %}active{% endif %}">
+                    Dashboard
+                </a>
+                <a href="{{ url_for('categories.list_categories') }}" class="nav-link {% if request.endpoint and request.endpoint.startswith('categories.') %}active{% endif %}">
+                    Categories
+                </a>
+                <a href="{{ url_for('items.list_items') }}" class="nav-link {% if request.endpoint and request.endpoint.startswith('items.') %}active{% endif %}">
+                    Products
+                </a>
+                <a href="{{ url_for('suppliers.list_suppliers') }}" class="nav-link {% if request.endpoint and request.endpoint.startswith('suppliers.') %}active{% endif %}">
+                    Suppliers
+                </a>
+                <a href="{{ url_for('customers.list_customers') }}" class="nav-link {% if request.endpoint and request.endpoint.startswith('customers.') %}active{% endif %}">
+                    Customers
+                </a>
+                <a href="{{ url_for('purchases.list_purchases') }}" class="nav-link {% if request.endpoint and request.endpoint.startswith('purchases.') %}active{% endif %}">
+                    Purchases
+                </a>
+                <a href="{{ url_for('invoices.list_invoices') }}" class="nav-link {% if request.endpoint and request.endpoint.startswith('invoices.') %}active{% endif %}">
+                    Invoices
+                </a>
+                <a href="{{ url_for('reports.monthly_sales') }}" class="nav-link {% if request.endpoint and request.endpoint.startswith('reports.') %}active{% endif %}">
+                    Reports
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <form method="POST" action="{{ url_for('auth.logout') }}" class="logout-form">
+                    <button type="submit" class="btn-logout">Logout</button>
+                </form>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div class="topbar">
+                <div class="company-name">Euroglass</div>
+                <div class="user-name">
+                    {{ current_user.username if current_user.is_authenticated else 'Guest' }}
+                </div>
+            </div>
+
+            <header class="page-header">
+                <h2>{% block page_title %}Dashboard{% endblock %}</h2>
+                <p>Overview of your hardware inventory</p>
+            </header>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="flash-messages">
+                        {% for category, message in messages %}
+                            <div class="flash flash-{{ category }}">{{ message }}</div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+    <script src="{{ url_for('static', filename='js/forms.js') }}"></script>
+</body>
+</html>

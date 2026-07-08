@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/items_list.css') }}">
+{% endblock %}
+
+{% block title %}Items - Hardware Stock Management{% endblock %}
+{% block page_title %}Items{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="list-header">
+        <div class="search-bar">
+            <form method="GET" class="search-form">
+                <input type="text" name="search" placeholder="Search items..." value="{{ search }}">
+                <select name="category_id">
+                    <option value="">All categories</option>
+                    {% for category in categories %}
+                    <option value="{{ category[0] }}" {% if category_id|string == category[0]|string %}selected{% endif %}>
+                        {{ category[1] }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-primary">Search</button>
+            </form>
+        </div>
+        <a href="{{ url_for('items.create_item') }}" class="btn btn-success">+ New Item</a>
+    </div>
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Item Name</th>
+                <th>Category</th>
+                <th>Purchase Rate</th>
+                <th>Sale Rate</th>
+                <th>Qty</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td>{{ item.ItemID }}</td>
+                <td>{{ item.ItemName }}</td>
+                <td>{{ item.CategoryName or 'N/A' }}</td>
+                <td>{{ item.PurchaseRate }}</td>
+                <td>{{ item.SaleRate }}</td>
+                <td>{{ item.Qty }}</td>
+                <td>
+                    <a href="{{ url_for('items.edit_item', id=item.ItemID) }}" class="btn btn-sm btn-info">Edit</a>
+                    <form method="POST" action="{{ url_for('items.delete_item', id=item.ItemID) }}" style="display:inline;">
+                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this item?')">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

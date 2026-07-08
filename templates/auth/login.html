@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Hardware Stock Management</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/forms.css') }}">
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .login-container {
+            width: 100%;
+            max-width: 400px;
+            padding: 2rem;
+        }
+        .login-card {
+            background-color: var(--accent-blue);
+            border: 2px solid var(--line-color);
+            padding: 2.5rem;
+            border-radius: 2px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+        }
+        .login-header {
+            text-align: center;
+            margin-bottom: 2rem;
+            border-bottom: 2px solid var(--line-color);
+            padding-bottom: 1.5rem;
+        }
+        .login-header h1 {
+            font-size: 2rem;
+            letter-spacing: 2px;
+            margin: 0 0 0.5rem 0;
+        }
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 0.75rem;
+            background-color: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--line-color);
+            color: var(--text-primary);
+            border-radius: 2px;
+            font-family: 'Courier New', monospace;
+            transition: all 0.3s ease;
+        }
+        .form-group input:focus {
+            background-color: rgba(255, 255, 255, 0.08);
+            border-color: var(--info);
+            outline: none;
+            box-shadow: 0 0 10px rgba(33, 150, 243, 0.2);
+        }
+        .btn-login {
+            width: 100%;
+            padding: 0.75rem;
+            background-color: var(--info);
+            color: white;
+            border: none;
+            border-radius: 2px;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 0.5px;
+            transition: all 0.3s ease;
+            font-size: 1rem;
+        }
+        .btn-login:hover {
+            background-color: #1976D2;
+            box-shadow: 0 4px 15px rgba(33, 150, 243, 0.4);
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <h1>STOCK</h1>
+                <p>Hardware Stock Management System</p>
+            </div>
+            
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+            
+            <form method="POST" data-validate novalidate>
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username"
+                           value="{{ form_data.username if form_data else '' }}"
+                           minlength="3" maxlength="50" pattern="[A-Za-z0-9_]+" required autofocus
+                           class="{% if errors and errors.get('username') %}is-invalid{% endif %}">
+                    {% if errors and errors.get('username') %}
+                        <span class="field-error">{{ errors.username }}</span>
+                    {% endif %}
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" minlength="6" required
+                           class="{% if errors and errors.get('password') %}is-invalid{% endif %}">
+                    {% if errors and errors.get('password') %}
+                        <span class="field-error">{{ errors.password }}</span>
+                    {% endif %}
+                </div>
+
+                <button type="submit" class="btn-login">LOGIN</button>
+            </form>
+            
+            <div class="login-footer" style="text-align: center; margin-top: 1.5rem;">
+                <p>Don't have an account? <a href="{{ url_for('auth.register') }}">Register here</a></p>
+            </div>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/forms.js') }}"></script>
+</body>
+</html>

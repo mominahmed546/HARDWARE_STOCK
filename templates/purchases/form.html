@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% from 'macros/form.html' import field_error %}
+
+{% block title %}Create Purchase - Hardware Stock Management{% endblock %}
+{% block page_title %}Create Purchase{% endblock %}
+
+{% block content %}
+{% set fd = form_data or {} %}
+<div class="container">
+    <div class="upload-panel">
+        <div class="upload-panel-header">
+            <h3>Import Items from Excel</h3>
+            <a href="{{ url_for('items.download_items_template') }}" class="btn btn-secondary btn-sm">Download Template</a>
+        </div>
+        <p class="upload-help">
+            Upload a <strong>.xlsx</strong> file with columns:
+            <code>ItemName</code>, <code>Category</code>, <code>SupplierName</code>, <code>PurchaseRate</code>, <code>SaleRate</code>, <code>Qty</code>
+        </p>
+        <form method="POST" action="{{ url_for('items.upload_items') }}" enctype="multipart/form-data" class="upload-form">
+            <input type="hidden" name="redirect_to" value="purchases.create_purchase">
+            <input type="file" name="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+            <button type="submit" class="btn btn-primary">Upload Excel</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <form method="POST" class="form" data-validate novalidate>
+            <div class="form-group">
+                <label for="purchase_date">Purchase Date</label>
+                <input type="date" id="purchase_date" name="purchase_date"
+                       value="{{ fd.get('purchase_date', '') }}" required
+                       class="{% if errors and errors.get('purchase_date') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'purchase_date') }}
+            </div>
+
+            <div class="form-group">
+                <label for="supplier_id">Supplier</label>
+                <select id="supplier_id" name="supplier_id" required
+                        class="{% if errors and errors.get('supplier_id') %}is-invalid{% endif %}">
+                    <option value="">Select supplier</option>
+                    {% for supplier in suppliers %}
+                    <option value="{{ supplier[0] }}"
+                        {% if fd.get('supplier_id')|string == supplier[0]|string %}selected{% endif %}>
+                        {{ supplier[1] }}
+                    </option>
+                    {% endfor %}
+                </select>
+                {{ field_error(errors, 'supplier_id') }}
+            </div>
+
+            <div class="form-group">
+                <label for="item_mode">Item Type</label>
+                <select id="item_mode" name="item_mode"
+                        class="{% if errors and errors.get('item_mode') %}is-invalid{% endif %}">
+                    <option value="existing" {% if fd.get('item_mode', 'existing') == 'existing' %}selected{% endif %}>
+                        Existing item
+                    </option>
+                    <option value="new" {% if fd.get('item_mode') == 'new' %}selected{% endif %}>
+                        New item
+                    </option>
+                </select>
+                {{ field_error(errors, 'item_mode') }}
+            </div>
+
+            <div class="form-group existing-item-field">
+                <label for="item_id">Existing Item</label>
+                <select id="item_id" name="item_id"
+                        class="{% if errors and errors.get('item_id') %}is-invalid{% endif %}">
+                    <option value="">Select item</option>
+                    {% for item in items %}
+                    <option value="{{ item.ItemID }}"
+                            data-purchase-rate="{{ item.PurchaseRate }}"
+                            data-sale-rate="{{ item.SaleRate }}"
+                            {% if fd.get('item_id')|string == item.ItemID|string %}selected{% endif %}>
+                        {{ item.ItemName }} - {{ item.CategoryName or 'N/A' }} (Current Qty: {{ item.Qty }})
+                    </option>
+                    {% endfor %}
+                </select>
+                {{ field_error(errors, 'item_id') }}
+            </div>
+
+            <div class="form-group new-item-field">
+                <label for="item_name">New Item Name</label>
+                <input type="text" id="item_name" name="item_name"
+                       value="{{ fd.get('item_name', '') }}"
+                       maxlength="100" minlength="1"
+                       class="{% if errors and errors.get('item_name') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'item_name') }}
+            </div>
+
+            <div class="form-group new-item-field">
+                <label for="category_id">Category</label>
+                <select id="category_id" name="category_id"
+                        class="{% if errors and errors.get('category_id') %}is-invalid{% endif %}">
+                    <option value="">Select category</option>
+                    {% for category in categories %}
+                    <option value="{{ category.CategoryID }}"
+                            {% if fd.get('category_id')|string == category.CategoryID|string %}selected{% endif %}>
+                        {{ category.CategoryName }}
+                    </option>
+                    {% endfor %}
+                </select>
+                {{ field_error(errors, 'category_id') }}
+            </div>
+
+            <div class="form-group">
+                <label for="quantity">Quantity</label>
+                <input type="number" id="quantity" name="quantity" min="1" step="1"
+                       value="{{ fd.get('quantity', '1') }}" required
+                       class="{% if errors and errors.get('quantity') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'quantity') }}
+            </div>
+
+            <div class="form-group">
+                <label for="purchase_rate">Purchase Rate</label>
+                <input type="number" step="0.01" id="purchase_rate" name="purchase_rate" min="0"
+                       value="{{ fd.get('purchase_rate', '0') }}" required
+                       class="{% if errors and errors.get('purchase_rate') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'purchase_rate') }}
+            </div>
+
+            <div class="form-group">
+                <label for="sale_rate">Sale Rate</label>
+                <input type="number" step="0.01" id="sale_rate" name="sale_rate" min="0"
+                       value="{{ fd.get('sale_rate', '0') }}" required
+                       class="{% if errors and errors.get('sale_rate') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'sale_rate') }}
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Save Purchase</button>
+                <a href="{{ url_for('purchases.list_purchases') }}" class="btn btn-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+    const itemMode = document.getElementById('item_mode');
+    const existingItemField = document.querySelector('.existing-item-field');
+    const newItemFields = document.querySelectorAll('.new-item-field');
+    const itemSelect = document.getElementById('item_id');
+    const itemName = document.getElementById('item_name');
+    const categorySelect = document.getElementById('category_id');
+    const purchaseRate = document.getElementById('purchase_rate');
+    const saleRate = document.getElementById('sale_rate');
+
+    function syncItemMode() {
+        const isExisting = itemMode.value === 'existing';
+
+        existingItemField.style.display = isExisting ? 'block' : 'none';
+        newItemFields.forEach(function (field) {
+            field.style.display = isExisting ? 'none' : 'block';
+        });
+
+        itemSelect.required = isExisting;
+        itemSelect.disabled = !isExisting;
+        itemName.required = !isExisting;
+        itemName.disabled = isExisting;
+        categorySelect.required = !isExisting;
+        categorySelect.disabled = isExisting;
+    }
+
+    function fillRatesFromExistingItem() {
+        const selected = itemSelect.options[itemSelect.selectedIndex];
+        if (!selected) {
+            return;
+        }
+
+        const existingPurchaseRate = selected.getAttribute('data-purchase-rate');
+        const existingSaleRate = selected.getAttribute('data-sale-rate');
+
+        if (existingPurchaseRate) {
+            purchaseRate.value = existingPurchaseRate;
+        }
+
+        if (existingSaleRate) {
+            saleRate.value = existingSaleRate;
+        }
+    }
+
+    itemMode.addEventListener('change', syncItemMode);
+    itemSelect.addEventListener('change', fillRatesFromExistingItem);
+    syncItemMode();
+</script>
+{% endblock %}

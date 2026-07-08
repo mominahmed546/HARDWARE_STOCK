@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% from 'macros/form.html' import field_error %}
+
+{% block title %}{% if customer %}Edit{% else %}Add{% endif %} Customer - Hardware Stock Management{% endblock %}
+{% block page_title %}{% if customer %}Edit{% else %}Add{% endif %} Customer{% endblock %}
+
+{% block content %}
+{% set fd = form_data or {} %}
+<div class="form-container">
+    <div class="form-card">
+        <h2>{% if customer %}Edit Customer{% else %}Add New Customer{% endif %}</h2>
+
+        <form method="POST" data-validate novalidate>
+            <div class="form-group">
+                <label for="customer_name">Customer Name</label>
+                <input type="text" id="customer_name" name="customer_name"
+                       value="{{ fd.get('customer_name', customer.CustomerName if customer else '') }}"
+                       maxlength="50" minlength="1" required placeholder="Enter customer name"
+                       class="{% if errors and errors.get('customer_name') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'customer_name') }}
+            </div>
+
+            <div class="form-group">
+                <label for="contact_no">Contact Number</label>
+                <input type="tel" id="contact_no" name="contact_no"
+                       value="{{ fd.get('contact_no', customer.ContactNo if customer else '') }}"
+                       maxlength="20" pattern="[0-9+\-\s()]{7,20}"
+                       placeholder="e.g. 0300-1234567"
+                       class="{% if errors and errors.get('contact_no') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'contact_no') }}
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Save Customer</button>
+                <a href="{{ url_for('customers.list_customers') }}" class="btn btn-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

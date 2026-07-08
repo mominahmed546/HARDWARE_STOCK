@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Customers - Hardware Stock Management{% endblock %}
+{% block page_title %}Customers{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="list-header">
+        <div class="search-bar">
+            <form method="GET" class="search-form">
+                <input type="text" name="search" placeholder="Search customers..." value="{{ search }}">
+                <button type="submit" class="btn btn-primary">Search</button>
+            </form>
+        </div>
+        <a href="{{ url_for('customers.create_customer') }}" class="btn btn-success">+ New Customer</a>
+    </div>
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Customer Name</th>
+                <th>Contact No</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for customer in customers %}
+            <tr>
+                <td>{{ customer.CustomerID }}</td>
+                <td>{{ customer.CustomerName }}</td>
+                <td>{{ customer.ContactNo or 'N/A' }}</td>
+                <td>
+                    <a href="{{ url_for('customers.edit_customer', id=customer.CustomerID) }}" class="btn btn-sm btn-info">Edit</a>
+                    <form method="POST" action="{{ url_for('customers.delete_customer', id=customer.CustomerID) }}" style="display:inline;">
+                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this customer?')">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="4">No customers found.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

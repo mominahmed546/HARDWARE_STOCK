@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Invoices - Hardware Stock Management{% endblock %}
+{% block page_title %}Invoices{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="list-header">
+        <div class="search-bar">
+            <form method="GET" class="search-form">
+                <input type="text" name="search" placeholder="Search invoice or customer..." value="{{ search }}">
+                <button type="submit" class="btn btn-primary">Search</button>
+            </form>
+        </div>
+        <a href="{{ url_for('invoices.create_invoice') }}" class="btn btn-success">+ New Invoice</a>
+    </div>
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Date</th>
+                <th>Customer</th>
+                <th>Total Amount</th>
+                <th>Profit</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for invoice in invoices %}
+            <tr>
+                <td>{{ invoice.InvoiceID }}</td>
+                <td>{{ invoice.InvoiceDate|date_dmy }}</td>
+                <td>{{ invoice.CustomerName }}</td>
+                <td>Rs {{ "{:,.2f}".format(invoice.TotalAmount|default(0)) }}</td>
+                <td>Rs {{ "{:,.2f}".format(invoice.Profit|default(0)) }}</td>
+                <td>
+                    <a href="{{ url_for('invoices.invoice_pdf', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">Download PDF</a>
+                    <form method="POST" action="{{ url_for('invoices.delete_invoice', id=invoice.InvoiceID) }}" style="display:inline;">
+                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this invoice? Stock quantities will be restored.')">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="6">No invoices found.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

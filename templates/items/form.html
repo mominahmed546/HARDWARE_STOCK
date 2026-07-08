@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% from 'macros/form.html' import field_error %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/items.css') }}">
+{% endblock %}
+
+{% block title %}{% if item %}Edit{% else %}Create{% endif %} Item - Hardware Stock Management{% endblock %}
+{% block page_title %}{% if item %}Edit{% else %}Create{% endif %} Item{% endblock %}
+
+{% block content %}
+{% set fd = form_data or {} %}
+<div class="container">
+    <div class="card">
+        <form method="POST" class="form" data-validate novalidate>
+            <div class="form-group">
+                <label for="item_name">Item Name</label>
+                <input type="text" id="item_name" name="item_name"
+                       value="{{ fd.get('item_name', item.ItemName if item else '') }}"
+                       maxlength="100" minlength="1" required
+                       class="{% if errors and errors.get('item_name') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'item_name') }}
+            </div>
+
+            <div class="form-group">
+                <label for="category_id">Category</label>
+                <select id="category_id" name="category_id"
+                        class="{% if errors and errors.get('category_id') %}is-invalid{% endif %}">
+                    <option value="">Select category</option>
+                    {% for category in categories %}
+                    <option value="{{ category[0] }}"
+                        {% if fd.get('category_id', item.CategoryID if item else '')|string == category[0]|string %}selected{% endif %}>
+                        {{ category[1] }}
+                    </option>
+                    {% endfor %}
+                </select>
+                {{ field_error(errors, 'category_id') }}
+            </div>
+
+            <div class="form-group">
+                <label for="purchase_rate">Purchase Rate</label>
+                <input type="number" step="0.01" min="0" id="purchase_rate" name="purchase_rate"
+                       value="{{ fd.get('purchase_rate', item.PurchaseRate if item else '0') }}" required
+                       class="{% if errors and errors.get('purchase_rate') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'purchase_rate') }}
+            </div>
+
+            <div class="form-group">
+                <label for="sale_rate">Sale Rate</label>
+                <input type="number" step="0.01" min="0" id="sale_rate" name="sale_rate"
+                       value="{{ fd.get('sale_rate', item.SaleRate if item else '0') }}" required
+                       class="{% if errors and errors.get('sale_rate') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'sale_rate') }}
+            </div>
+
+            <div class="form-group">
+                <label for="qty">Quantity</label>
+                <input type="number" min="0" id="qty" name="qty"
+                       value="{{ fd.get('qty', item.Qty if item else '0') }}" required
+                       class="{% if errors and errors.get('qty') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'qty') }}
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">{% if item %}Update{% else %}Create{% endif %}</button>
+                <a href="{{ url_for('items.list_items') }}" class="btn btn-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

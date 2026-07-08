@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Categories - Hardware Stock Management{% endblock %}
+{% block page_title %}Categories{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="list-header">
+        <div class="search-bar">
+            <form method="GET" class="search-form">
+                <input type="text" name="search" placeholder="Search categories..." value="{{ search }}">
+                <button type="submit" class="btn btn-primary">Search</button>
+            </form>
+        </div>
+        <a href="{{ url_for('categories.create_category') }}" class="btn btn-success">+ New Category</a>
+    </div>
+    
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Category Name</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for category in categories %}
+            <tr>
+                <td>{{ category[0] }}</td>
+                <td>{{ category[1] }}</td>
+                <td>
+                    <a href="{{ url_for('categories.edit_category', id=category[0]) }}" class="btn btn-sm btn-info">Edit</a>
+                    <form method="POST" action="{{ url_for('categories.delete_category', id=category[0]) }}" style="display:inline;">
+                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this category?')">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

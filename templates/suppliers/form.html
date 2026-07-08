@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% from 'macros/form.html' import field_error %}
+
+{% block title %}{% if supplier %}Edit{% else %}Add{% endif %} Supplier - Hardware Stock Management{% endblock %}
+{% block page_title %}{% if supplier %}Edit{% else %}Add{% endif %} Supplier{% endblock %}
+
+{% block content %}
+{% set fd = form_data or {} %}
+<div class="container">
+    <div class="form-card">
+        <h2>{% if supplier %}Edit Supplier{% else %}Add Supplier{% endif %}</h2>
+
+        <form method="POST" data-validate novalidate>
+            <div class="form-group">
+                <label for="supplier_name">Supplier Name</label>
+                <input type="text" id="supplier_name" name="supplier_name"
+                       value="{{ fd.get('supplier_name', supplier.SupplierName if supplier else '') }}"
+                       maxlength="60" minlength="1" required placeholder="Enter supplier name"
+                       class="{% if errors and errors.get('supplier_name') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'supplier_name') }}
+            </div>
+
+            <div class="form-group">
+                <label for="contact_no">Contact Number</label>
+                <input type="tel" id="contact_no" name="contact_no"
+                       value="{{ fd.get('contact_no', supplier.ContactNo if supplier else '') }}"
+                       maxlength="20" pattern="[0-9+\-\s()]{7,20}"
+                       placeholder="e.g. 0300-1234567"
+                       class="{% if errors and errors.get('contact_no') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'contact_no') }}
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Save</button>
+                <a href="{{ url_for('suppliers.list_suppliers') }}" class="btn btn-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

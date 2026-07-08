@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from 'macros/form.html' import field_error %}
+
+{% block title %}Register - Hardware Stock Management{% endblock %}
+{% block page_title %}Register New Account{% endblock %}
+
+{% block content %}
+{% set fd = form_data or {} %}
+<div class="container">
+    <div class="card">
+        <h2>Create New Account</h2>
+
+        <form method="POST" class="form" data-validate novalidate>
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username"
+                       value="{{ fd.get('username', '') }}"
+                       minlength="3" maxlength="50" pattern="[A-Za-z0-9_]+" required
+                       class="{% if errors and errors.get('username') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'username') }}
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password"
+                       minlength="6" required
+                       class="{% if errors and errors.get('password') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'password') }}
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Register</button>
+                <a href="{{ url_for('auth.login') }}" class="btn btn-secondary">Back to Login</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

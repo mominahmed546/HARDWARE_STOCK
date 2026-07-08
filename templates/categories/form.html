@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from 'macros/form.html' import field_error %}
+
+{% block title %}{% if category %}Edit{% else %}Create{% endif %} Category - Hardware Stock Management{% endblock %}
+{% block page_title %}{% if category %}Edit{% else %}Create{% endif %} Category{% endblock %}
+
+{% block content %}
+{% set fd = form_data or {} %}
+<div class="container">
+    <div class="card">
+        <form method="POST" class="form" data-validate novalidate>
+            <div class="form-group">
+                <label for="category_name">Category Name</label>
+                <input type="text" id="category_name" name="category_name"
+                       value="{{ fd.get('category_name', category[1] if category else '') }}"
+                       maxlength="50" minlength="1" required
+                       class="{% if errors and errors.get('category_name') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'category_name') }}
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">{% if category %}Update{% else %}Create{% endif %}</button>
+                <a href="{{ url_for('categories.list_categories') }}" class="btn btn-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
