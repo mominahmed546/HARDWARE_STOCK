@@ -3,7 +3,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required
 
 from app import app
-from app.db import execute_query, execute_query_one, execute_update
+from app.db import execute_query, execute_query_one, execute_update, get_db_connection
 from app.items.import_utils import build_items_template_xlsx, import_items, parse_items_xlsx
 from app.validators import (
     ValidationErrors,
@@ -161,13 +161,17 @@ def create_item():
             )
 
         try:
-            execute_update(
-                app,
+            db = get_db_connection(app)
+            cursor = db.cursor()
+            cursor.execute("SELECT COALESCE(MAX(ItemID), 0) + 1 AS NextID FROM Item")
+            next_id = int(cursor.fetchone()[0])
+            cursor.execute(
                 """
-                INSERT INTO Item (ItemName, CategoryID, PurchaseRate, SaleRate, Qty)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO Item (ItemID, ItemName, CategoryID, PurchaseRate, SaleRate, Qty)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    next_id,
                     data["item_name"],
                     data["category_id"],
                     data["purchase_rate"],
@@ -175,6 +179,8 @@ def create_item():
                     data["qty"],
                 ),
             )
+            db.commit()
+            cursor.close()
 
             flash("Item created successfully", "success")
             return redirect(url_for("items.list_items"))

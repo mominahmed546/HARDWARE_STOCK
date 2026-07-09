@@ -218,13 +218,15 @@ def import_items(app, items):
                 )
                 updated += 1
             else:
+                cursor.execute("SELECT COALESCE(MAX(ItemID), 0) + 1 AS NextID FROM Item")
+                next_item_id = int(cursor.fetchone()[0])
                 cursor.execute(
                     """
-                    INSERT INTO Item (ItemName, CategoryID, PurchaseRate, SaleRate, Qty)
-                    OUTPUT INSERTED.ItemID
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO Item (ItemID, ItemName, CategoryID, PurchaseRate, SaleRate, Qty)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (
+                        next_item_id,
                         item["item_name"],
                         category.CategoryID,
                         item["purchase_rate"],
@@ -232,7 +234,7 @@ def import_items(app, items):
                         item["qty"],
                     ),
                 )
-                item_id = int(cursor.fetchone()[0])
+                item_id = next_item_id
                 inserted += 1
 
             total = item["qty"] * item["purchase_rate"]
