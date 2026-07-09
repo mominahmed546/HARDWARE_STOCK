@@ -190,12 +190,38 @@ def _format_datetime_for_invoice(value):
     return value
 
 
+def _wrap_text(text_str, max_chars):
+    """Split text_str into lines of at most max_chars characters, breaking on spaces."""
+    words = text_str.split()
+    lines = []
+    current = ""
+    for word in words:
+        if not current:
+            current = word
+        elif len(current) + 1 + len(word) <= max_chars:
+            current += " " + word
+        else:
+            lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines if lines else [""]
+
+
 def _build_invoice_pdf(invoice, details):
     commands = []
     details = list(details)
 
     receipt_width = 310
-    receipt_height = max(520, 300 + (len(details) * 20))
+    line_h = 10
+    max_name_chars = 20
+
+    def _row_height(item_name):
+        wrapped = _wrap_text(item_name, max_name_chars)
+        return max(18, 6 + len(wrapped) * line_h)
+
+    extra_h = sum(_row_height(str(d.Particulars or "Item")) for d in details)
+    receipt_height = max(520, 260 + extra_h)
 
     def text(x, y, value, size=9, font="F1"):
         commands.append(f"BT /{font} {size} Tf {x} {y} Td ({_pdf_escape(value)}) Tj ET")
@@ -273,18 +299,24 @@ def _build_invoice_pdf(invoice, details):
     else:
         for detail in details:
             item_name = str(detail.Particulars or "Item")
-            if len(item_name) > 22:
-                item_name = item_name[:19] + "..."
+            name_lines = _wrap_text(item_name, max_name_chars)
+            dyn_row_h = max(18, 6 + len(name_lines) * line_h)
 
-            rect(table_x, y - row_h + 4, table_w, row_h)
-            line(col_product_right, y - row_h + 4, col_product_right, y + 4)
-            line(col_qty_right, y - row_h + 4, col_qty_right, y + 4)
-            line(col_rate_right, y - row_h + 4, col_rate_right, y + 4)
-            text(table_x + 4, y - 8, item_name, 8, "F1")
-            text_right(col_qty_right - 4, y - 8, str(detail.Qty), 8, "F1")
-            text_right(col_rate_right - 4, y - 8, money(detail.Rate), 8, "F1")
-            text_right(col_total_right - 4, y - 8, money(detail.TotalAmount), 8, "F1")
-            y -= row_h
+            rect(table_x, y - dyn_row_h + 4, table_w, dyn_row_h)
+            line(col_product_right, y - dyn_row_h + 4, col_product_right, y + 4)
+            line(col_qty_right, y - dyn_row_h + 4, col_qty_right, y + 4)
+            line(col_rate_right, y - dyn_row_h + 4, col_rate_right, y + 4)
+
+            text_y = y - 8
+            for name_line in name_lines:
+                text(table_x + 4, text_y, name_line, 8, "F1")
+                text_y -= line_h
+
+            mid_y = y - (dyn_row_h / 2) + 2
+            text_right(col_qty_right - 4, mid_y, str(detail.Qty), 8, "F1")
+            text_right(col_rate_right - 4, mid_y, money(detail.Rate), 8, "F1")
+            text_right(col_total_right - 4, mid_y, money(detail.TotalAmount), 8, "F1")
+            y -= dyn_row_h
 
     y -= 12
     items_count = len(details)
