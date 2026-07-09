@@ -9,6 +9,9 @@
     .profit-positive { color: #2e7d32; font-weight: 600; }
     .profit-negative { color: #c62828; font-weight: 600; }
     .profit-zero     { color: #888; }
+    .chart-panel { background: #fff; border-radius: 8px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    .chart-panel h2 { margin: 0 0 18px; font-size: 1rem; color: #444; }
+    .chart-wrap { position: relative; height: 300px; }
 </style>
 {% endblock %}
 
@@ -51,6 +54,14 @@
                     N/A
                 {% endif %}
             </div>
+        </div>
+    </div>
+
+    <!-- Chart -->
+    <div class="chart-panel">
+        <h2>Revenue vs Cost vs Profit — {{ selected_year }}</h2>
+        <div class="chart-wrap">
+            <canvas id="profitChart"></canvas>
         </div>
     </div>
 
@@ -97,4 +108,65 @@
         </table>
     </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+    const labels   = {{ monthly_rows | map(attribute='month_name') | list | tojson }};
+    const revenue  = {{ monthly_rows | map(attribute='revenue')    | list | tojson }};
+    const cost     = {{ monthly_rows | map(attribute='cost')       | list | tojson }};
+    const profit   = {{ monthly_rows | map(attribute='profit')     | list | tojson }};
+
+    new Chart(document.getElementById('profitChart'), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Revenue',
+                    data: revenue,
+                    backgroundColor: 'rgba(30, 136, 229, 0.75)',
+                    borderColor: 'rgba(21, 101, 192, 1)',
+                    borderWidth: 1,
+                    borderRadius: 4,
+                },
+                {
+                    label: 'Cost',
+                    data: cost,
+                    backgroundColor: 'rgba(239, 83, 80, 0.75)',
+                    borderColor: 'rgba(198, 40, 40, 1)',
+                    borderWidth: 1,
+                    borderRadius: 4,
+                },
+                {
+                    label: 'Profit',
+                    data: profit,
+                    backgroundColor: 'rgba(46, 125, 50, 0.75)',
+                    borderColor: 'rgba(27, 94, 32, 1)',
+                    borderWidth: 1,
+                    borderRadius: 4,
+                },
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'top' },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => ' Rs ' + ctx.parsed.y.toLocaleString('en-PK', {minimumFractionDigits: 2})
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: val => 'Rs ' + val.toLocaleString('en-PK')
+                    }
+                }
+            }
+        }
+    });
+</script>
 {% endblock %}
