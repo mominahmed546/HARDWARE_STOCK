@@ -150,9 +150,19 @@ def _validate_invoice_lines(form, cursor, errors):
 def _load_invoice_form_data(cursor):
     cursor.execute(
         """
-        SELECT CustomerID, CustomerName, COALESCE(PreviousBalance, 0) AS PreviousBalance
-        FROM Customers
-        ORDER BY CustomerName
+        SELECT
+            c.CustomerID,
+            c.CustomerName,
+            COALESCE(c.PreviousBalance, 0)
+                + COALESCE(unpaid.UnpaidTotal, 0) AS PreviousBalance
+        FROM Customers c
+        LEFT JOIN (
+            SELECT CustomerID, SUM(TotalAmount) AS UnpaidTotal
+            FROM Invoices
+            WHERE COALESCE(PaymentStatus, 'Unpaid') = 'Unpaid'
+            GROUP BY CustomerID
+        ) unpaid ON unpaid.CustomerID = c.CustomerID
+        ORDER BY c.CustomerName
         """
     )
     customers = cursor.fetchall()
