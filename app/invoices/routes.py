@@ -228,12 +228,8 @@ def _build_invoice_pdf(invoice, details):
     previous_balance = float(getattr(invoice, "PreviousBalance", 0) or 0)
 
     text_center(receipt_width / 2, y, "EUROGLASS HARDWARE", 14, "F2")
-    y -= 11
-    text_center(receipt_width / 2, y, "Opp Shell Pump, High Court Rd, Rwp", 8, "F1")
-    y -= 10
-    text_center(receipt_width / 2, y, "Ph: 0300-0000000", 8, "F1")
-    y -= 10
-    text_center(receipt_width / 2, y, "NTN #: _________  Since: _________", 8, "F1")
+    y -= 12
+    text_center(receipt_width / 2, y, "Ph: 0300-5411417", 8, "F1")
     y -= 10
     line(x_left, y, x_right, y)
     y -= 12
@@ -253,9 +249,9 @@ def _build_invoice_pdf(invoice, details):
 
     table_x = x_left
     table_w = x_right - x_left
-    col_product_right = table_x + 170
-    col_qty_right = col_product_right + 36
-    col_rate_right = col_qty_right + 52
+    col_product_right = table_x + 130
+    col_qty_right = col_product_right + 30
+    col_rate_right = col_qty_right + 62
     col_total_right = table_x + table_w
 
     header_y = y
@@ -277,8 +273,8 @@ def _build_invoice_pdf(invoice, details):
     else:
         for detail in details:
             item_name = str(detail.Particulars or "Item")
-            if len(item_name) > 30:
-                item_name = item_name[:27] + "..."
+            if len(item_name) > 22:
+                item_name = item_name[:19] + "..."
 
             rect(table_x, y - row_h + 4, table_w, row_h)
             line(col_product_right, y - row_h + 4, col_product_right, y + 4)
