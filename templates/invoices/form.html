@@ -174,16 +174,14 @@
         const selected = customerSelect.options[customerSelect.selectedIndex];
         if (!selected) {
             currentBalanceHint.textContent = 'Current saved balance: Rs 0.00';
+            previousBalanceInput.value = '0';
             return;
         }
 
         const parsed = parseFloat(selected.getAttribute('data-previous-balance') || '0');
         const balance = Number.isFinite(parsed) ? parsed : 0;
         currentBalanceHint.textContent = 'Current saved balance: ' + formatMoney(balance);
-
-        if (!previousBalanceInput.value) {
-            previousBalanceInput.value = balance.toFixed(2);
-        }
+        previousBalanceInput.value = balance.toFixed(2);
     }
 
     addInvoiceItem.addEventListener('click', function () {
