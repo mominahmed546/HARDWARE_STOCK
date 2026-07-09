@@ -70,7 +70,25 @@ def dashboard():
 
 
 
-        cursor.execute("SELECT COUNT(*) FROM Item")
+        cursor.execute(
+
+            """
+
+            SELECT COUNT(*) AS ItemCount
+
+            FROM (
+
+                SELECT LOWER(LTRIM(RTRIM(ItemName))) AS ItemKey, CategoryID
+
+                FROM Item
+
+                GROUP BY LOWER(LTRIM(RTRIM(ItemName))), CategoryID
+
+            ) grouped_items
+
+            """
+
+        )
 
         total_items = cursor.fetchone()[0] or 0
 
