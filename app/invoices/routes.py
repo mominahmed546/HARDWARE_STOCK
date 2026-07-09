@@ -21,6 +21,23 @@ def _ensure_previous_balance_column(db, cursor):
     db.commit()
 
 
+def _ensure_invoice_payment_status_column(db, cursor):
+    cursor.execute(
+        """
+        ALTER TABLE Invoices
+        ADD COLUMN IF NOT EXISTS PaymentStatus VARCHAR(20) DEFAULT 'Unpaid'
+        """
+    )
+    cursor.execute(
+        """
+        UPDATE Invoices
+        SET PaymentStatus = 'Unpaid'
+        WHERE PaymentStatus IS NULL OR BTRIM(PaymentStatus) = ''
+        """
+    )
+    db.commit()
+
+
 def _validate_invoice_header(form, errors):
     return {
         "invoice_date": clean_date(form.get("invoice_date"), "invoice_date", errors, label="Invoice date"),
@@ -302,6 +319,7 @@ def create_invoice():
 
     try:
         _ensure_previous_balance_column(db, cursor)
+        _ensure_invoice_payment_status_column(db, cursor)
         customers, items = _load_invoice_form_data(cursor)
 
         if request.method == "POST":
@@ -365,11 +383,11 @@ def create_invoice():
 
             cursor.execute(
                 """
-                INSERT INTO Invoices (CustomerID, [Date], TotalAmount)
+                INSERT INTO Invoices (CustomerID, [Date], TotalAmount, PaymentStatus)
                 OUTPUT INSERTED.InvoiceID
-                VALUES (?, ?, ?)
+                VALUES (?, ?, ?, ?)
                 """,
-                (data["customer_id"], data["invoice_date"], total),
+                (data["customer_id"], data["invoice_date"], total, "Unpaid"),
             )
             invoice_id = int(cursor.fetchone()[0])
 
@@ -427,6 +445,7 @@ def list_invoices():
     cursor = db.cursor()
 
     try:
+        _ensure_invoice_payment_status_column(db, cursor)
         search = request.args.get("search", "")
 
         query = """
@@ -434,6 +453,7 @@ def list_invoices():
                 i.InvoiceID,
                 i.[Date] AS InvoiceDate,
                 i.TotalAmount,
+                COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus,
                 c.CustomerName,
                 ISNULL(SUM((d.Rate - ISNULL(it.PurchaseRate, 0)) * d.Qty), 0) AS Profit
             FROM Invoices i
@@ -449,7 +469,7 @@ def list_invoices():
             params.extend([f"%{search}%", f"%{search}%"])
 
         query += """
-            GROUP BY i.InvoiceID, i.[Date], i.TotalAmount, c.CustomerName
+            GROUP BY i.InvoiceID, i.[Date], i.TotalAmount, i.PaymentStatus, c.CustomerName
             ORDER BY i.InvoiceID DESC
         """
 

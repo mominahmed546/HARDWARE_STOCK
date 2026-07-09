@@ -23,6 +23,7 @@
                 <th>Customer</th>
                 <th>Total Amount</th>
                 <th>Profit</th>
+                <th>Payment Status</th>
                 <th>Actions</th>
             </tr>
         </thead>
@@ -34,6 +35,7 @@
                 <td>{{ invoice.CustomerName }}</td>
                 <td>Rs {{ "{:,.2f}".format(invoice.TotalAmount|default(0)) }}</td>
                 <td>Rs {{ "{:,.2f}".format(invoice.Profit|default(0)) }}</td>
+                <td>{{ invoice.PaymentStatus or 'Unpaid' }}</td>
                 <td>
                     <a href="{{ url_for('invoices.invoice_pdf', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">Download PDF</a>
                     <form method="POST" action="{{ url_for('invoices.delete_invoice', id=invoice.InvoiceID) }}" style="display:inline;">
@@ -43,7 +45,7 @@
             </tr>
             {% else %}
             <tr>
-                <td colspan="6">No invoices found.</td>
+                <td colspan="7">No invoices found.</td>
             </tr>
             {% endfor %}
         </tbody>

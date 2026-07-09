@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS invoices (
     invoice_id SERIAL PRIMARY KEY,
     customer_id INTEGER NOT NULL REFERENCES customers(customer_id),
     date DATE NOT NULL,
-    total_amount NUMERIC(12, 2) DEFAULT 0
+    total_amount NUMERIC(12, 2) DEFAULT 0,
+    payment_status VARCHAR(20) DEFAULT 'Unpaid'
 );
 
 CREATE TABLE IF NOT EXISTS invoice_details (
