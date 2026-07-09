@@ -496,9 +496,9 @@ def create_invoice():
                 """
                 INSERT INTO Invoices (CustomerID, [Date], TotalAmount, PaymentStatus, PreviousBalance)
                 OUTPUT INSERTED.InvoiceID
-                VALUES (?, NOW(), ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (data["customer_id"], total, "Unpaid", data["previous_balance"]),
+                (data["customer_id"], datetime.now(), total, "Unpaid", data["previous_balance"]),
             )
             invoice_id = int(cursor.fetchone()[0])
 
