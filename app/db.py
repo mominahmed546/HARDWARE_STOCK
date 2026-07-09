@@ -36,6 +36,7 @@ _COLUMN_REPLACEMENTS = {
     "SaleRate": "sale_rate",
     "InvoiceID": "invoice_id",
     "TotalAmount": "total_amount",
+    "PreviousBalance": "previous_balance",
     "DetailID": "detail_id",
     "StockHistory": "stock_history",
     "HistoryID": "history_id",

@@ -21,6 +21,7 @@
                 <th>ID</th>
                 <th>Customer Name</th>
                 <th>Contact No</th>
+                <th>Previous Balance</th>
                 <th>Actions</th>
             </tr>
         </thead>
@@ -30,6 +31,7 @@
                 <td>{{ customer.CustomerID }}</td>
                 <td>{{ customer.CustomerName }}</td>
                 <td>{{ customer.ContactNo or 'N/A' }}</td>
+                <td>Rs {{ "{:,.2f}".format(customer.PreviousBalance|default(0)) }}</td>
                 <td>
                     <a href="{{ url_for('customers.edit_customer', id=customer.CustomerID) }}" class="btn btn-sm btn-info">Edit</a>
                     <form method="POST" action="{{ url_for('customers.delete_customer', id=customer.CustomerID) }}" style="display:inline;">
@@ -39,7 +41,7 @@
             </tr>
             {% else %}
             <tr>
-                <td colspan="4">No customers found.</td>
+                <td colspan="5">No customers found.</td>
             </tr>
             {% endfor %}
         </tbody>

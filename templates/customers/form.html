@@ -30,6 +30,15 @@
                 {{ field_error(errors, 'contact_no') }}
             </div>
 
+            <div class="form-group">
+                <label for="previous_balance">Previous Balance</label>
+                <input type="number" id="previous_balance" name="previous_balance"
+                       value="{{ fd.get('previous_balance', customer.PreviousBalance if customer else '0') }}"
+                       min="0" step="0.01" placeholder="0.00"
+                       class="{% if errors and errors.get('previous_balance') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'previous_balance') }}
+            </div>
+
             <div class="form-actions">
                 <button type="submit" class="btn btn-primary">Save Customer</button>
                 <a href="{{ url_for('customers.list_customers') }}" class="btn btn-secondary">Cancel</a>

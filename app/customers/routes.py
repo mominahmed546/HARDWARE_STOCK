@@ -8,7 +8,7 @@ from app import app
 
 from app.db import get_db_connection
 
-from app.validators import ValidationErrors, clean_string, clean_phone
+from app.validators import ValidationErrors, clean_string, clean_phone, clean_positive_decimal
 
 
 
@@ -16,6 +16,16 @@ customers_bp = Blueprint('customers', __name__, url_prefix='/customers')
 
 
 
+
+
+def _ensure_previous_balance_column(db, cursor):
+    cursor.execute(
+        """
+        ALTER TABLE Customers
+        ADD COLUMN IF NOT EXISTS PreviousBalance NUMERIC(12, 2) DEFAULT 0
+        """
+    )
+    db.commit()
 
 
 def _validate_customer_form(form, errors):
@@ -48,13 +58,23 @@ def list_customers():
 
         cursor = db.cursor()
 
+        _ensure_previous_balance_column(db, cursor)
+
 
 
         search = request.args.get('search', '')
 
 
 
-        query = "SELECT * FROM Customers WHERE 1=1"
+        query = """
+            SELECT
+                CustomerID,
+                CustomerName,
+                ContactNo,
+                COALESCE(PreviousBalance, 0) AS PreviousBalance
+            FROM Customers
+            WHERE 1=1
+        """
 
         params = []
 
@@ -146,13 +166,37 @@ def create_customer():
 
             cursor = db.cursor()
 
+            _ensure_previous_balance_column(db, cursor)
+
+            previous_balance = clean_positive_decimal(
+                request.form.get("previous_balance"),
+                "previous_balance",
+                errors,
+                required=False,
+                min_val=0,
+                label="Previous balance",
+            )
+
+            if previous_balance is None:
+                previous_balance = 0
+
+            if not errors.valid:
+                flash(errors.first(), "danger")
+                cursor.close()
+                return render_template(
+                    "customers/form.html",
+                    customer=None,
+                    errors=errors.errors,
+                    form_data=form_data,
+                )
+
 
 
             cursor.execute(
 
-                "INSERT INTO Customers (CustomerName, ContactNo) VALUES (?, ?)",
+                "INSERT INTO Customers (CustomerName, ContactNo, PreviousBalance) VALUES (?, ?, ?)",
 
-                (data["customer_name"], data["contact_no"])
+                (data["customer_name"], data["contact_no"], previous_balance)
 
             )
 
@@ -210,6 +254,8 @@ def edit_customer(id):
 
         cursor = db.cursor()
 
+        _ensure_previous_balance_column(db, cursor)
+
 
 
         cursor.execute("SELECT * FROM Customers WHERE CustomerID = ?", (id,))
@@ -231,6 +277,18 @@ def edit_customer(id):
             form_data = request.form.to_dict()
 
             data = _validate_customer_form(request.form, errors)
+
+            previous_balance = clean_positive_decimal(
+                request.form.get("previous_balance"),
+                "previous_balance",
+                errors,
+                required=False,
+                min_val=0,
+                label="Previous balance",
+            )
+
+            if previous_balance is None:
+                previous_balance = 0
 
 
 
@@ -254,9 +312,9 @@ def edit_customer(id):
 
             cursor.execute(
 
-                "UPDATE Customers SET CustomerName = ?, ContactNo = ? WHERE CustomerID = ?",
+                "UPDATE Customers SET CustomerName = ?, ContactNo = ?, PreviousBalance = ? WHERE CustomerID = ?",
 
-                (data["customer_name"], data["contact_no"], id)
+                (data["customer_name"], data["contact_no"], previous_balance, id)
 
             )
 

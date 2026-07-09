@@ -11,6 +11,16 @@ from app.validators import ValidationErrors, clean_date, clean_positive_decimal,
 invoices_bp = Blueprint("invoices", __name__, url_prefix="/invoices")
 
 
+def _ensure_previous_balance_column(db, cursor):
+    cursor.execute(
+        """
+        ALTER TABLE Customers
+        ADD COLUMN IF NOT EXISTS PreviousBalance NUMERIC(12, 2) DEFAULT 0
+        """
+    )
+    db.commit()
+
+
 def _validate_invoice_header(form, errors):
     return {
         "invoice_date": clean_date(form.get("invoice_date"), "invoice_date", errors, label="Invoice date"),
@@ -102,7 +112,13 @@ def _validate_invoice_lines(form, cursor, errors):
 
 
 def _load_invoice_form_data(cursor):
-    cursor.execute("SELECT CustomerID, CustomerName FROM Customers ORDER BY CustomerName")
+    cursor.execute(
+        """
+        SELECT CustomerID, CustomerName, COALESCE(PreviousBalance, 0) AS PreviousBalance
+        FROM Customers
+        ORDER BY CustomerName
+        """
+    )
     customers = cursor.fetchall()
 
     cursor.execute(
@@ -285,11 +301,52 @@ def create_invoice():
     invoice_lines = _default_invoice_lines()
 
     try:
+        _ensure_previous_balance_column(db, cursor)
         customers, items = _load_invoice_form_data(cursor)
 
         if request.method == "POST":
             form_data = request.form.to_dict()
             invoice_lines = _invoice_lines_from_form(request.form)
+            action = request.form.get("action", "create_invoice")
+
+            if action == "save_previous_balance":
+                customer_id = clean_select_id(request.form.get("customer_id"), "customer_id", errors, label="Customer")
+                previous_balance = clean_positive_decimal(
+                    request.form.get("previous_balance"),
+                    "previous_balance",
+                    errors,
+                    min_val=0,
+                    label="Previous balance",
+                )
+
+                if not errors.valid:
+                    flash(errors.first(), "danger")
+                    return render_template(
+                        "invoices/form.html",
+                        customers=customers,
+                        items=items,
+                        errors=errors.errors,
+                        form_data=form_data,
+                        invoice_lines=invoice_lines,
+                    )
+
+                cursor.execute(
+                    "UPDATE Customers SET PreviousBalance = ? WHERE CustomerID = ?",
+                    (previous_balance, customer_id),
+                )
+                db.commit()
+                flash("Previous balance updated successfully.", "success")
+
+                customers, items = _load_invoice_form_data(cursor)
+                return render_template(
+                    "invoices/form.html",
+                    customers=customers,
+                    items=items,
+                    errors=errors.errors,
+                    form_data=form_data,
+                    invoice_lines=invoice_lines,
+                )
+
             data = _validate_invoice_header(request.form, errors)
             invoice_lines, valid_lines = _validate_invoice_lines(request.form, cursor, errors)
 

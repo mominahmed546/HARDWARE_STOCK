@@ -24,13 +24,26 @@
                         class="{% if errors and errors.get('customer_id') %}is-invalid{% endif %}">
                     <option value="">Select customer</option>
                     {% for customer in customers %}
-                    <option value="{{ customer.CustomerID }}"
+                    <option value="{{ customer.CustomerID }}" data-previous-balance="{{ customer.PreviousBalance|default(0) }}"
                         {% if fd.get('customer_id')|string == customer.CustomerID|string %}selected{% endif %}>
-                        {{ customer.CustomerName }}
+                        {{ customer.CustomerName }} (Prev: Rs {{ "{:,.2f}".format(customer.PreviousBalance|default(0)) }})
                     </option>
                     {% endfor %}
                 </select>
                 {{ field_error(errors, 'customer_id') }}
+            </div>
+
+            <div class="form-group">
+                <label for="previous_balance">Previous Balance</label>
+                <input type="number" id="previous_balance" name="previous_balance"
+                       value="{{ fd.get('previous_balance', '0') }}" min="0" step="0.01"
+                       class="{% if errors and errors.get('previous_balance') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'previous_balance') }}
+                <small id="current-balance-hint">Current saved balance: Rs 0.00</small>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" name="action" value="save_previous_balance" class="btn btn-secondary">Save Previous Balance</button>
             </div>
 
             <h3>Invoice Items</h3>
@@ -88,7 +101,7 @@
             </div>
 
             <div class="form-actions">
-                <button type="submit" class="btn btn-primary">Create PDF Invoice</button>
+                <button type="submit" name="action" value="create_invoice" class="btn btn-primary">Create PDF Invoice</button>
                 <a href="{{ url_for('invoices.list_invoices') }}" class="btn btn-secondary">Cancel</a>
             </div>
         </form>
@@ -100,6 +113,9 @@
     const invoiceItemsBody = invoiceItemsTable.querySelector('tbody');
     const addInvoiceItem = document.getElementById('add-invoice-item');
     const grandTotal = document.getElementById('invoice-grand-total');
+    const customerSelect = document.getElementById('customer_id');
+    const previousBalanceInput = document.getElementById('previous_balance');
+    const currentBalanceHint = document.getElementById('current-balance-hint');
 
     function formatMoney(value) {
         return 'Rs ' + value.toFixed(2);
@@ -154,6 +170,22 @@
         });
     }
 
+    function syncCustomerBalance() {
+        const selected = customerSelect.options[customerSelect.selectedIndex];
+        if (!selected) {
+            currentBalanceHint.textContent = 'Current saved balance: Rs 0.00';
+            return;
+        }
+
+        const parsed = parseFloat(selected.getAttribute('data-previous-balance') || '0');
+        const balance = Number.isFinite(parsed) ? parsed : 0;
+        currentBalanceHint.textContent = 'Current saved balance: ' + formatMoney(balance);
+
+        if (!previousBalanceInput.value) {
+            previousBalanceInput.value = balance.toFixed(2);
+        }
+    }
+
     addInvoiceItem.addEventListener('click', function () {
         const row = invoiceItemsBody.querySelector('.invoice-item-row').cloneNode(true);
 
@@ -168,8 +200,17 @@
         updateTotals();
     });
 
+    customerSelect.addEventListener('change', function () {
+        const selected = customerSelect.options[customerSelect.selectedIndex];
+        const parsed = parseFloat(selected.getAttribute('data-previous-balance') || '0');
+        const balance = Number.isFinite(parsed) ? parsed : 0;
+        previousBalanceInput.value = balance.toFixed(2);
+        syncCustomerBalance();
+    });
+
     invoiceItemsBody.querySelectorAll('.invoice-item-row').forEach(bindRow);
     syncRemoveButtons();
     updateTotals();
+    syncCustomerBalance();
 </script>
 {% endblock %}

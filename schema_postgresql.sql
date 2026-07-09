@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS customers (
     customer_id SERIAL PRIMARY KEY,
     customer_name VARCHAR(100) NOT NULL,
-    contact_no VARCHAR(20)
+    contact_no VARCHAR(20),
+    previous_balance NUMERIC(12, 2) DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS supplier (
