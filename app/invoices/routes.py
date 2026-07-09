@@ -174,111 +174,88 @@ def _format_date_dmy(value):
 
 def _build_invoice_pdf(invoice, details):
     commands = []
+    details = list(details)
 
-    def set_color(values, operator):
-        return f"{values[0]} {values[1]} {values[2]} {operator}"
+    receipt_width = 226  # ~80mm thermal paper
+    receipt_height = max(430, 230 + (len(details) * 22))
 
-    def text(x, y, value, size=10, font="F1", text_color=(0, 0, 0)):
-        commands.append(set_color(text_color, "rg"))
+    def text(x, y, value, size=9, font="F1"):
         commands.append(f"BT /{font} {size} Tf {x} {y} Td ({_pdf_escape(value)}) Tj ET")
 
-    def line(x1, y1, x2, y2, width=1, stroke_color=(0, 0, 0)):
-        commands.append(set_color(stroke_color, "RG"))
-        commands.append(f"{width} w {x1} {y1} m {x2} {y2} l S")
-
-    def rect(x, y, width, height, fill_color=None, stroke_color=(0, 0, 0)):
-        if fill_color:
-            commands.append(set_color(fill_color, "rg"))
-            commands.append(f"{x} {y} {width} {height} re f")
-        commands.append(set_color(stroke_color, "RG"))
-        commands.append(f"{x} {y} {width} {height} re S")
+    def line(x1, y1, x2, y2):
+        commands.append(f"0.6 w {x1} {y1} m {x2} {y2} l S")
 
     def money(value):
-        return f"Rs {float(value or 0):,.2f}"
+        return f"{float(value or 0):,.2f}"
 
-    navy = (0.06, 0.09, 0.16)
-    blue = (0.15, 0.39, 0.92)
-    light = (0.95, 0.97, 1)
-    border = (0.78, 0.84, 0.9)
-    muted = (0.39, 0.45, 0.55)
+    x_left = 12
+    x_right = receipt_width - 12
+    y = receipt_height - 24
 
-    rect(40, 720, 532, 42, fill_color=navy, stroke_color=navy)
-    text(55, 746, "EUROGLASS", 22, "F2", (1, 1, 1))
-    text(55, 728, "Hardware Stock Management", 9, "F1", (0.85, 0.9, 1))
-    text(442, 742, "SALES INVOICE", 16, "F2", (1, 1, 1))
+    text(x_left, y, "EUROGLASS", 12, "F2")
+    y -= 14
+    text(x_left, y, "Hardware Stock Management", 8, "F1")
+    y -= 12
+    line(x_left, y, x_right, y)
+    y -= 12
 
-    rect(40, 640, 250, 55, fill_color=light, stroke_color=border)
-    text(55, 675, "Bill To", 10, "F2", blue)
-    text(55, 655, invoice.CustomerName, 12, "F2")
+    text(x_left, y, f"Invoice #: {invoice.InvoiceID}", 8, "F1")
+    y -= 11
+    text(x_left, y, f"Date: {_format_date_dmy(invoice.InvoiceDate)}", 8, "F1")
+    y -= 11
+    text(x_left, y, f"Customer: {invoice.CustomerName}", 8, "F1")
+    y -= 10
+    line(x_left, y, x_right, y)
+    y -= 12
 
-    rect(322, 640, 250, 55, fill_color=light, stroke_color=border)
-    text(337, 675, f"Invoice No: {invoice.InvoiceID}", 10, "F2")
-    text(337, 655, f"Date: {_format_date_dmy(invoice.InvoiceDate)}", 10, "F1")
+    text(x_left, y, "ITEM", 8, "F2")
+    text(x_right - 26, y, "TOTAL", 8, "F2")
+    y -= 8
+    line(x_left, y, x_right, y)
+    y -= 11
 
-    table_x = 40
-    table_y = 585
-    table_w = 532
-    row_h = 28
-    columns = [
-        ("#", 40),
-        ("Item", 215),
-        ("Qty", 60),
-        ("Rate", 100),
-        ("Total", 117),
-    ]
+    if not details:
+        text(x_left, y, "No items", 8, "F1")
+        y -= 12
+    else:
+        for detail in details:
+            item_name = str(detail.Particulars or "Item")
+            if len(item_name) > 30:
+                item_name = item_name[:27] + "..."
+            text(x_left, y, item_name, 8, "F1")
+            y -= 10
 
-    rect(table_x, table_y, table_w, row_h, fill_color=blue, stroke_color=blue)
-    current_x = table_x
-    for header, width in columns:
-        text(current_x + 8, table_y + 10, header, 10, "F2", (1, 1, 1))
-        current_x += width
+            qty_rate_text = f"{detail.Qty} x Rs {money(detail.Rate)}"
+            line_total_text = f"Rs {money(detail.TotalAmount)}"
+            text(x_left + 4, y, qty_rate_text, 8, "F1")
+            text(x_right - (6 * len(line_total_text)), y, line_total_text, 8, "F1")
+            y -= 13
 
-    y = table_y - row_h
-    shown_details = list(details)[:12]
+    line(x_left, y, x_right, y)
+    y -= 14
+    text(x_left, y, "Grand Total", 10, "F2")
+    total_text = f"Rs {money(invoice.TotalAmount)}"
+    text(x_right - (6.2 * len(total_text)), y, total_text, 10, "F2")
+    y -= 16
 
-    for index, detail in enumerate(shown_details, start=1):
-        fill = (1, 1, 1) if index % 2 else (0.98, 0.99, 1)
-        rect(table_x, y, table_w, row_h, fill_color=fill, stroke_color=border)
-
-        values = [
-            str(index),
-            detail.Particulars,
-            str(detail.Qty),
-            money(detail.Rate),
-            money(detail.TotalAmount),
-        ]
-
-        current_x = table_x
-        for value, (_, width) in zip(values, columns):
-            text(current_x + 8, y + 10, value, 9)
-            current_x += width
-
-        current_x = table_x
-        for _, width in columns[:-1]:
-            current_x += width
-            line(current_x, y, current_x, y + row_h, 0.5, border)
-
-        y -= row_h
-
-    if len(details) > len(shown_details):
-        text(table_x, y + 10, f"{len(details) - len(shown_details)} more item(s) not shown.", 9, "F1", muted)
-        y -= row_h
-
-    total_y = max(y - 35, 90)
-    rect(360, total_y, 212, 38, fill_color=light, stroke_color=border)
-    text(375, total_y + 15, "Grand Total", 12, "F2")
-    text(485, total_y + 15, money(invoice.TotalAmount), 12, "F2", blue)
-
-    line(40, 65, 572, 65, 0.75, border)
-    text(40, 45, "Thank you for your business.", 9, "F1", muted)
-    text(395, 45, "Generated by Euroglass", 9, "F1", muted)
+    line(x_left, y, x_right, y)
+    y -= 12
+    text(x_left, y, "Payment Status: __________________", 8, "F1")
+    y -= 12
+    text(x_left, y, "Thank you for your business.", 8, "F1")
+    y -= 10
+    text(x_left, y, "Generated by Euroglass", 7, "F1")
 
     content = "\n".join(commands).encode("latin-1", errors="replace")
 
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 "
+        + str(receipt_width).encode("ascii")
+        + b" "
+        + str(receipt_height).encode("ascii")
+        + b"] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>",
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
         b"<< /Length " + str(len(content)).encode("ascii") + b" >>\nstream\n" + content + b"\nendstream",
