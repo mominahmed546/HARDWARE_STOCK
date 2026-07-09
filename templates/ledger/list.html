@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Ledger - Hardware Stock Management{% endblock %}
+{% block page_title %}Ledger{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="list-header">
+        <div class="search-bar">
+            <form method="GET" class="search-form">
+                <input type="text" name="search" placeholder="Search customer..." value="{{ search }}">
+                <button type="submit" class="btn btn-primary">Search</button>
+                {% if search %}
+                <a href="{{ url_for('ledger.list_ledger') }}" class="btn btn-secondary">Clear</a>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Customer</th>
+                <th>Opening Balance</th>
+                <th>Invoices</th>
+                <th>Total Invoiced</th>
+                <th>Total Paid</th>
+                <th>Outstanding</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in ledgers %}
+            <tr>
+                <td>{{ row.CustomerID }}</td>
+                <td>{{ row.CustomerName }}</td>
+                <td>Rs {{ "{:,.2f}".format(row.PreviousBalance|default(0)) }}</td>
+                <td>{{ row.InvoiceCount or 0 }}</td>
+                <td>Rs {{ "{:,.2f}".format(row.TotalInvoiced|default(0)) }}</td>
+                <td>Rs {{ "{:,.2f}".format(row.TotalPaid|default(0)) }}</td>
+                <td>Rs {{ "{:,.2f}".format(row.Outstanding|default(0)) }}</td>
+                <td>
+                    <a href="{{ url_for('ledger.customer_ledger', id=row.CustomerID) }}" class="btn btn-sm btn-info">View Ledger</a>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="8">No customers found.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

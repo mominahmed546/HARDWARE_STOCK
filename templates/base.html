@@ -38,6 +38,9 @@
                 <a href="{{ url_for('invoices.list_invoices') }}" class="nav-link {% if request.endpoint and request.endpoint.startswith('invoices.') %}active{% endif %}">
                     Invoices
                 </a>
+                <a href="{{ url_for('ledger.list_ledger') }}" class="nav-link {% if request.endpoint and request.endpoint.startswith('ledger.') %}active{% endif %}">
+                    Ledger
+                </a>
                 <a href="{{ url_for('reports.monthly_sales') }}" class="nav-link {% if request.endpoint and request.endpoint.startswith('reports.') %}active{% endif %}">
                     Reports
                 </a>

@@ -90,6 +90,7 @@ from app.customers.routes import customers_bp
 from app.purchases.routes import purchases_bp
 from app.invoices.routes import invoices_bp
 from app.reports.routes import reports_bp
+from app.ledger.routes import ledger_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(dashboard_bp)
@@ -100,6 +101,7 @@ app.register_blueprint(customers_bp)
 app.register_blueprint(purchases_bp)
 app.register_blueprint(invoices_bp)
 app.register_blueprint(reports_bp)
+app.register_blueprint(ledger_bp)
 
 
 @app.route("/")
