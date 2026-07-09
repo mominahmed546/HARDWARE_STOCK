@@ -38,10 +38,29 @@ def _ensure_invoice_payment_status_column(db, cursor):
     db.commit()
 
 
+def _ensure_invoice_previous_balance_column(db, cursor):
+    cursor.execute(
+        """
+        ALTER TABLE Invoices
+        ADD COLUMN IF NOT EXISTS PreviousBalance NUMERIC(12, 2) DEFAULT 0
+        """
+    )
+    db.commit()
+
+
 def _validate_invoice_header(form, errors):
+    prev_bal_raw = form.get("previous_balance", "0") or "0"
+    try:
+        prev_bal = float(prev_bal_raw)
+        if prev_bal < 0:
+            prev_bal = 0.0
+    except (ValueError, TypeError):
+        prev_bal = 0.0
+
     return {
         "invoice_date": clean_date(form.get("invoice_date"), "invoice_date", errors, label="Invoice date"),
         "customer_id": clean_select_id(form.get("customer_id"), "customer_id", errors, label="Customer"),
+        "previous_balance": prev_bal,
     }
 
 
@@ -384,6 +403,7 @@ def create_invoice():
     try:
         _ensure_previous_balance_column(db, cursor)
         _ensure_invoice_payment_status_column(db, cursor)
+        _ensure_invoice_previous_balance_column(db, cursor)
         customers, items = _load_invoice_form_data(cursor)
 
         if request.method == "POST":
@@ -447,11 +467,11 @@ def create_invoice():
 
             cursor.execute(
                 """
-                INSERT INTO Invoices (CustomerID, [Date], TotalAmount, PaymentStatus)
+                INSERT INTO Invoices (CustomerID, [Date], TotalAmount, PaymentStatus, PreviousBalance)
                 OUTPUT INSERTED.InvoiceID
-                VALUES (?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (data["customer_id"], data["invoice_date"], total, "Unpaid"),
+                (data["customer_id"], data["invoice_date"], total, "Unpaid", data["previous_balance"]),
             )
             invoice_id = int(cursor.fetchone()[0])
 
@@ -558,6 +578,7 @@ def invoice_pdf(id):
 
     try:
         _ensure_previous_balance_column(db, cursor)
+        _ensure_invoice_previous_balance_column(db, cursor)
         cursor.execute(
             """
             SELECT
@@ -566,7 +587,7 @@ def invoice_pdf(id):
                 i.TotalAmount,
                 c.CustomerName,
                 c.ContactNo,
-                COALESCE(c.PreviousBalance, 0) AS PreviousBalance
+                COALESCE(i.PreviousBalance, 0) AS PreviousBalance
             FROM Invoices i
             JOIN Customers c ON i.CustomerID = c.CustomerID
             WHERE i.InvoiceID = ?
