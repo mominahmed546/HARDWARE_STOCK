@@ -18,6 +18,7 @@
                 {% endfor %}
             </select>
             <button type="submit" class="btn btn-primary">View Report</button>
+            <a href="{{ url_for('reports.monthly_sales_pdf', year=selected_year) }}" class="btn btn-secondary">Download PDF</a>
         </form>
     </div>
 
