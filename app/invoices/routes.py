@@ -48,6 +48,22 @@ def _ensure_invoice_previous_balance_column(db, cursor):
     db.commit()
 
 
+def _ensure_invoice_date_is_timestamp(db, cursor):
+    """Migrate the date column from DATE to TIMESTAMP WITH TIME ZONE if needed."""
+    cursor.execute(
+        """
+        SELECT data_type FROM information_schema.columns
+        WHERE table_name = 'invoices' AND column_name = 'date'
+        """
+    )
+    row = cursor.fetchone()
+    if row and str(row[0]).lower() in ("date",):
+        cursor.execute(
+            "ALTER TABLE invoices ALTER COLUMN date TYPE TIMESTAMP USING date::TIMESTAMP"
+        )
+        db.commit()
+
+
 def _validate_invoice_header(form, errors):
     prev_bal_raw = form.get("previous_balance", "0") or "0"
     try:
@@ -350,7 +366,7 @@ def _build_invoice_pdf(invoice, details):
     y -= 12
     items_count = len(details)
     total_amount = float(invoice.TotalAmount or 0)
-    cash_received = 0.0
+    cash_received = float(getattr(invoice, "CashReceived", 0) or 0)
     net_balance = previous_balance + total_amount - cash_received
 
     text(x_left, y, f"Items    {items_count}", 11, "F2")
@@ -358,7 +374,7 @@ def _build_invoice_pdf(invoice, details):
     y -= 20
     text_right(x_right, y, f"Previous Balance: {int(previous_balance) if previous_balance.is_integer() else money(previous_balance)}", 11, "F2")
     y -= 16
-    text_right(x_right, y, f"Cash Received: {int(cash_received)}", 11, "F2")
+    text_right(x_right, y, f"Cash Received: {int(cash_received) if cash_received == int(cash_received) else money(cash_received)}", 11, "F2")
     y -= 16
     text_right(x_right, y, f"Net Balance: {int(net_balance) if net_balance.is_integer() else money(net_balance)}", 12, "F2")
 
@@ -414,6 +430,7 @@ def create_invoice():
         _ensure_previous_balance_column(db, cursor)
         _ensure_invoice_payment_status_column(db, cursor)
         _ensure_invoice_previous_balance_column(db, cursor)
+        _ensure_invoice_date_is_timestamp(db, cursor)
         customers, items = _load_invoice_form_data(cursor)
 
         if request.method == "POST":
@@ -479,9 +496,9 @@ def create_invoice():
                 """
                 INSERT INTO Invoices (CustomerID, [Date], TotalAmount, PaymentStatus, PreviousBalance)
                 OUTPUT INSERTED.InvoiceID
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, NOW(), ?, ?, ?)
                 """,
-                (data["customer_id"], data["invoice_date"], total, "Unpaid", data["previous_balance"]),
+                (data["customer_id"], total, "Unpaid", data["previous_balance"]),
             )
             invoice_id = int(cursor.fetchone()[0])
 
@@ -589,6 +606,7 @@ def invoice_pdf(id):
     try:
         _ensure_previous_balance_column(db, cursor)
         _ensure_invoice_previous_balance_column(db, cursor)
+        _ensure_invoice_date_is_timestamp(db, cursor)
         cursor.execute(
             """
             SELECT
@@ -597,7 +615,13 @@ def invoice_pdf(id):
                 i.TotalAmount,
                 c.CustomerName,
                 c.ContactNo,
-                COALESCE(i.PreviousBalance, 0) AS PreviousBalance
+                COALESCE(i.PreviousBalance, 0) AS PreviousBalance,
+                COALESCE((
+                    SELECT SUM(i2.TotalAmount)
+                    FROM Invoices i2
+                    WHERE i2.CustomerID = i.CustomerID
+                      AND COALESCE(i2.PaymentStatus, 'Unpaid') = 'Paid'
+                ), 0) AS CashReceived
             FROM Invoices i
             JOIN Customers c ON i.CustomerID = c.CustomerID
             WHERE i.InvoiceID = ?
