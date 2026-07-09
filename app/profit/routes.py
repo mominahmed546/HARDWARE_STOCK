@@ -31,34 +31,24 @@ def _monthly_profit_data(cursor, selected_year):
     if selected_year not in years and years:
         selected_year = years[0]
 
-    # Monthly sales revenue from invoices
+    # Profit per invoice line = (sale_rate - purchase_rate) * qty, grouped by invoice month
     cursor.execute(
         """
         SELECT
-            MONTH([Date]) AS SalesMonth,
-            ISNULL(SUM(TotalAmount), 0) AS Revenue
-        FROM Invoices
-        WHERE YEAR([Date]) = ?
-        GROUP BY MONTH([Date])
+            MONTH(i.[Date]) AS SalesMonth,
+            ISNULL(SUM(id.Qty * id.Rate), 0)                          AS Revenue,
+            ISNULL(SUM(id.Qty * COALESCE(it.PurchaseRate, 0)), 0)     AS Cost,
+            ISNULL(SUM(id.Qty * (id.Rate - COALESCE(it.PurchaseRate, 0))), 0) AS Profit
+        FROM Invoices i
+        JOIN InvoiceDetails id ON id.InvoiceID = i.InvoiceID
+        LEFT JOIN Item it ON it.ItemID = id.ItemID
+        WHERE YEAR(i.[Date]) = ?
+        GROUP BY MONTH(i.[Date])
+        ORDER BY SalesMonth
         """,
         (selected_year,),
     )
-    revenue_by_month = {row.SalesMonth: float(row.Revenue) for row in cursor.fetchall()}
-
-    # Monthly purchase cost
-    cursor.execute(
-        """
-        SELECT
-            MONTH(p.PurchaseDate) AS PurchaseMonth,
-            ISNULL(SUM(pd.Qty * pd.PurchaseRate), 0) AS Cost
-        FROM Purchases p
-        JOIN PurchaseDetails pd ON pd.PurchaseID = p.PurchaseID
-        WHERE YEAR(p.PurchaseDate) = ?
-        GROUP BY MONTH(p.PurchaseDate)
-        """,
-        (selected_year,),
-    )
-    cost_by_month = {row.PurchaseMonth: float(row.Cost) for row in cursor.fetchall()}
+    rows_by_month = {row.SalesMonth: row for row in cursor.fetchall()}
 
     monthly_rows = []
     total_revenue = 0.0
@@ -66,9 +56,10 @@ def _monthly_profit_data(cursor, selected_year):
     total_profit = 0.0
 
     for month_number, month_name in enumerate(MONTHS, start=1):
-        revenue = revenue_by_month.get(month_number, 0.0)
-        cost = cost_by_month.get(month_number, 0.0)
-        profit = revenue - cost
+        row = rows_by_month.get(month_number)
+        revenue = float(row.Revenue) if row else 0.0
+        cost = float(row.Cost) if row else 0.0
+        profit = float(row.Profit) if row else 0.0
         total_revenue += revenue
         total_cost += cost
         total_profit += profit
