@@ -33,6 +33,7 @@
                 <td>{{ customer.ContactNo or 'N/A' }}</td>
                 <td>Rs {{ "{:,.2f}".format(customer.PreviousBalance|default(0)) }}</td>
                 <td>
+                    <a href="{{ url_for('customers.customer_ledger', id=customer.CustomerID) }}" class="btn btn-sm btn-secondary">Ledger</a>
                     <a href="{{ url_for('customers.edit_customer', id=customer.CustomerID) }}" class="btn btn-sm btn-info">Edit</a>
                     <form method="POST" action="{{ url_for('customers.delete_customer', id=customer.CustomerID) }}" style="display:inline;">
                         <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this customer?')">Delete</button>

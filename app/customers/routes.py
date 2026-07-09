@@ -28,6 +28,23 @@ def _ensure_previous_balance_column(db, cursor):
     db.commit()
 
 
+def _ensure_invoice_payment_status_column(db, cursor):
+    cursor.execute(
+        """
+        ALTER TABLE Invoices
+        ADD COLUMN IF NOT EXISTS PaymentStatus VARCHAR(20) DEFAULT 'Unpaid'
+        """
+    )
+    cursor.execute(
+        """
+        UPDATE Invoices
+        SET PaymentStatus = 'Unpaid'
+        WHERE PaymentStatus IS NULL OR BTRIM(PaymentStatus) = ''
+        """
+    )
+    db.commit()
+
+
 def _validate_customer_form(form, errors):
 
     return {
@@ -393,4 +410,72 @@ def delete_customer(id):
 
 
     return redirect(url_for('customers.list_customers'))
+
+
+@customers_bp.route('/<int:id>/ledger')
+@login_required
+def customer_ledger(id):
+    try:
+        db = get_db_connection(app)
+        cursor = db.cursor()
+        _ensure_previous_balance_column(db, cursor)
+        _ensure_invoice_payment_status_column(db, cursor)
+
+        cursor.execute(
+            """
+            SELECT
+                CustomerID,
+                CustomerName,
+                ContactNo,
+                COALESCE(PreviousBalance, 0) AS PreviousBalance
+            FROM Customers
+            WHERE CustomerID = ?
+            """,
+            (id,),
+        )
+        customer = cursor.fetchone()
+
+        if not customer:
+            cursor.close()
+            flash("Customer not found.", "danger")
+            return redirect(url_for("customers.list_customers"))
+
+        cursor.execute(
+            """
+            SELECT
+                i.InvoiceID,
+                i.[Date] AS InvoiceDate,
+                i.TotalAmount,
+                COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus
+            FROM Invoices i
+            WHERE i.CustomerID = ?
+            ORDER BY i.[Date] DESC, i.InvoiceID DESC
+            """,
+            (id,),
+        )
+        invoices = cursor.fetchall()
+        cursor.close()
+
+        opening_balance = float(customer.PreviousBalance or 0)
+        total_invoiced = sum(float(invoice.TotalAmount or 0) for invoice in invoices)
+        total_paid = sum(
+            float(invoice.TotalAmount or 0)
+            for invoice in invoices
+            if (invoice.PaymentStatus or "Unpaid") == "Paid"
+        )
+        outstanding = opening_balance + total_invoiced - total_paid
+
+        return render_template(
+            "customers/ledger.html",
+            customer=customer,
+            invoices=invoices,
+            opening_balance=opening_balance,
+            total_invoiced=total_invoiced,
+            total_paid=total_paid,
+            outstanding=outstanding,
+        )
+
+    except Exception as e:
+        flash(f"Error loading customer ledger: {str(e)}", "danger")
+        return redirect(url_for("customers.list_customers"))
 

@@ -583,3 +583,44 @@ def delete_invoice(id):
         cursor.close()
 
     return redirect(url_for("invoices.list_invoices"))
+
+
+@invoices_bp.route("/<int:id>/status", methods=["POST"])
+@login_required
+def update_invoice_status(id):
+    db = get_db_connection(app)
+    cursor = db.cursor()
+
+    try:
+        _ensure_invoice_payment_status_column(db, cursor)
+        target_status = (request.form.get("status") or "").strip()
+
+        if target_status not in {"Paid", "Unpaid"}:
+            flash("Invalid payment status.", "danger")
+            return redirect(url_for("invoices.list_invoices"))
+
+        cursor.execute(
+            "SELECT InvoiceID FROM Invoices WHERE InvoiceID = ?",
+            (id,),
+        )
+        invoice = cursor.fetchone()
+
+        if not invoice:
+            flash("Invoice not found.", "danger")
+            return redirect(url_for("invoices.list_invoices"))
+
+        cursor.execute(
+            "UPDATE Invoices SET PaymentStatus = ? WHERE InvoiceID = ?",
+            (target_status, id),
+        )
+        db.commit()
+        flash(f"Invoice #{id} marked as {target_status}.", "success")
+
+    except Exception as e:
+        db.rollback()
+        flash(f"Error updating invoice status: {str(e)}", "danger")
+
+    finally:
+        cursor.close()
+
+    return redirect(url_for("invoices.list_invoices"))

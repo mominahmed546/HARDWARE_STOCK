@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Customer Ledger - Hardware Stock Management{% endblock %}
+{% block page_title %}Customer Ledger{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="card" style="margin-bottom: 1rem;">
+        <h3>{{ customer.CustomerName }}</h3>
+        <p><strong>Contact:</strong> {{ customer.ContactNo or 'N/A' }}</p>
+        <p><strong>Opening Balance:</strong> Rs {{ "{:,.2f}".format(opening_balance|default(0)) }}</p>
+        <p><strong>Total Invoiced:</strong> Rs {{ "{:,.2f}".format(total_invoiced|default(0)) }}</p>
+        <p><strong>Total Paid:</strong> Rs {{ "{:,.2f}".format(total_paid|default(0)) }}</p>
+        <p><strong>Outstanding:</strong> Rs {{ "{:,.2f}".format(outstanding|default(0)) }}</p>
+        <a href="{{ url_for('customers.list_customers') }}" class="btn btn-secondary btn-sm">Back to Customers</a>
+    </div>
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Invoice ID</th>
+                <th>Date</th>
+                <th>Amount</th>
+                <th>Payment Status</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for invoice in invoices %}
+            <tr>
+                <td>{{ invoice.InvoiceID }}</td>
+                <td>{{ invoice.InvoiceDate|date_dmy }}</td>
+                <td>Rs {{ "{:,.2f}".format(invoice.TotalAmount|default(0)) }}</td>
+                <td>{{ invoice.PaymentStatus or 'Unpaid' }}</td>
+                <td>
+                    <a href="{{ url_for('invoices.invoice_pdf', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">PDF</a>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="5">No invoices found for this customer.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

@@ -38,6 +38,15 @@
                 <td>{{ invoice.PaymentStatus or 'Unpaid' }}</td>
                 <td>
                     <a href="{{ url_for('invoices.invoice_pdf', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">Download PDF</a>
+                    <form method="POST" action="{{ url_for('invoices.update_invoice_status', id=invoice.InvoiceID) }}" style="display:inline;">
+                        {% if (invoice.PaymentStatus or 'Unpaid') == 'Paid' %}
+                        <input type="hidden" name="status" value="Unpaid">
+                        <button type="submit" class="btn btn-sm btn-secondary">Mark Unpaid</button>
+                        {% else %}
+                        <input type="hidden" name="status" value="Paid">
+                        <button type="submit" class="btn btn-sm btn-success">Mark Paid</button>
+                        {% endif %}
+                    </form>
                     <form method="POST" action="{{ url_for('invoices.delete_invoice', id=invoice.InvoiceID) }}" style="display:inline;">
                         <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this invoice? Stock quantities will be restored.')">Delete</button>
                     </form>
