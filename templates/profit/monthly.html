@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}Monthly Profit Report - Hardware Stock Management{% endblock %}
+{% block page_title %}Monthly Profit Report{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/reports.css') }}">
+<style>
+    .profit-positive { color: #2e7d32; font-weight: 600; }
+    .profit-negative { color: #c62828; font-weight: 600; }
+    .profit-zero     { color: #888; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="report-toolbar">
+        <form method="GET" class="report-filter">
+            <label for="year">Year</label>
+            <select id="year" name="year">
+                {% for year in years %}
+                <option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>{{ year }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-primary">View Report</button>
+            <a href="{{ url_for('profit.monthly_profit_pdf', year=selected_year) }}" class="btn btn-secondary">Download PDF</a>
+        </form>
+    </div>
+
+    <div class="report-summary-grid">
+        <div class="report-card">
+            <div class="report-card-label">Total Revenue</div>
+            <div class="report-card-value">Rs {{ "{:,.2f}".format(total_revenue|default(0)) }}</div>
+        </div>
+        <div class="report-card">
+            <div class="report-card-label">Total Cost</div>
+            <div class="report-card-value">Rs {{ "{:,.2f}".format(total_cost|default(0)) }}</div>
+        </div>
+        <div class="report-card">
+            <div class="report-card-label">Total Profit</div>
+            <div class="report-card-value {% if total_profit > 0 %}profit-positive{% elif total_profit < 0 %}profit-negative{% else %}profit-zero{% endif %}">
+                Rs {{ "{:,.2f}".format(total_profit|default(0)) }}
+            </div>
+        </div>
+        <div class="report-card">
+            <div class="report-card-label">Best Month</div>
+            <div class="report-card-value">
+                {% if best_month and best_month.profit > 0 %}
+                    {{ best_month.month_name }}
+                {% else %}
+                    N/A
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Profit by Month - {{ selected_year }}</h2>
+        </div>
+
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Month</th>
+                    <th>Revenue (Rs)</th>
+                    <th>Purchase Cost (Rs)</th>
+                    <th>Profit (Rs)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in monthly_rows %}
+                <tr>
+                    <td>{{ row.month_name }}</td>
+                    <td>{{ "{:,.2f}".format(row.revenue) }}</td>
+                    <td>{{ "{:,.2f}".format(row.cost) }}</td>
+                    <td class="{% if row.profit > 0 %}profit-positive{% elif row.profit < 0 %}profit-negative{% else %}profit-zero{% endif %}">
+                        {{ "{:,.2f}".format(row.profit) }}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="4">No data found for {{ selected_year }}.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <th>Total</th>
+                    <th>{{ "{:,.2f}".format(total_revenue|default(0)) }}</th>
+                    <th>{{ "{:,.2f}".format(total_cost|default(0)) }}</th>
+                    <th class="{% if total_profit > 0 %}profit-positive{% elif total_profit < 0 %}profit-negative{% else %}profit-zero{% endif %}">
+                        {{ "{:,.2f}".format(total_profit|default(0)) }}
+                    </th>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+</div>
+{% endblock %}

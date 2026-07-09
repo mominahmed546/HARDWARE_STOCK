@@ -44,6 +44,9 @@
                 <a href="{{ url_for('reports.monthly_sales') }}" class="nav-link {% if request.endpoint and request.endpoint.startswith('reports.') %}active{% endif %}">
                     Reports
                 </a>
+                <a href="{{ url_for('profit.monthly_profit') }}" class="nav-link {% if request.endpoint and request.endpoint.startswith('profit.') %}active{% endif %}">
+                    Profit
+                </a>
             </nav>
 
             <div class="sidebar-footer">
