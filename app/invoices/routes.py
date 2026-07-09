@@ -492,13 +492,17 @@ def create_invoice():
 
             total = sum(line["total"] for line in valid_lines)
 
+            # Assign invoice number as MAX(invoice_id)+1 so deleted numbers are reused
+            cursor.execute("SELECT COALESCE(MAX(InvoiceID), 0) + 1 AS NextID FROM Invoices")
+            next_id = int(cursor.fetchone()[0])
+
             cursor.execute(
                 """
-                INSERT INTO Invoices (CustomerID, [Date], TotalAmount, PaymentStatus, PreviousBalance)
+                INSERT INTO Invoices (InvoiceID, CustomerID, [Date], TotalAmount, PaymentStatus, PreviousBalance)
                 OUTPUT INSERTED.InvoiceID
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (data["customer_id"], datetime.now(), total, "Unpaid", data["previous_balance"]),
+                (next_id, data["customer_id"], datetime.now(), total, "Unpaid", data["previous_balance"]),
             )
             invoice_id = int(cursor.fetchone()[0])
 
