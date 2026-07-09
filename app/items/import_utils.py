@@ -3,6 +3,7 @@ import re
 from datetime import date
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 
 from app.validators import ValidationErrors, clean_string, clean_positive_decimal, clean_positive_int
 
@@ -62,65 +63,88 @@ def _cell_value(value):
 
 
 def parse_items_xlsx(file_stream):
-    workbook = load_workbook(file_stream, read_only=True, data_only=True)
-    sheet = workbook.active
-    rows = [row for row in sheet.iter_rows(values_only=True) if any(cell is not None and str(cell).strip() for cell in row)]
+    workbook = None
 
-    if not rows:
-        raise ValueError("The Excel file is empty.")
+    try:
+        if hasattr(file_stream, "seek"):
+            file_stream.seek(0)
 
-    header_map = _detect_columns(rows[0])
-    required_fields = {"item_name", "category", "supplier_name", "purchase_rate", "sale_rate", "qty"}
+        workbook = load_workbook(file_stream, read_only=True, data_only=True)
+        sheet = workbook.active
+        rows_iter = sheet.iter_rows(values_only=True)
 
-    if header_map and required_fields.issubset(header_map):
-        data_rows = rows[1:]
-        start_row_number = 2
-    else:
-        if len(rows[0]) < 6:
-            raise ValueError(
-                "Could not detect column headers. Use columns: ItemName, Category, SupplierName, PurchaseRate, SaleRate, Qty."
-            )
-        header_map = {
-            "item_name": 0,
-            "category": 1,
-            "supplier_name": 2,
-            "purchase_rate": 3,
-            "sale_rate": 4,
-            "qty": 5,
-        }
-        data_rows = rows
-        start_row_number = 1
+        first_non_empty = None
+        for row in rows_iter:
+            if any(cell is not None and str(cell).strip() for cell in row):
+                first_non_empty = row
+                break
 
-    valid_items = []
-    row_errors = []
+        if first_non_empty is None:
+            raise ValueError("The Excel file is empty.")
 
-    for offset, row in enumerate(data_rows):
-        row_index = start_row_number + offset
-        row_data = {
-            field: _cell_value(row[header_map[field]] if header_map[field] < len(row) else "")
-            for field in required_fields
-        }
+        required_fields = {"item_name", "category", "supplier_name", "purchase_rate", "sale_rate", "qty"}
+        header_map = _detect_columns(first_non_empty)
 
-        if not any(row_data.values()):
-            continue
-
-        errors = ValidationErrors()
-        validated = _validate_row(row_index, row_data, errors)
-
-        if errors.valid:
-            valid_items.append(validated)
+        if header_map and required_fields.issubset(header_map):
+            start_row_number = 2
+            data_rows_iter = rows_iter
         else:
-            row_errors.append(f"Row {row_index}: {errors.first()}")
+            if len(first_non_empty) < 6:
+                raise ValueError(
+                    "Could not detect column headers. Use columns: ItemName, Category, SupplierName, PurchaseRate, SaleRate, Qty."
+                )
+            header_map = {
+                "item_name": 0,
+                "category": 1,
+                "supplier_name": 2,
+                "purchase_rate": 3,
+                "sale_rate": 4,
+                "qty": 5,
+            }
+            start_row_number = 1
 
-    workbook.close()
+            # Treat first row as data if it is not a header row.
+            def _prepend_first_row():
+                yield first_non_empty
+                for next_row in rows_iter:
+                    yield next_row
 
-    if not valid_items and row_errors:
-        raise ValueError(row_errors[0])
+            data_rows_iter = _prepend_first_row()
 
-    if not valid_items:
-        raise ValueError("No valid item rows were found in the Excel file.")
+        valid_items = []
+        row_errors = []
 
-    return valid_items, row_errors
+        for offset, row in enumerate(data_rows_iter):
+            row_index = start_row_number + offset
+            row_data = {
+                field: _cell_value(row[header_map[field]] if header_map[field] < len(row) else "")
+                for field in required_fields
+            }
+
+            if not any(row_data.values()):
+                continue
+
+            errors = ValidationErrors()
+            validated = _validate_row(row_index, row_data, errors)
+
+            if errors.valid:
+                valid_items.append(validated)
+            else:
+                row_errors.append(f"Row {row_index}: {errors.first()}")
+
+        if not valid_items and row_errors:
+            raise ValueError(row_errors[0])
+
+        if not valid_items:
+            raise ValueError("No valid item rows were found in the Excel file.")
+
+        return valid_items, row_errors
+
+    except InvalidFileException as exc:
+        raise ValueError("The uploaded file is not a valid .xlsx workbook.") from exc
+    finally:
+        if workbook is not None:
+            workbook.close()
 
 
 def import_items(app, items):

@@ -121,6 +121,7 @@ def upload_items():
             flash(f"{len(row_errors)} row(s) skipped: {preview}{extra}", "danger")
 
     except Exception as e:
+        app.logger.exception("Excel import failed")
         flash(f"Import failed: {str(e)}", "danger")
 
     return _upload_redirect()
