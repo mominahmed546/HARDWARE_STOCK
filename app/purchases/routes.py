@@ -659,6 +659,104 @@ def delete_purchase(id):
     return redirect(url_for("purchases.list_purchases"))
 
 
+@purchases_bp.route("/delete/supplier/<int:supplier_id>", methods=["POST"])
+@login_required
+def delete_supplier_purchases(supplier_id):
+    db = get_db_connection(app)
+    cursor = db.cursor()
+
+    try:
+        if supplier_id == 0:
+            cursor.execute(
+                "SELECT PurchaseID FROM Purchases WHERE SupplierID IS NULL ORDER BY PurchaseID"
+            )
+            supplier_label = "N/A"
+        else:
+            cursor.execute(
+                "SELECT SupplierName FROM Supplier WHERE SupplierID = ?",
+                (supplier_id,),
+            )
+            supplier_row = cursor.fetchone()
+
+            if not supplier_row:
+                flash("Supplier not found.", "danger")
+                return redirect(url_for("purchases.list_purchases"))
+
+            supplier_label = supplier_row.SupplierName
+            cursor.execute(
+                "SELECT PurchaseID FROM Purchases WHERE SupplierID = ? ORDER BY PurchaseID",
+                (supplier_id,),
+            )
+
+        purchase_rows = cursor.fetchall()
+        purchase_ids = [row.PurchaseID for row in purchase_rows]
+
+        if not purchase_ids:
+            flash("No purchases found for this supplier.", "danger")
+            return redirect(url_for("purchases.list_purchases"))
+
+        placeholders = ", ".join("?" for _ in purchase_ids)
+
+        cursor.execute(
+            f"""
+            SELECT pd.PurchaseID, pd.ItemID, pd.Qty, i.ItemName, i.Qty AS CurrentQty
+            FROM PurchaseDetails pd
+            LEFT JOIN Item i ON pd.ItemID = i.ItemID
+            WHERE pd.PurchaseID IN ({placeholders})
+            """,
+            tuple(purchase_ids),
+        )
+        details = cursor.fetchall()
+
+        for detail in details:
+            if detail.ItemID is None:
+                continue
+
+            if detail.CurrentQty is not None and detail.CurrentQty < detail.Qty:
+                flash(
+                    f"Cannot delete supplier purchases because {detail.ItemName} has only "
+                    f"{detail.CurrentQty} in stock, but one purchase added {detail.Qty}.",
+                    "danger",
+                )
+                return redirect(url_for("purchases.list_purchases"))
+
+        for detail in details:
+            if detail.ItemID is None:
+                continue
+
+            cursor.execute(
+                """
+                UPDATE Item
+                SET Qty = Qty - ?
+                WHERE ItemID = ?
+                """,
+                (detail.Qty, detail.ItemID),
+            )
+
+        cursor.execute(
+            f"DELETE FROM StockHistory WHERE PurchaseID IN ({placeholders})",
+            tuple(purchase_ids),
+        )
+        cursor.execute(
+            f"DELETE FROM PurchaseDetails WHERE PurchaseID IN ({placeholders})",
+            tuple(purchase_ids),
+        )
+        cursor.execute(
+            f"DELETE FROM Purchases WHERE PurchaseID IN ({placeholders})",
+            tuple(purchase_ids),
+        )
+
+        db.commit()
+        flash(f"Deleted all purchases for supplier {supplier_label}.", "success")
+
+    except Exception as e:
+        db.rollback()
+        flash(f"Error deleting supplier purchases: {str(e)}", "danger")
+
+    finally:
+        cursor.close()
+
+    return redirect(url_for("purchases.list_purchases"))
 
 
 @purchases_bp.route("/edit/<int:id>", methods=["GET", "POST"])

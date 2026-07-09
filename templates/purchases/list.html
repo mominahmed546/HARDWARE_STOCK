@@ -43,6 +43,9 @@
                 <td>Rs {{ "{:,.2f}".format(purchase.TotalAmount|default(0)) }}</td>
                 <td>
                     <a href="{{ url_for('purchases.purchase_details', supplier_id=purchase.SupplierID) }}" class="btn btn-sm btn-info">Details</a>
+                    <form method="POST" action="{{ url_for('purchases.delete_supplier_purchases', supplier_id=purchase.SupplierID) }}" style="display:inline;">
+                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete all purchases for this supplier? This will reduce stock quantities and cannot be undone.')">Delete All</button>
+                    </form>
                 </td>
             </tr>
             {% else %}
