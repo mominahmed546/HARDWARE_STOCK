@@ -370,13 +370,13 @@ def _build_invoice_pdf(invoice, details):
     net_balance = previous_balance + total_amount - cash_received
 
     text(x_left, y, f"Items    {items_count}", 11, "F2")
-    text_right(x_right, y, f"TOTAL: {int(total_amount) if total_amount.is_integer() else money(total_amount)}", 12, "F2")
+    text_right(x_right, y, f"TOTAL: {money(total_amount)}", 12, "F2")
     y -= 20
-    text_right(x_right, y, f"Previous Balance: {int(previous_balance) if previous_balance.is_integer() else money(previous_balance)}", 11, "F2")
+    text_right(x_right, y, f"Previous Balance: {money(previous_balance)}", 11, "F2")
     y -= 16
-    text_right(x_right, y, f"Cash Received: {int(cash_received) if cash_received == int(cash_received) else money(cash_received)}", 11, "F2")
+    text_right(x_right, y, f"Cash Received: {money(cash_received)}", 11, "F2")
     y -= 16
-    text_right(x_right, y, f"Net Balance: {int(net_balance) if net_balance.is_integer() else money(net_balance)}", 12, "F2")
+    text_right(x_right, y, f"Net Balance: {money(net_balance)}", 12, "F2")
 
     content = "\n".join(commands).encode("latin-1", errors="replace")
 
