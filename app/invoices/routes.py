@@ -172,18 +172,39 @@ def _format_date_dmy(value):
     return value
 
 
+def _format_datetime_for_invoice(value):
+    if not value:
+        return ""
+
+    if hasattr(value, "strftime"):
+        return value.strftime("%d/%m/%Y %I:%M:%S %p")
+
+    value = str(value).strip()
+    for date_format in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            parsed = datetime.strptime(value[:19], date_format)
+            return parsed.strftime("%d/%m/%Y %I:%M:%S %p")
+        except ValueError:
+            continue
+
+    return value
+
+
 def _build_invoice_pdf(invoice, details):
     commands = []
     details = list(details)
 
-    receipt_width = 226  # ~80mm thermal paper
-    receipt_height = max(430, 230 + (len(details) * 22))
+    receipt_width = 310
+    receipt_height = max(520, 300 + (len(details) * 20))
 
     def text(x, y, value, size=9, font="F1"):
         commands.append(f"BT /{font} {size} Tf {x} {y} Td ({_pdf_escape(value)}) Tj ET")
 
     def line(x1, y1, x2, y2):
         commands.append(f"0.6 w {x1} {y1} m {x2} {y2} l S")
+
+    def rect(x, y, width, height):
+        commands.append(f"0.6 w {x} {y} {width} {height} re S")
 
     def money(value):
         return f"{float(value or 0):,.2f}"
@@ -198,64 +219,91 @@ def _build_invoice_pdf(invoice, details):
         approx_width = len(value) * (size * 0.5)
         text(max(2, x_center - (approx_width / 2)), y, value, size, font)
 
-    x_left = 12
-    x_right = receipt_width - 12
-    col_qty_right = x_right - 56
-    col_total_right = x_right
-    y = receipt_height - 24
+    x_left = 14
+    x_right = receipt_width - 14
+    y = receipt_height - 26
 
-    text_center(receipt_width / 2, y, "EUROGLASS Hardware", 12, "F2")
-    y -= 12
-    line(x_left, y, x_right, y)
-    y -= 12
+    customer_name = str(invoice.CustomerName or "N/A")
+    contact_no = str(getattr(invoice, "ContactNo", "") or "")
+    previous_balance = float(getattr(invoice, "PreviousBalance", 0) or 0)
 
-    text(x_left, y, f"Invoice #: {invoice.InvoiceID}", 8, "F1")
-    text_right(x_right, y, f"Date: {_format_date_dmy(invoice.InvoiceDate)}", 8, "F1")
+    text_center(receipt_width / 2, y, "EUROGLASS HARDWARE", 14, "F2")
     y -= 11
-    text(x_left, y, f"Customer: {invoice.CustomerName}", 8, "F1")
+    text_center(receipt_width / 2, y, "Opp Shell Pump, High Court Rd, Rwp", 8, "F1")
+    y -= 10
+    text_center(receipt_width / 2, y, "Ph: 0300-0000000", 8, "F1")
+    y -= 10
+    text_center(receipt_width / 2, y, "NTN #: _________  Since: _________", 8, "F1")
     y -= 10
     line(x_left, y, x_right, y)
     y -= 12
 
-    text(x_left, y, "ITEM", 8, "F2")
-    text_right(col_qty_right, y, "QTY", 8, "F2")
-    text_right(col_total_right, y, "TOTAL", 8, "F2")
-    y -= 8
-    line(x_left, y, x_right, y)
+    text(x_left, y, "Invoice", 10, "F2")
+    text(x_left + 58, y, str(invoice.InvoiceID), 10, "F2")
+    text(x_left + 112, y, "DATED", 10, "F2")
+    text(x_left + 158, y, _format_datetime_for_invoice(invoice.InvoiceDate), 8, "F1")
     y -= 11
+    text(x_left, y, f"Customer: {customer_name}", 10, "F2")
+    y -= 10
+    if contact_no:
+        text(x_left, y, contact_no, 8, "F1")
+        y -= 10
+    line(x_left, y, x_right, y)
+    y -= 12
+
+    table_x = x_left
+    table_w = x_right - x_left
+    col_product_right = table_x + 170
+    col_qty_right = col_product_right + 36
+    col_rate_right = col_qty_right + 52
+    col_total_right = table_x + table_w
+
+    header_y = y
+    row_h = 18
+    rect(table_x, header_y - row_h + 4, table_w, row_h)
+    line(col_product_right, header_y - row_h + 4, col_product_right, header_y + 4)
+    line(col_qty_right, header_y - row_h + 4, col_qty_right, header_y + 4)
+    line(col_rate_right, header_y - row_h + 4, col_rate_right, header_y + 4)
+    text(table_x + 4, header_y - 8, "PRODUCT NAME", 9, "F2")
+    text(col_product_right + 6, header_y - 8, "QTY", 9, "F2")
+    text(col_qty_right + 6, header_y - 8, "RATE", 9, "F2")
+    text(col_rate_right + 6, header_y - 8, "TOTAL", 9, "F2")
+    y = header_y - row_h - 2
 
     if not details:
-        text(x_left, y, "No items", 8, "F1")
-        y -= 12
+        rect(table_x, y - row_h + 4, table_w, row_h)
+        text(table_x + 4, y - 8, "No items", 8, "F1")
+        y -= row_h
     else:
         for detail in details:
             item_name = str(detail.Particulars or "Item")
-            if len(item_name) > 22:
-                item_name = item_name[:19] + "..."
-            text(x_left, y, item_name, 8, "F1")
-            text_right(col_qty_right, y, str(detail.Qty), 8, "F1")
-            text_right(col_total_right, y, f"Rs {money(detail.TotalAmount)}", 8, "F1")
-            y -= 9
+            if len(item_name) > 30:
+                item_name = item_name[:27] + "..."
 
-            qty_rate_text = f"@ Rs {money(detail.Rate)}"
-            line_total_text = f"Rs {money(detail.TotalAmount)}"
-            text(x_left + 4, y, qty_rate_text, 7, "F1")
-            y -= 12
+            rect(table_x, y - row_h + 4, table_w, row_h)
+            line(col_product_right, y - row_h + 4, col_product_right, y + 4)
+            line(col_qty_right, y - row_h + 4, col_qty_right, y + 4)
+            line(col_rate_right, y - row_h + 4, col_rate_right, y + 4)
+            text(table_x + 4, y - 8, item_name, 8, "F1")
+            text_right(col_qty_right - 4, y - 8, str(detail.Qty), 8, "F1")
+            text_right(col_rate_right - 4, y - 8, money(detail.Rate), 8, "F1")
+            text_right(col_total_right - 4, y - 8, money(detail.TotalAmount), 8, "F1")
+            y -= row_h
 
-    line(x_left, y, x_right, y)
-    y -= 14
-    text(x_left, y, "Grand Total", 10, "F2")
-    total_text = f"Rs {money(invoice.TotalAmount)}"
-    text_right(x_right, y, total_text, 10, "F2")
+    y -= 12
+    items_count = len(details)
+    total_amount = float(invoice.TotalAmount or 0)
+    cash_received = 0.0
+    net_balance = previous_balance + total_amount - cash_received
+
+    text(x_left, y, f"Items    {items_count}", 11, "F2")
+    text_right(x_right, y, f"TOTAL: {int(total_amount) if total_amount.is_integer() else money(total_amount)}", 12, "F2")
+    y -= 20
+    text_right(x_right, y, f"Previous Balance: {int(previous_balance) if previous_balance.is_integer() else money(previous_balance)}", 11, "F2")
     y -= 16
-
-    line(x_left, y, x_right, y)
-    y -= 12
-    text(x_left, y, "Payment Status: __________________", 8, "F1")
-    y -= 12
-    text_center(receipt_width / 2, y, "Thank you for your business.", 8, "F1")
-    y -= 10
-    text_center(receipt_width / 2, y, "Generated by Euroglass", 7, "F1")
+    text_right(x_right, y, f"Cash Received: {int(cash_received)}", 11, "F2")
+    y -= 16
+    text_right(x_right, y, f"Net Balance: {int(net_balance) if net_balance.is_integer() else money(net_balance)}", 12, "F2")
 
     content = "\n".join(commands).encode("latin-1", errors="replace")
 
@@ -481,9 +529,16 @@ def invoice_pdf(id):
     cursor = db.cursor()
 
     try:
+        _ensure_previous_balance_column(db, cursor)
         cursor.execute(
             """
-            SELECT i.InvoiceID, i.[Date] AS InvoiceDate, i.TotalAmount, c.CustomerName
+            SELECT
+                i.InvoiceID,
+                i.[Date] AS InvoiceDate,
+                i.TotalAmount,
+                c.CustomerName,
+                c.ContactNo,
+                COALESCE(c.PreviousBalance, 0) AS PreviousBalance
             FROM Invoices i
             JOIN Customers c ON i.CustomerID = c.CustomerID
             WHERE i.InvoiceID = ?
