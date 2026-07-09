@@ -194,7 +194,7 @@ def _build_invoice_pdf(invoice, details):
         commands.append(f"{x} {y} {width} {height} re S")
 
     def money(value):
-        return f"Rs {float(value or 0):.2f}"
+        return f"Rs {float(value or 0):,.2f}"
 
     navy = (0.06, 0.09, 0.16)
     blue = (0.15, 0.39, 0.92)
