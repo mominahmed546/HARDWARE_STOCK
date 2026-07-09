@@ -39,7 +39,7 @@
                 <td>{{ row.InvoiceCount or 0 }}</td>
                 <td>Rs {{ "{:,.2f}".format(row.TotalInvoiced|default(0)) }}</td>
                 <td>Rs {{ "{:,.2f}".format(row.TotalPaid|default(0)) }}</td>
-                <td>Rs {{ "{:,.2f}".format(row.Outstanding|default(0)) }}</td>
+                <td style="color: #d32f2f; font-weight: 700;">Rs {{ "{:,.2f}".format(row.Outstanding|default(0)) }}</td>
                 <td>
                     <a href="{{ url_for('ledger.customer_ledger', id=row.CustomerID) }}" class="btn btn-sm btn-info">View Ledger</a>
                 </td>
