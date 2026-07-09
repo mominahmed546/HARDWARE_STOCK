@@ -9,6 +9,9 @@
     .chart-panel { background: #fff; border-radius: 8px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
     .chart-panel h2 { margin: 0 0 18px; font-size: 1rem; color: #444; }
     .chart-wrap { position: relative; height: 300px; }
+    .charts-row { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; margin-bottom: 24px; }
+    @media (max-width: 700px) { .charts-row { grid-template-columns: 1fr; } }
+    .chart-wrap-pie { position: relative; height: 300px; }
 </style>
 {% endblock %}
 
@@ -48,11 +51,19 @@
         </div>
     </div>
 
-    <!-- Chart -->
-    <div class="chart-panel">
-        <h2>Monthly Sales — {{ selected_year }}</h2>
-        <div class="chart-wrap">
-            <canvas id="salesChart"></canvas>
+    <!-- Charts -->
+    <div class="charts-row">
+        <div class="chart-panel">
+            <h2>Monthly Sales — {{ selected_year }}</h2>
+            <div class="chart-wrap">
+                <canvas id="salesChart"></canvas>
+            </div>
+        </div>
+        <div class="chart-panel">
+            <h2>Invoice Status — {{ selected_year }}</h2>
+            <div class="chart-wrap-pie">
+                <canvas id="statusChart"></canvas>
+            </div>
         </div>
     </div>
 
@@ -98,6 +109,7 @@
     const salesLabels = {{ monthly_rows | map(attribute='month_name') | list | tojson }};
     const salesData   = {{ monthly_rows | map(attribute='total_sales') | list | tojson }};
 
+    // Bar chart
     new Chart(document.getElementById('salesChart'), {
         type: 'bar',
         data: {
@@ -127,6 +139,40 @@
                     beginAtZero: true,
                     ticks: {
                         callback: val => 'Rs ' + val.toLocaleString('en-PK')
+                    }
+                }
+            }
+        }
+    });
+
+    // Pie chart — invoice status
+    const paidCount   = {{ payment_status.paid_count }};
+    const unpaidCount = {{ payment_status.unpaid_count }};
+    const paidAmt     = {{ payment_status.paid_amount }};
+    const unpaidAmt   = {{ payment_status.unpaid_amount }};
+
+    new Chart(document.getElementById('statusChart'), {
+        type: 'pie',
+        data: {
+            labels: ['Paid', 'Unpaid'],
+            datasets: [{
+                data: [paidCount, unpaidCount],
+                backgroundColor: ['rgba(46,125,50,0.8)', 'rgba(239,83,80,0.8)'],
+                borderColor: ['#1b5e20', '#b71c1c'],
+                borderWidth: 1,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'bottom' },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => {
+                            const amt = ctx.label === 'Paid' ? paidAmt : unpaidAmt;
+                            return ` ${ctx.label}: ${ctx.parsed} invoices (Rs ${amt.toLocaleString('en-PK', {minimumFractionDigits:2})})`;
+                        }
                     }
                 }
             }

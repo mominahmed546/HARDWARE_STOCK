@@ -146,7 +146,41 @@ def _monthly_sales_data(cursor, selected_year):
         )
 
     best_month = max(monthly_rows, key=lambda row: row["total_sales"], default=None)
-    return years, selected_year, monthly_rows, total_sales, total_invoices, best_month
+
+    # Payment status breakdown for pie chart
+    cursor.execute(
+        """
+        SELECT
+            COALESCE(PaymentStatus, 'Unpaid') AS PaymentStatus,
+            COUNT(*) AS InvoiceCount,
+            ISNULL(SUM(TotalAmount), 0) AS TotalAmount
+        FROM Invoices
+        WHERE YEAR([Date]) = ?
+        GROUP BY COALESCE(PaymentStatus, 'Unpaid')
+        """,
+        (selected_year,),
+    )
+    status_rows = cursor.fetchall()
+    paid_count = 0
+    unpaid_count = 0
+    paid_amount = 0.0
+    unpaid_amount = 0.0
+    for s in status_rows:
+        if str(s.PaymentStatus).strip().lower() == "paid":
+            paid_count = int(s.InvoiceCount)
+            paid_amount = float(s.TotalAmount)
+        else:
+            unpaid_count = int(s.InvoiceCount)
+            unpaid_amount = float(s.TotalAmount)
+
+    payment_status = {
+        "paid_count": paid_count,
+        "unpaid_count": unpaid_count,
+        "paid_amount": paid_amount,
+        "unpaid_amount": unpaid_amount,
+    }
+
+    return years, selected_year, monthly_rows, total_sales, total_invoices, best_month, payment_status
 
 
 @reports_bp.route("/monthly-sales")
@@ -157,9 +191,8 @@ def monthly_sales():
     cursor = db.cursor()
 
     try:
-        years, selected_year, monthly_rows, total_sales, total_invoices, best_month = _monthly_sales_data(
-            cursor, selected_year
-        )
+        years, selected_year, monthly_rows, total_sales, total_invoices, best_month, payment_status = \
+            _monthly_sales_data(cursor, selected_year)
 
         return render_template(
             "reports/monthly_sales.html",
@@ -169,6 +202,7 @@ def monthly_sales():
             total_sales=total_sales,
             total_invoices=total_invoices,
             best_month=best_month,
+            payment_status=payment_status,
         )
 
     except Exception as e:
@@ -181,6 +215,7 @@ def monthly_sales():
             total_sales=0,
             total_invoices=0,
             best_month=None,
+            payment_status={"paid_count":0,"unpaid_count":0,"paid_amount":0,"unpaid_amount":0},
         )
 
     finally:
@@ -195,7 +230,7 @@ def monthly_sales_pdf():
     cursor = db.cursor()
 
     try:
-        years, selected_year, monthly_rows, total_sales, total_invoices, best_month = _monthly_sales_data(
+        years, selected_year, monthly_rows, total_sales, total_invoices, best_month, _ = _monthly_sales_data(
             cursor, selected_year
         )
         pdf = _build_monthly_sales_pdf(selected_year, monthly_rows, total_sales, total_invoices, best_month)
