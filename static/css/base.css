@@ -21,6 +21,20 @@
     --font: "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
+[data-theme="dark"] {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --text: #e2e8f0;
+    --text-muted: #94a3b8;
+    --border: #334155;
+    --primary: #3b82f6;
+    --primary-hover: #2563eb;
+    --sidebar-bg: #020617;
+    --sidebar-text: #cbd5e1;
+    --sidebar-active: #3b82f6;
+    --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+}
+
 *,
 *::before,
 *::after {
@@ -292,6 +306,49 @@ a {
 
 .data-table tbody tr:hover {
     background: #f8fafc;
+}
+
+/* ---- Dark mode overrides ---- */
+[data-theme="dark"] .data-table th {
+    background: #1e293b;
+    color: var(--text-muted);
+}
+[data-theme="dark"] .data-table tbody tr:hover {
+    background: #263548;
+}
+[data-theme="dark"] .flash-success {
+    background: #14532d;
+    color: #86efac;
+    border-color: #166534;
+}
+[data-theme="dark"] .flash-danger {
+    background: #450a0a;
+    color: #fca5a5;
+    border-color: #7f1d1d;
+}
+[data-theme="dark"] .flash-info {
+    background: #1e3a5f;
+    color: #93c5fd;
+    border-color: #1d4ed8;
+}
+
+/* ---- Dark mode toggle button ---- */
+.dark-toggle {
+    background: none;
+    border: 1.5px solid var(--border);
+    border-radius: 20px;
+    padding: 0.3rem 0.75rem;
+    cursor: pointer;
+    font-size: 1rem;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    transition: background 0.2s, border-color 0.2s;
+    white-space: nowrap;
+}
+.dark-toggle:hover {
+    background: var(--border);
 }
 
 @media (max-width: 900px) {

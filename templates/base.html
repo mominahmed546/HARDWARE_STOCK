@@ -59,8 +59,14 @@
         <main class="main-content">
             <div class="topbar">
                 <div class="company-name">Euroglass</div>
-                <div class="user-name">
-                    {{ current_user.username if current_user.is_authenticated else 'Guest' }}
+                <div style="display:flex;align-items:center;gap:1rem;">
+                    <div class="user-name">
+                        {{ current_user.username if current_user.is_authenticated else 'Guest' }}
+                    </div>
+                    <button class="dark-toggle" id="darkToggle" title="Toggle dark mode">
+                        <span id="darkIcon">🌙</span>
+                        <span id="darkLabel">Dark</span>
+                    </button>
                 </div>
             </div>
 
@@ -83,5 +89,28 @@
         </main>
     </div>
     <script src="{{ url_for('static', filename='js/forms.js') }}"></script>
+    <script>
+        (function () {
+            const html = document.documentElement;
+            const btn = document.getElementById('darkToggle');
+            const icon = document.getElementById('darkIcon');
+            const label = document.getElementById('darkLabel');
+
+            function applyTheme(dark) {
+                html.setAttribute('data-theme', dark ? 'dark' : 'light');
+                icon.textContent = dark ? '☀️' : '🌙';
+                label.textContent = dark ? 'Light' : 'Dark';
+            }
+
+            const saved = localStorage.getItem('theme');
+            applyTheme(saved === 'dark');
+
+            btn.addEventListener('click', function () {
+                const isDark = html.getAttribute('data-theme') === 'dark';
+                localStorage.setItem('theme', isDark ? 'light' : 'dark');
+                applyTheme(!isDark);
+            });
+        })();
+    </script>
 </body>
 </html>
