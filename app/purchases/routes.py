@@ -208,13 +208,15 @@ def create_purchase():
                         (data["quantity"], data["purchase_rate"], data["sale_rate"], item_id),
                     )
                 else:
+                    cursor.execute("SELECT COALESCE(MAX(ItemID), 0) + 1 AS NextID FROM Item")
+                    next_item_id = int(cursor.fetchone()[0])
                     cursor.execute(
                         """
-                        INSERT INTO Item (ItemName, CategoryID, PurchaseRate, SaleRate, Qty)
-                        OUTPUT INSERTED.ItemID
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO Item (ItemID, ItemName, CategoryID, PurchaseRate, SaleRate, Qty)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         """,
                         (
+                            next_item_id,
                             item_name,
                             data["category_id"],
                             data["purchase_rate"],
@@ -222,24 +224,20 @@ def create_purchase():
                             data["quantity"],
                         ),
                     )
+                    item_id = next_item_id
 
-                    item_id = int(cursor.fetchone()[0])
 
 
+            cursor.execute("SELECT COALESCE(MAX(PurchaseID), 0) + 1 AS NextID FROM Purchases")
+            next_purchase_id = int(cursor.fetchone()[0])
 
             cursor.execute(
-
                 """
-
-                INSERT INTO Purchases (PurchaseDate, SupplierID, TotalAmount)
+                INSERT INTO Purchases (PurchaseID, PurchaseDate, SupplierID, TotalAmount)
                 OUTPUT INSERTED.PurchaseID
-
-                VALUES (?, ?, ?)
-
+                VALUES (?, ?, ?, ?)
                 """,
-
-                (data["purchase_date"], data["supplier_id"], total),
-
+                (next_purchase_id, data["purchase_date"], data["supplier_id"], total),
             )
 
 
@@ -296,6 +294,7 @@ def create_purchase():
 
         db.rollback()
 
+        app.logger.exception("Error creating purchase")
         flash(f"Error creating purchase: {str(e)}", "danger")
 
         suppliers, items, categories = [], [], []
