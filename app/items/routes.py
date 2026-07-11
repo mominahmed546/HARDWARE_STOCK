@@ -67,7 +67,7 @@ def list_items():
         """
 
         items = execute_query(app, query, tuple(params) if params else None)
-        categories = execute_query(app, "SELECT * FROM Category ORDER BY CategoryName")
+        categories = execute_query(app, "SELECT CategoryID, CategoryName FROM Category ORDER BY CategoryName")
 
         return render_template(
             "items/list.html",
@@ -78,8 +78,9 @@ def list_items():
         )
 
     except Exception as e:
+        app.logger.exception("Error loading items")
         flash(f"Error loading items: {str(e)}", "danger")
-        return redirect(url_for("dashboard.dashboard"))
+        return render_template("items/list.html", items=[], categories=[], search="", category_id="")
 
 
 ALLOWED_UPLOAD_REDIRECTS = {
@@ -144,7 +145,7 @@ def download_items_template():
 def create_item():
     errors = ValidationErrors()
     form_data = {}
-    categories = execute_query(app, "SELECT * FROM Category ORDER BY CategoryName")
+    categories = execute_query(app, "SELECT CategoryID, CategoryName FROM Category ORDER BY CategoryName")
 
     if request.method == "POST":
         form_data = request.form.to_dict()
@@ -210,7 +211,7 @@ def edit_item(id):
             flash("Item not found", "danger")
             return redirect(url_for("items.list_items"))
 
-        categories = execute_query(app, "SELECT * FROM Category ORDER BY CategoryName")
+        categories = execute_query(app, "SELECT CategoryID, CategoryName FROM Category ORDER BY CategoryName")
 
         if request.method == "POST":
             form_data = request.form.to_dict()
