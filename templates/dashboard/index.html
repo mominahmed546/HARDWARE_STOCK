@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}Dashboard - Hardware Stock Management{% endblock %}
-{% block page_title %}Dash Board{% endblock %}
+{% block page_header %}{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
@@ -17,33 +17,33 @@
 
     <div class="pos-totals-bar">
         <div class="pos-total-cell">
-            <span class="pos-total-label">SALES</span>
+            <span class="pos-total-label">Sales</span>
             <span class="pos-total-value sales">Rs {{ "{:,.2f}".format(total_sales|default(0)) }}</span>
         </div>
         <div class="pos-total-cell">
-            <span class="pos-total-label">PURCHASES</span>
+            <span class="pos-total-label">Purchases</span>
             <span class="pos-total-value purchase">Rs {{ "{:,.2f}".format(total_purchases|default(0)) }}</span>
         </div>
         <div class="pos-total-cell">
-            <span class="pos-total-label">CUSTOMERS</span>
+            <span class="pos-total-label">Customers</span>
             <span class="pos-total-value customers">{{ total_customers|default(0) }}</span>
         </div>
         <div class="pos-total-cell">
-            <span class="pos-total-label">PRODUCTS</span>
+            <span class="pos-total-label">Products</span>
             <span class="pos-total-value products">{{ total_products|default(0) }}</span>
         </div>
     </div>
 
     <div class="pos-main-grid">
         <div class="pos-panel">
-            <div class="pos-panel-header out">OUT OF STOCK</div>
+            <div class="pos-panel-header out">Out of stock</div>
             <div class="pos-table-wrap">
                 <table class="pos-table">
                     <thead>
                         <tr>
-                            <th>PRODUCT</th>
-                            <th>QTY</th>
-                            <th>STATUS</th>
+                            <th>Product</th>
+                            <th>Qty</th>
+                            <th>Status</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -51,7 +51,7 @@
                         <tr>
                             <td>{{ item.ItemName }}</td>
                             <td class="qty-cell">{{ item.Qty }}</td>
-                            <td><span class="badge-out">OUT</span></td>
+                            <td><span class="badge-out">Out</span></td>
                         </tr>
                         {% else %}
                         <tr class="empty-row">
@@ -64,14 +64,14 @@
         </div>
 
         <div class="pos-panel">
-            <div class="pos-panel-header low">LOW STOCK (&lt; 10)</div>
+            <div class="pos-panel-header low">Low stock (&lt; 10)</div>
             <div class="pos-table-wrap">
                 <table class="pos-table">
                     <thead>
                         <tr>
-                            <th>PRODUCT</th>
-                            <th>QTY</th>
-                            <th>STATUS</th>
+                            <th>Product</th>
+                            <th>Qty</th>
+                            <th>Status</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -79,7 +79,7 @@
                         <tr>
                             <td>{{ item.ItemName }}</td>
                             <td class="qty-cell">{{ item.Qty }}</td>
-                            <td><span class="badge-low">LOW</span></td>
+                            <td><span class="badge-low">Low</span></td>
                         </tr>
                         {% else %}
                         <tr class="empty-row">
@@ -92,13 +92,13 @@
         </div>
 
         <div class="pos-panel">
-            <div class="pos-panel-header cust">RECENT CUSTOMERS</div>
+            <div class="pos-panel-header cust">Recent customers</div>
             <div class="pos-table-wrap">
                 <table class="pos-table">
                     <thead>
                         <tr>
-                            <th>NAME</th>
-                            <th>CONTACT</th>
+                            <th>Name</th>
+                            <th>Contact</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -116,12 +116,6 @@
                 </table>
             </div>
         </div>
-    </div>
-
-    <div class="pos-banner">
-        <span>EUROGLASS HARDWARE STOCK</span>
-        <span>Ph: 0300-5411417</span>
-        <span>Cash &amp; Carry POS Dashboard</span>
     </div>
 
     <div class="pos-fkey-row">
