@@ -13,7 +13,7 @@
         <div class="search-bar">
             <form method="GET" class="search-form">
                 <input type="text" name="search" placeholder="Search items..." value="{{ search }}">
-                <select name="category_id">
+                <select name="category_id" onchange="this.form.submit()">
                     <option value="">All categories</option>
                     {% for category in categories %}
                     <option value="{{ category.CategoryID }}" {% if category_id|string == category.CategoryID|string %}selected{% endif %}>
