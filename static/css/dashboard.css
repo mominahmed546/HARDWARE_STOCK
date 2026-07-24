@@ -1,268 +1,367 @@
 /* =========================================================
-   Dashboard page — cash & carry POS style
+   Dashboard — Cash & Carry POS (iPOS-style) register UI
    ========================================================= */
 
-.dashboard-page {
-    animation: fadeIn 0.35s ease;
+.dashboard-page.pos-screen {
+    margin: -0.25rem 0 0;
+    font-family: Tahoma, "Segoe UI", Arial, sans-serif;
 }
 
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(8px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
+/* ---------- Store title + clock ---------- */
 
-/* ---------- KPI register tiles ---------- */
-
-.dashboard-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 1rem;
-    margin-bottom: 1.25rem;
-}
-
-.kpi-widget {
-    position: relative;
-    overflow: hidden;
-    color: #fff;
-    padding: 1.1rem 1.25rem 1rem;
-    border-radius: 10px;
-    box-shadow: var(--shadow, 0 4px 24px rgba(15, 23, 42, 0.08));
-    border: 1px solid rgba(0, 0, 0, 0.12);
-}
-
-/* subtle diagonal sheen, like backlit register displays */
-.kpi-widget::after {
-    content: "";
-    position: absolute;
-    top: -40%;
-    right: -25%;
-    width: 65%;
-    height: 180%;
-    background: rgba(255, 255, 255, 0.08);
-    transform: rotate(20deg);
-    pointer-events: none;
-}
-
-.kpi-widget.sales {
-    background: linear-gradient(160deg, #15803d, #16a34a);
-}
-
-.kpi-widget.purchase {
-    background: linear-gradient(160deg, #b45309, #d97706);
-}
-
-.kpi-widget.customer {
-    background: linear-gradient(160deg, #6d28d9, #7c3aed);
-}
-
-.kpi-widget.product {
-    background: linear-gradient(160deg, #1d4ed8, #2563eb);
-}
-
-.kpi-header {
-    color: rgba(255, 255, 255, 0.85);
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-}
-
-.kpi-value {
-    font-size: 2.1rem;
-    font-weight: 800;
-    margin: 0.45rem 0 0.25rem;
-    line-height: 1.15;
-    font-variant-numeric: tabular-nums;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-}
-
-.kpi-footer {
-    color: rgba(255, 255, 255, 0.75);
-    font-size: 0.78rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-}
-
-/* ---------- Panels ---------- */
-
-.panel {
-    background: var(--surface, #fff);
-    padding: 0;
-    border-radius: 10px;
-    box-shadow: var(--shadow, 0 4px 24px rgba(15, 23, 42, 0.08));
-    border: 1px solid var(--border);
-    margin-bottom: 1.25rem;
-    overflow: hidden;
-}
-
-.panel-header {
-    background: var(--sidebar-bg, #0f172a);
-    padding: 0.7rem 1.15rem;
-    border-left: 5px solid var(--primary);
-}
-
-.panel-header h2 {
-    margin: 0;
-    color: #f8fafc;
-    font-size: 0.9rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-}
-
-.panel--danger .panel-header {
-    border-left-color: var(--danger, #dc2626);
-}
-
-.panel--warning .panel-header {
-    border-left-color: var(--warning, #f59e0b);
-}
-
-.panel--info .panel-header {
-    border-left-color: var(--primary, #2563eb);
-}
-
-/* ---------- Quick actions: POS keypad ---------- */
-
-.action-buttons {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 0.75rem;
-    padding: 1rem 1.15rem 1.15rem;
-}
-
-.action-btn {
+.pos-topbar {
     display: flex;
     align-items: center;
-    justify-content: center;
-    min-height: 64px;
-    padding: 0.8rem 0.9rem;
-    background: var(--bg);
-    color: var(--text);
-    border: 2px solid var(--border);
-    border-bottom-width: 4px;
-    border-radius: 10px;
-    text-decoration: none;
-    text-align: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.65rem;
+    padding: 0.15rem 0.25rem;
+}
+
+.pos-store-title {
+    color: #c41e3a;
+    font-size: 1.85rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    line-height: 1.1;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.pos-clock {
+    background: #000;
+    color: #22c55e;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 1.15rem;
     font-weight: 700;
-    font-size: 0.85rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    transition: transform 0.1s, background 0.15s, border-color 0.15s, color 0.15s;
+    padding: 0.4rem 0.85rem;
+    border: 2px solid #334155;
+    border-radius: 4px;
+    letter-spacing: 0.06em;
+    min-width: 9.5rem;
+    text-align: center;
 }
 
-.action-btn:hover {
-    background: var(--primary);
-    border-color: var(--primary-hover);
-    color: #fff;
-}
+/* ---------- Totals strip (SUBTOTAL / PAYMENT style) ---------- */
 
-.action-btn:active {
-    transform: translateY(2px);
-    border-bottom-width: 2px;
-}
-
-/* ---------- Status board tables ---------- */
-
-.table-grid {
+.pos-totals-bar {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1.25rem;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    background: #dbeafe;
+    border: 2px solid #1e40af;
+    margin-bottom: 0.75rem;
 }
 
-.table-grid table {
+.pos-total-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0.55rem 0.75rem;
+    border-right: 2px solid #1e40af;
+    background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
+}
+
+.pos-total-cell:last-child {
+    border-right: none;
+}
+
+.pos-total-label {
+    font-size: 0.72rem;
+    font-weight: 800;
+    color: #1e3a8a;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.pos-total-value {
+    font-size: 1.45rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+    margin-top: 0.15rem;
+}
+
+.pos-total-value.sales {
+    color: #1d4ed8;
+}
+
+.pos-total-value.purchase {
+    color: #c2410c;
+}
+
+.pos-total-value.customers {
+    color: #6d28d9;
+}
+
+.pos-total-value.products {
+    color: #b91c1c;
+}
+
+/* ---------- Main data panels ---------- */
+
+.pos-main-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 1.2fr 1fr;
+    gap: 0.65rem;
+    margin-bottom: 0.65rem;
+}
+
+.pos-panel {
+    display: flex;
+    flex-direction: column;
+    border: 2px solid #1e3a8a;
+    background: #fff;
+    min-height: 220px;
+}
+
+.pos-panel-header {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    color: #fff;
+    text-align: center;
+}
+
+.pos-panel-header.out {
+    background: #dc2626;
+}
+
+.pos-panel-header.low {
+    background: #d97706;
+}
+
+.pos-panel-header.cust {
+    background: #1d4ed8;
+}
+
+.pos-table-wrap {
+    flex: 1;
+    overflow: auto;
+    background: #e0f2fe;
+}
+
+.pos-table {
     width: 100%;
     border-collapse: collapse;
+    font-size: 0.86rem;
 }
 
-.table-grid th {
-    background: var(--bg);
-    padding: 0.6rem 1.15rem;
+.pos-table th {
+    background: #93c5fd;
+    color: #0f172a;
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
     text-align: left;
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--text-muted);
-    border-bottom: 2px solid var(--border);
+    padding: 0.4rem 0.65rem;
+    border-bottom: 2px solid #1e40af;
+    position: sticky;
+    top: 0;
 }
 
-.table-grid td {
-    padding: 0.7rem 1.15rem;
-    border-bottom: 1px solid var(--border);
-    color: var(--text);
-    font-size: 0.92rem;
+.pos-table td {
+    padding: 0.45rem 0.65rem;
+    border-bottom: 1px solid #7dd3fc;
+    color: #0f172a;
+    background: #e0f2fe;
 }
 
-.table-grid tbody tr:nth-child(even) {
-    background: var(--bg);
+.pos-table tbody tr:nth-child(even) td {
+    background: #bae6fd;
 }
 
-.table-grid tr:hover {
-    background: color-mix(in srgb, var(--primary) 8%, var(--surface));
-}
-
-.table-grid tbody tr:last-child td {
-    border-bottom: none;
+.pos-table tbody tr:hover td {
+    background: #7dd3fc;
 }
 
 .qty-cell {
     font-weight: 800;
     font-variant-numeric: tabular-nums;
-    font-size: 1rem;
+    text-align: right;
 }
 
-/* ---------- Status badges ---------- */
-
-.danger,
-.warning {
+.badge-out,
+.badge-low {
     display: inline-block;
-    padding: 0.22rem 0.6rem;
-    border-radius: 4px;
-    font-size: 0.72rem;
+    padding: 0.12rem 0.45rem;
+    font-size: 0.68rem;
     font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.04em;
+    border: 1px solid rgba(0, 0, 0, 0.15);
 }
 
-.danger {
-    background: #dc2626;
+.badge-out {
+    background: #ef4444;
     color: #fff;
 }
 
-.warning {
-    background: #f59e0b;
-    color: #451a03;
+.badge-low {
+    background: #fbbf24;
+    color: #78350f;
 }
 
 .empty-row td {
     text-align: center;
-    color: var(--text-muted);
     font-style: italic;
-    padding: 1.5rem 1rem;
+    color: #475569 !important;
+    padding: 1.5rem 0.75rem !important;
+}
+
+/* ---------- Software banner ---------- */
+
+.pos-banner {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.5rem 1.5rem;
+    background: #1e3a8a;
+    color: #f8fafc;
+    padding: 0.45rem 0.9rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.65rem;
+    border: 2px solid #0f172a;
+}
+
+/* ---------- F-key action row ---------- */
+
+.pos-fkey-row {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 0.45rem;
+}
+
+.fkey {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 68px;
+    padding: 0.45rem 0.35rem;
+    text-decoration: none;
+    color: #0f172a;
+    font-weight: 800;
+    border: 2px solid #0f172a;
+    border-bottom-width: 4px;
+    border-radius: 3px;
+    text-align: center;
+    transition: transform 0.08s, filter 0.1s;
+}
+
+.fkey:hover {
+    filter: brightness(1.06);
+}
+
+.fkey:active {
+    transform: translateY(2px);
+    border-bottom-width: 2px;
+}
+
+.fkey-code {
+    display: block;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    opacity: 0.85;
+}
+
+.fkey-label {
+    display: block;
+    font-size: 0.78rem;
+    line-height: 1.2;
+    margin-top: 0.15rem;
+    text-transform: uppercase;
+}
+
+.fkey-blue { background: #60a5fa; }
+.fkey-pink { background: #f9a8d4; }
+.fkey-yellow { background: #fde047; }
+.fkey-green { background: #86efac; }
+.fkey-purple { background: #c4b5fd; }
+.fkey-orange { background: #fdba74; }
+.fkey-teal { background: #5eead4; }
+.fkey-red { background: #f87171; color: #fff; }
+
+/* ---------- Dark mode tweaks (keep POS contrast) ---------- */
+
+[data-theme="dark"] .pos-panel {
+    background: #0f172a;
+    border-color: #60a5fa;
+}
+
+[data-theme="dark"] .pos-table-wrap,
+[data-theme="dark"] .pos-table td {
+    background: #1e3a5f;
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .pos-table tbody tr:nth-child(even) td {
+    background: #1e40af;
+}
+
+[data-theme="dark"] .pos-table th {
+    background: #1d4ed8;
+    color: #fff;
+    border-bottom-color: #93c5fd;
+}
+
+[data-theme="dark"] .pos-totals-bar {
+    background: #1e3a5f;
+    border-color: #60a5fa;
+}
+
+[data-theme="dark"] .pos-total-cell {
+    background: linear-gradient(180deg, #1e3a5f 0%, #172554 100%);
+    border-right-color: #60a5fa;
+}
+
+[data-theme="dark"] .pos-total-label {
+    color: #93c5fd;
+}
+
+[data-theme="dark"] .pos-store-title {
+    color: #f87171;
 }
 
 /* ---------- Responsive ---------- */
 
 @media (max-width: 1100px) {
-    .dashboard-grid {
-        grid-template-columns: repeat(2, 1fr);
+    .pos-main-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .pos-fkey-row {
+        grid-template-columns: repeat(4, 1fr);
     }
 }
 
 @media (max-width: 700px) {
-    .dashboard-grid,
-    .table-grid,
-    .action-buttons {
-        grid-template-columns: 1fr;
+    .pos-topbar {
+        flex-direction: column;
+        align-items: flex-start;
     }
 
-    .kpi-value {
-        font-size: 1.6rem;
+    .pos-store-title {
+        font-size: 1.4rem;
+    }
+
+    .pos-totals-bar,
+    .pos-main-grid,
+    .pos-fkey-row {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .pos-total-value {
+        font-size: 1.15rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .pos-totals-bar,
+    .pos-main-grid,
+    .pos-fkey-row {
+        grid-template-columns: 1fr;
     }
 }

@@ -1,138 +1,180 @@
 {% extends "base.html" %}
 
 {% block title %}Dashboard - Hardware Stock Management{% endblock %}
-{% block page_title %}Dashboard{% endblock %}
+{% block page_title %}Dash Board{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
 {% endblock %}
 
 {% block content %}
-<div class="dashboard-page">
+<div class="dashboard-page pos-screen">
 
-    <div class="dashboard-grid">
-        <div class="kpi-widget sales">
-            <div class="kpi-header">Total Sales</div>
-            <div class="kpi-value">Rs {{ "{:,.2f}".format(total_sales|default(0)) }}</div>
-            <div class="kpi-footer">All invoices</div>
+    <div class="pos-topbar">
+        <div class="pos-store-title">Euroglass Hardware</div>
+        <div class="pos-clock" id="posClock">--:--:-- --</div>
+    </div>
+
+    <div class="pos-totals-bar">
+        <div class="pos-total-cell">
+            <span class="pos-total-label">SALES</span>
+            <span class="pos-total-value sales">Rs {{ "{:,.2f}".format(total_sales|default(0)) }}</span>
         </div>
-
-        <div class="kpi-widget purchase">
-            <div class="kpi-header">Total Purchases</div>
-            <div class="kpi-value">Rs {{ "{:,.2f}".format(total_purchases|default(0)) }}</div>
-            <div class="kpi-footer">Purchase orders</div>
+        <div class="pos-total-cell">
+            <span class="pos-total-label">PURCHASES</span>
+            <span class="pos-total-value purchase">Rs {{ "{:,.2f}".format(total_purchases|default(0)) }}</span>
         </div>
-
-        <div class="kpi-widget customer">
-            <div class="kpi-header">Customers</div>
-            <div class="kpi-value">{{ total_customers|default(0) }}</div>
-            <div class="kpi-footer">Registered customers</div>
+        <div class="pos-total-cell">
+            <span class="pos-total-label">CUSTOMERS</span>
+            <span class="pos-total-value customers">{{ total_customers|default(0) }}</span>
         </div>
-
-        <div class="kpi-widget product">
-            <div class="kpi-header">Products</div>
-            <div class="kpi-value">{{ total_products|default(0) }}</div>
-            <div class="kpi-footer">Available stock items</div>
+        <div class="pos-total-cell">
+            <span class="pos-total-label">PRODUCTS</span>
+            <span class="pos-total-value products">{{ total_products|default(0) }}</span>
         </div>
     </div>
 
-    <div class="panel">
-        <div class="panel-header">
-            <h2>Quick Actions</h2>
+    <div class="pos-main-grid">
+        <div class="pos-panel">
+            <div class="pos-panel-header out">OUT OF STOCK</div>
+            <div class="pos-table-wrap">
+                <table class="pos-table">
+                    <thead>
+                        <tr>
+                            <th>PRODUCT</th>
+                            <th>QTY</th>
+                            <th>STATUS</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in out_of_stock_items|default([]) %}
+                        <tr>
+                            <td>{{ item.ItemName }}</td>
+                            <td class="qty-cell">{{ item.Qty }}</td>
+                            <td><span class="badge-out">OUT</span></td>
+                        </tr>
+                        {% else %}
+                        <tr class="empty-row">
+                            <td colspan="3">No out of stock items</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
-        <div class="action-buttons">
-            <a href="{{ url_for('suppliers.create_supplier') }}" class="action-btn">+ Add Supplier</a>
-            <a href="{{ url_for('items.create_item') }}" class="action-btn">+ Add Product</a>
-            <a href="{{ url_for('customers.create_customer') }}" class="action-btn">+ Add Customer</a>
-            <a href="{{ url_for('purchases.create_purchase') }}" class="action-btn">+ New Purchase</a>
-            <a href="{{ url_for('invoices.create_invoice') }}" class="action-btn">+ New Invoice</a>
-            <a href="{{ url_for('reports.monthly_sales') }}" class="action-btn">Monthly Sales Report</a>
+
+        <div class="pos-panel">
+            <div class="pos-panel-header low">LOW STOCK (&lt; 10)</div>
+            <div class="pos-table-wrap">
+                <table class="pos-table">
+                    <thead>
+                        <tr>
+                            <th>PRODUCT</th>
+                            <th>QTY</th>
+                            <th>STATUS</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in low_stock_items|default([]) %}
+                        <tr>
+                            <td>{{ item.ItemName }}</td>
+                            <td class="qty-cell">{{ item.Qty }}</td>
+                            <td><span class="badge-low">LOW</span></td>
+                        </tr>
+                        {% else %}
+                        <tr class="empty-row">
+                            <td colspan="3">No low stock items</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="pos-panel">
+            <div class="pos-panel-header cust">RECENT CUSTOMERS</div>
+            <div class="pos-table-wrap">
+                <table class="pos-table">
+                    <thead>
+                        <tr>
+                            <th>NAME</th>
+                            <th>CONTACT</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for customer in recent_customers|default([]) %}
+                        <tr>
+                            <td>{{ customer.CustomerName }}</td>
+                            <td>{{ customer.ContactNo or 'N/A' }}</td>
+                        </tr>
+                        {% else %}
+                        <tr class="empty-row">
+                            <td colspan="2">No customers found</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
-    <div class="table-grid">
-        <div class="panel panel--danger">
-            <div class="panel-header">
-                <h2>Out of Stock Products</h2>
-            </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Product</th>
-                        <th>Quantity</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in out_of_stock_items|default([]) %}
-                    <tr>
-                        <td>{{ item.ItemName }}</td>
-                        <td class="qty-cell">{{ item.Qty }}</td>
-                        <td><span class="danger">Out of Stock</span></td>
-                    </tr>
-                    {% else %}
-                    <tr class="empty-row">
-                        <td colspan="3">No out of stock items</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+    <div class="pos-banner">
+        <span>EUROGLASS HARDWARE STOCK</span>
+        <span>Ph: 0300-5411417</span>
+        <span>Cash &amp; Carry POS Dashboard</span>
+    </div>
 
-        <div class="panel panel--warning">
-            <div class="panel-header">
-                <h2>Low Stock Products</h2>
-            </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Product</th>
-                        <th>Quantity</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in low_stock_items|default([]) %}
-                    <tr>
-                        <td>{{ item.ItemName }}</td>
-                        <td class="qty-cell">{{ item.Qty }}</td>
-                        <td><span class="warning">Low Stock</span></td>
-                    </tr>
-                    {% else %}
-                    <tr class="empty-row">
-                        <td colspan="3">No low stock items</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <div class="panel panel--info">
-            <div class="panel-header">
-                <h2>Recent Customers</h2>
-            </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Contact</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for customer in recent_customers|default([]) %}
-                    <tr>
-                        <td>{{ customer.CustomerName }}</td>
-                        <td>{{ customer.ContactNo or 'N/A' }}</td>
-                    </tr>
-                    {% else %}
-                    <tr class="empty-row">
-                        <td colspan="2">No customers found</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+    <div class="pos-fkey-row">
+        <a href="{{ url_for('items.create_item') }}" class="fkey fkey-blue">
+            <span class="fkey-code">F2</span>
+            <span class="fkey-label">Add Product</span>
+        </a>
+        <a href="{{ url_for('categories.list_categories') }}" class="fkey fkey-pink">
+            <span class="fkey-code">F3</span>
+            <span class="fkey-label">Category</span>
+        </a>
+        <a href="{{ url_for('suppliers.create_supplier') }}" class="fkey fkey-yellow">
+            <span class="fkey-code">F4</span>
+            <span class="fkey-label">Add Supplier</span>
+        </a>
+        <a href="{{ url_for('purchases.create_purchase') }}" class="fkey fkey-green">
+            <span class="fkey-code">F5</span>
+            <span class="fkey-label">New Purchase</span>
+        </a>
+        <a href="{{ url_for('customers.create_customer') }}" class="fkey fkey-purple">
+            <span class="fkey-code">F6</span>
+            <span class="fkey-label">Add Customer</span>
+        </a>
+        <a href="{{ url_for('invoices.create_invoice') }}" class="fkey fkey-orange">
+            <span class="fkey-code">F7</span>
+            <span class="fkey-label">New Invoice</span>
+        </a>
+        <a href="{{ url_for('reports.monthly_sales') }}" class="fkey fkey-teal">
+            <span class="fkey-code">F8</span>
+            <span class="fkey-label">Sales Report</span>
+        </a>
+        <a href="{{ url_for('items.list_items') }}" class="fkey fkey-red">
+            <span class="fkey-code">F9</span>
+            <span class="fkey-label">Item File</span>
+        </a>
     </div>
 
 </div>
+<script>
+(function () {
+    function pad(n) { return String(n).padStart(2, '0'); }
+    function tick() {
+        var el = document.getElementById('posClock');
+        if (!el) return;
+        var d = new Date();
+        var h = d.getHours();
+        var ampm = h >= 12 ? 'PM' : 'AM';
+        h = h % 12;
+        if (h === 0) h = 12;
+        el.textContent = pad(h) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) + ' ' + ampm;
+    }
+    tick();
+    setInterval(tick, 1000);
+})();
+</script>
 {% endblock %}
