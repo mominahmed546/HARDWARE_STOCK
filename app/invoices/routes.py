@@ -492,6 +492,12 @@ def create_invoice():
 
             total = sum(line["total"] for line in valid_lines)
 
+            # Use the date selected on the form, keeping the current time of day
+            invoice_datetime = datetime.combine(
+                datetime.strptime(data["invoice_date"], "%Y-%m-%d").date(),
+                datetime.now().time(),
+            )
+
             # Assign invoice number as MAX(invoice_id)+1 so deleted numbers are reused
             cursor.execute("SELECT COALESCE(MAX(InvoiceID), 0) + 1 AS NextID FROM Invoices")
             next_id = int(cursor.fetchone()[0])
@@ -502,7 +508,7 @@ def create_invoice():
                 OUTPUT INSERTED.InvoiceID
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (next_id, data["customer_id"], datetime.now(), total, "Unpaid", data["previous_balance"]),
+                (next_id, data["customer_id"], invoice_datetime, total, "Unpaid", data["previous_balance"]),
             )
             invoice_id = int(cursor.fetchone()[0])
 
