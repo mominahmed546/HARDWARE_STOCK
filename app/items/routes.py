@@ -54,7 +54,8 @@ def list_items():
         params = []
 
         if search:
-            query += " AND i.ItemName LIKE ?"
+            # LIKE is case-sensitive on PostgreSQL, unlike SQL Server
+            query += " AND LOWER(i.ItemName) LIKE LOWER(?)"
             params.append(f"%{search}%")
 
         if category_id:
