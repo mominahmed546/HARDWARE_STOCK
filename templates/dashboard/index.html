@@ -15,6 +15,41 @@
         <div class="pos-clock" id="posClock">--:--:-- --</div>
     </div>
 
+    <div class="pos-fkey-row">
+        <a href="{{ url_for('items.create_item') }}" class="fkey fkey-blue">
+            <span class="fkey-code">F2</span>
+            <span class="fkey-label">Add Product</span>
+        </a>
+        <a href="{{ url_for('categories.list_categories') }}" class="fkey fkey-pink">
+            <span class="fkey-code">F3</span>
+            <span class="fkey-label">Category</span>
+        </a>
+        <a href="{{ url_for('suppliers.create_supplier') }}" class="fkey fkey-yellow">
+            <span class="fkey-code">F4</span>
+            <span class="fkey-label">Add Supplier</span>
+        </a>
+        <a href="{{ url_for('purchases.create_purchase') }}" class="fkey fkey-green">
+            <span class="fkey-code">F5</span>
+            <span class="fkey-label">New Purchase</span>
+        </a>
+        <a href="{{ url_for('customers.create_customer') }}" class="fkey fkey-purple">
+            <span class="fkey-code">F6</span>
+            <span class="fkey-label">Add Customer</span>
+        </a>
+        <a href="{{ url_for('invoices.create_invoice') }}" class="fkey fkey-orange">
+            <span class="fkey-code">F7</span>
+            <span class="fkey-label">New Invoice</span>
+        </a>
+        <a href="{{ url_for('reports.monthly_sales') }}" class="fkey fkey-teal">
+            <span class="fkey-code">F8</span>
+            <span class="fkey-label">Sales Report</span>
+        </a>
+        <a href="{{ url_for('items.list_items') }}" class="fkey fkey-red">
+            <span class="fkey-code">F9</span>
+            <span class="fkey-label">Item File</span>
+        </a>
+    </div>
+
     <div class="pos-totals-bar">
         <div class="pos-total-cell">
             <span class="pos-total-label">Sales</span>
@@ -116,41 +151,6 @@
                 </table>
             </div>
         </div>
-    </div>
-
-    <div class="pos-fkey-row">
-        <a href="{{ url_for('items.create_item') }}" class="fkey fkey-blue">
-            <span class="fkey-code">F2</span>
-            <span class="fkey-label">Add Product</span>
-        </a>
-        <a href="{{ url_for('categories.list_categories') }}" class="fkey fkey-pink">
-            <span class="fkey-code">F3</span>
-            <span class="fkey-label">Category</span>
-        </a>
-        <a href="{{ url_for('suppliers.create_supplier') }}" class="fkey fkey-yellow">
-            <span class="fkey-code">F4</span>
-            <span class="fkey-label">Add Supplier</span>
-        </a>
-        <a href="{{ url_for('purchases.create_purchase') }}" class="fkey fkey-green">
-            <span class="fkey-code">F5</span>
-            <span class="fkey-label">New Purchase</span>
-        </a>
-        <a href="{{ url_for('customers.create_customer') }}" class="fkey fkey-purple">
-            <span class="fkey-code">F6</span>
-            <span class="fkey-label">Add Customer</span>
-        </a>
-        <a href="{{ url_for('invoices.create_invoice') }}" class="fkey fkey-orange">
-            <span class="fkey-code">F7</span>
-            <span class="fkey-label">New Invoice</span>
-        </a>
-        <a href="{{ url_for('reports.monthly_sales') }}" class="fkey fkey-teal">
-            <span class="fkey-code">F8</span>
-            <span class="fkey-label">Sales Report</span>
-        </a>
-        <a href="{{ url_for('items.list_items') }}" class="fkey fkey-red">
-            <span class="fkey-code">F9</span>
-            <span class="fkey-label">Item File</span>
-        </a>
     </div>
 
 </div>
