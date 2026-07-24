@@ -98,13 +98,15 @@ def dashboard():
 
             """
 
-            SELECT TOP 5 ItemName, Qty
+            SELECT TOP 5 MIN(ItemName) AS ItemName, SUM(Qty) AS Qty
 
             FROM Item
 
-            WHERE Qty <= 10
+            GROUP BY LOWER(LTRIM(RTRIM(ItemName))), CategoryID
 
-            ORDER BY Qty ASC
+            HAVING SUM(Qty) <= 10
+
+            ORDER BY SUM(Qty) ASC
 
             """
 
