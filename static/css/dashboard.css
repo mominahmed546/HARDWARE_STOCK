@@ -269,24 +269,16 @@
     border-color: var(--border);
 }
 
-[data-theme="dark"] .fkey,
-[data-theme="dark"] .fkey-blue,
-[data-theme="dark"] .fkey-pink,
-[data-theme="dark"] .fkey-yellow,
-[data-theme="dark"] .fkey-green,
-[data-theme="dark"] .fkey-purple,
-[data-theme="dark"] .fkey-orange,
-[data-theme="dark"] .fkey-teal,
-[data-theme="dark"] .fkey-red {
-    background: var(--surface);
-    color: var(--text);
-    border-color: var(--border);
+[data-theme="dark"] .fkey {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
 }
 
 [data-theme="dark"] .fkey:hover {
-    background: #1e3a5f;
-    border-color: var(--primary);
-    color: #93c5fd;
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
+    color: #fff;
 }
 
 [data-theme="dark"] .pos-total-cell,
