@@ -159,6 +159,16 @@
     font-weight: 600;
 }
 
+.warning {
+    display: inline-block;
+    background: #fef3c7;
+    color: #b45309;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+
 .empty-row td {
     text-align: center;
     color: var(--text-muted);

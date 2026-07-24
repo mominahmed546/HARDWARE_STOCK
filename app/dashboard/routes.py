@@ -38,6 +38,8 @@ def dashboard():
 
         'low_stock_items': [],
 
+        'out_of_stock_items': [],
+
         'recent_customers': [],
 
     }
@@ -104,7 +106,29 @@ def dashboard():
 
             GROUP BY LOWER(LTRIM(RTRIM(ItemName))), CategoryID
 
-            HAVING SUM(Qty) <= 10
+            HAVING SUM(Qty) <= 0
+
+            ORDER BY MIN(ItemName) ASC
+
+            """
+
+        )
+
+        out_of_stock_items = cursor.fetchall()
+
+
+
+        cursor.execute(
+
+            """
+
+            SELECT TOP 5 MIN(ItemName) AS ItemName, SUM(Qty) AS Qty
+
+            FROM Item
+
+            GROUP BY LOWER(LTRIM(RTRIM(ItemName))), CategoryID
+
+            HAVING SUM(Qty) > 0 AND SUM(Qty) < 10
 
             ORDER BY SUM(Qty) ASC
 
@@ -153,6 +177,8 @@ def dashboard():
             total_products=total_items,
 
             low_stock_items=low_stock_items,
+
+            out_of_stock_items=out_of_stock_items,
 
             recent_customers=recent_customers,
 

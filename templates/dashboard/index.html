@@ -53,6 +53,34 @@
     <div class="table-grid">
         <div class="panel">
             <div class="panel-header">
+                <h2>Out of Stock Products</h2>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Quantity</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in out_of_stock_items|default([]) %}
+                    <tr>
+                        <td>{{ item.ItemName }}</td>
+                        <td>{{ item.Qty }}</td>
+                        <td><span class="danger">Out of Stock</span></td>
+                    </tr>
+                    {% else %}
+                    <tr class="empty-row">
+                        <td colspan="3">No out of stock items</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
                 <h2>Low Stock Products</h2>
             </div>
             <table>
@@ -68,7 +96,7 @@
                     <tr>
                         <td>{{ item.ItemName }}</td>
                         <td>{{ item.Qty }}</td>
-                        <td><span class="danger">Low Stock</span></td>
+                        <td><span class="warning">Low Stock</span></td>
                     </tr>
                     {% else %}
                     <tr class="empty-row">
