@@ -4,7 +4,7 @@
 {% block page_title %}Invoices{% endblock %}
 
 {% block content %}
-<div class="container">
+<div class="container invoices-page">
     <div class="list-header">
         <div class="search-bar">
             <form method="GET" class="search-form">
@@ -15,7 +15,8 @@
         <a href="{{ url_for('invoices.create_invoice') }}" class="btn btn-success">+ New Invoice</a>
     </div>
 
-    <table class="data-table">
+    <div class="table-wrap invoices-table-wrap">
+    <table class="data-table invoices-table">
         <thead>
             <tr>
                 <th>ID</th>
@@ -42,26 +43,32 @@
                 </td>
                 <td>Rs {{ "{:,.2f}".format(invoice.Profit|default(0)) }}</td>
                 <td><span class="pay-status {{ status|lower }}">{{ status }}</span></td>
-                <td>
-                    <a href="{{ url_for('invoices.edit_invoice', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">Edit</a>
-                    <a href="{{ url_for('invoices.invoice_pdf', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">PDF</a>
-                    <a href="{{ url_for('invoices.invoice_payments', id=invoice.InvoiceID) }}" class="btn btn-sm btn-primary">Receive Partial Payment</a>
-                    <form method="POST" action="{{ url_for('invoices.update_invoice_status', id=invoice.InvoiceID) }}" style="display:inline;">
-                        {% if status == 'Paid' %}
-                        <input type="hidden" name="status" value="Unpaid">
-                        <button type="submit" class="btn btn-sm btn-secondary">Mark Unpaid</button>
-                        {% else %}
-                        <input type="hidden" name="status" value="Paid">
-                        <select name="payment_method" class="pay-method-select" title="Cash or bank">
-                            <option value="Cash">Cash</option>
-                            <option value="Bank">Bank</option>
-                        </select>
-                        <button type="submit" class="btn btn-sm btn-success">Mark Paid</button>
-                        {% endif %}
-                    </form>
-                    <form method="POST" action="{{ url_for('invoices.delete_invoice', id=invoice.InvoiceID) }}" style="display:inline;">
-                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this invoice? Stock quantities will be restored.')">Delete</button>
-                    </form>
+                <td class="invoice-actions-cell">
+                    <div class="invoice-actions">
+                        <div class="invoice-actions-row">
+                            <a href="{{ url_for('invoices.edit_invoice', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">Edit</a>
+                            <a href="{{ url_for('invoices.invoice_pdf', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">PDF</a>
+                        </div>
+                        <a href="{{ url_for('invoices.invoice_payments', id=invoice.InvoiceID) }}" class="btn btn-sm btn-primary invoice-action-wide">Receive Partial Payment</a>
+                        <div class="invoice-actions-row">
+                            <form method="POST" action="{{ url_for('invoices.update_invoice_status', id=invoice.InvoiceID) }}" class="invoice-status-form">
+                                {% if status == 'Paid' %}
+                                <input type="hidden" name="status" value="Unpaid">
+                                <button type="submit" class="btn btn-sm btn-secondary">Mark Unpaid</button>
+                                {% else %}
+                                <input type="hidden" name="status" value="Paid">
+                                <select name="payment_method" class="pay-method-select" title="Cash or bank">
+                                    <option value="Cash">Cash</option>
+                                    <option value="Bank">Bank</option>
+                                </select>
+                                <button type="submit" class="btn btn-sm btn-success">Mark Paid</button>
+                                {% endif %}
+                            </form>
+                            <form method="POST" action="{{ url_for('invoices.delete_invoice', id=invoice.InvoiceID) }}" class="invoice-delete-form">
+                                <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this invoice? Stock quantities will be restored.')">Delete</button>
+                            </form>
+                        </div>
+                    </div>
                 </td>
             </tr>
             {% else %}
@@ -71,5 +78,6 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 {% endblock %}
