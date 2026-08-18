@@ -3,6 +3,7 @@ from flask_login import login_required
 
 from app import app
 from app.db import get_db_connection
+from app.tenancy import next_table_id
 from app.validators import ValidationErrors, clean_string
 
 categories_bp = Blueprint("categories", __name__, url_prefix="/categories")
@@ -72,8 +73,7 @@ def create_category():
             db = get_db_connection(app)
             cursor = db.cursor()
 
-            cursor.execute("SELECT ISNULL(MAX(CategoryID), 0) + 1 FROM Category")
-            next_category_id = cursor.fetchone()[0]
+            next_category_id = next_table_id(cursor, "Category", "CategoryID")
 
             cursor.execute(
                 "INSERT INTO Category (CategoryID, CategoryName) VALUES (?, ?)",

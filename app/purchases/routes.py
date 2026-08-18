@@ -7,6 +7,7 @@ from flask_login import login_required
 from app import app
 
 from app.db import get_db_connection
+from app.tenancy import next_table_id
 
 from app.validators import (
 
@@ -208,8 +209,7 @@ def create_purchase():
                         (data["quantity"], data["purchase_rate"], data["sale_rate"], item_id),
                     )
                 else:
-                    cursor.execute("SELECT COALESCE(MAX(ItemID), 0) + 1 AS NextID FROM Item")
-                    next_item_id = int(cursor.fetchone()[0])
+                    next_item_id = next_table_id(cursor, "Item", "ItemID")
                     cursor.execute(
                         """
                         INSERT INTO Item (ItemID, ItemName, CategoryID, PurchaseRate, SaleRate, Qty)
@@ -228,8 +228,7 @@ def create_purchase():
 
 
 
-            cursor.execute("SELECT COALESCE(MAX(PurchaseID), 0) + 1 AS NextID FROM Purchases")
-            next_purchase_id = int(cursor.fetchone()[0])
+            next_purchase_id = next_table_id(cursor, "Purchases", "PurchaseID")
 
             cursor.execute(
                 """

@@ -4,6 +4,7 @@ from flask_login import login_required
 
 from app import app
 from app.db import execute_query, execute_query_one, execute_update, get_db_connection
+from app.tenancy import next_table_id
 from app.items.import_utils import build_items_template_xlsx, import_items, parse_items_xlsx
 from app.validators import (
     ValidationErrors,
@@ -165,8 +166,7 @@ def create_item():
         try:
             db = get_db_connection(app)
             cursor = db.cursor()
-            cursor.execute("SELECT COALESCE(MAX(ItemID), 0) + 1 AS NextID FROM Item")
-            next_id = int(cursor.fetchone()[0])
+            next_id = next_table_id(cursor, "Item", "ItemID")
             cursor.execute(
                 """
                 INSERT INTO Item (ItemID, ItemName, CategoryID, PurchaseRate, SaleRate, Qty)

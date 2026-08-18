@@ -111,12 +111,20 @@ def ensure_cash_accounts(db, cursor):
         """
     )
     cursor.execute(
-        """
-        INSERT INTO CashAccounts (AccountID, CashOpening, BankOpening)
-        SELECT 1, 0, 0
-        WHERE NOT EXISTS (SELECT 1 FROM CashAccounts WHERE AccountID = 1)
-        """
+        "ALTER TABLE CashAccounts ADD COLUMN IF NOT EXISTS UserID INTEGER"
     )
+    from app.tenancy import request_user_id
+
+    user_id = request_user_id()
+    if user_id:
+        cursor.execute(
+            """
+            INSERT INTO CashAccounts (AccountID, UserID, CashOpening, BankOpening)
+            SELECT ?, ?, 0, 0
+            WHERE NOT EXISTS (SELECT 1 FROM CashAccounts WHERE UserID = ?)
+            """,
+            (user_id, user_id, user_id),
+        )
     db.commit()
 
 
@@ -125,7 +133,8 @@ def get_cash_openings(cursor):
         """
         SELECT COALESCE(CashOpening, 0) AS CashOpening, COALESCE(BankOpening, 0) AS BankOpening
         FROM CashAccounts
-        WHERE AccountID = 1
+        ORDER BY AccountID
+        LIMIT 1
         """
     )
     row = cursor.fetchone()
@@ -135,13 +144,16 @@ def get_cash_openings(cursor):
 
 
 def save_cash_openings(cursor, cash_opening, bank_opening):
+    from app.tenancy import request_user_id
+
+    user_id = request_user_id()
     cursor.execute(
         """
         UPDATE CashAccounts
         SET CashOpening = ?, BankOpening = ?
-        WHERE AccountID = 1
+        WHERE UserID = ? OR (UserID IS NULL AND AccountID = 1)
         """,
-        (float(cash_opening or 0), float(bank_opening or 0)),
+        (float(cash_opening or 0), float(bank_opening or 0), user_id or 0),
     )
 
 

@@ -156,6 +156,7 @@ def import_items(app, items):
 
     try:
         from app.db import get_db_connection
+        from app.tenancy import next_table_id
 
         db = get_db_connection(app)
         cursor = db.cursor()
@@ -218,8 +219,7 @@ def import_items(app, items):
                 )
                 updated += 1
             else:
-                cursor.execute("SELECT COALESCE(MAX(ItemID), 0) + 1 AS NextID FROM Item")
-                next_item_id = int(cursor.fetchone()[0])
+                next_item_id = next_table_id(cursor, "Item", "ItemID")
                 cursor.execute(
                     """
                     INSERT INTO Item (ItemID, ItemName, CategoryID, PurchaseRate, SaleRate, Qty)

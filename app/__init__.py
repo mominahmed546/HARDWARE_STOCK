@@ -44,6 +44,18 @@ login_manager.login_view = "auth.login"
 login_manager.login_message = "Please log in to access this page."
 
 
+@app.before_request
+def bind_account_data():
+    from flask import request as flask_request
+
+    endpoint = flask_request.endpoint or ""
+    if endpoint.startswith("static") or endpoint in {"index"}:
+        return
+    from app.tenancy import bind_current_account
+
+    bind_current_account(get_db_connection(app))
+
+
 class User:
     def __init__(self, id, username, role="user"):
         self.id = id

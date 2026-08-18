@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS customers (
     customer_id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(user_id),
     customer_name VARCHAR(100) NOT NULL,
     contact_no VARCHAR(20),
     previous_balance NUMERIC(12, 2) DEFAULT 0
@@ -13,17 +14,20 @@ CREATE TABLE IF NOT EXISTS customers (
 
 CREATE TABLE IF NOT EXISTS supplier (
     supplier_id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(user_id),
     supplier_name VARCHAR(100) NOT NULL,
     contact_no VARCHAR(20)
 );
 
 CREATE TABLE IF NOT EXISTS category (
     category_id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(user_id),
     category_name VARCHAR(100) NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS item (
     item_id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(user_id),
     item_name VARCHAR(100) NOT NULL,
     category_id INTEGER REFERENCES category(category_id),
     purchase_rate NUMERIC(10, 2) DEFAULT 0,
@@ -33,6 +37,7 @@ CREATE TABLE IF NOT EXISTS item (
 
 CREATE TABLE IF NOT EXISTS purchases (
     purchase_id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(user_id),
     purchase_date DATE NOT NULL,
     supplier_id INTEGER REFERENCES supplier(supplier_id),
     total_amount NUMERIC(12, 2) DEFAULT 0
@@ -49,6 +54,7 @@ CREATE TABLE IF NOT EXISTS purchase_details (
 
 CREATE TABLE IF NOT EXISTS invoices (
     invoice_id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(user_id),
     customer_id INTEGER NOT NULL REFERENCES customers(customer_id),
     date DATE NOT NULL,
     total_amount NUMERIC(12, 2) DEFAULT 0,
@@ -78,6 +84,7 @@ CREATE TABLE IF NOT EXISTS invoice_payments (
 
 CREATE TABLE IF NOT EXISTS cash_accounts (
     account_id INTEGER PRIMARY KEY,
+    user_id INTEGER REFERENCES users(user_id),
     cash_opening NUMERIC(12, 2) DEFAULT 0,
     bank_opening NUMERIC(12, 2) DEFAULT 0
 );
@@ -87,7 +94,8 @@ CREATE INDEX IF NOT EXISTS idx_invoice_payments_invoice_id
 
 CREATE TABLE IF NOT EXISTS quotations (
     quotation_id SERIAL PRIMARY KEY,
-    quotation_no INTEGER UNIQUE,
+    user_id INTEGER REFERENCES users(user_id),
+    quotation_no INTEGER,
     quotation_date DATE NOT NULL,
     customer_id INTEGER REFERENCES customers(customer_id),
     customer_name VARCHAR(100) NOT NULL,
@@ -115,6 +123,7 @@ CREATE TABLE IF NOT EXISTS quotation_details (
 
 CREATE TABLE IF NOT EXISTS stock_history (
     history_id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(user_id),
     item_id INTEGER REFERENCES item(item_id),
     purchase_id INTEGER REFERENCES purchases(purchase_id),
     invoice_id INTEGER REFERENCES invoices(invoice_id),
@@ -122,3 +131,9 @@ CREATE TABLE IF NOT EXISTS stock_history (
     action_type VARCHAR(20),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_quotations_user_no
+    ON quotations (user_id, quotation_no);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cash_accounts_user
+    ON cash_accounts (user_id);

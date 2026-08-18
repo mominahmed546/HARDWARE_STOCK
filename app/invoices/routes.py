@@ -7,6 +7,7 @@ from flask_login import login_required
 from app import app
 from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
 from app.db import get_db_connection
+from app.tenancy import next_table_id
 from app.payments import (
     add_invoice_payment,
     clear_invoice_payments,
@@ -694,8 +695,7 @@ def create_invoice():
             )
 
             # Assign invoice number as MAX(invoice_id)+1 so deleted numbers are reused
-            cursor.execute("SELECT COALESCE(MAX(InvoiceID), 0) + 1 AS NextID FROM Invoices")
-            next_id = int(cursor.fetchone()[0])
+            next_id = next_table_id(cursor, "Invoices", "InvoiceID")
 
             cash_received, net_balance = _invoice_settlement(
                 data["previous_balance"], total, 0
