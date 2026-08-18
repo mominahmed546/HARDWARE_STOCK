@@ -432,6 +432,19 @@ a {
     overflow-x: auto;
 }
 
+.invoices-table th.invoice-status-col,
+.invoices-table td.invoice-status-col {
+    width: 1%;
+    white-space: nowrap;
+    padding-left: 0.55rem;
+    padding-right: 0.55rem;
+}
+
+.invoices-table .invoice-status-col .pay-status {
+    padding: 0.12rem 0.42rem;
+    font-size: 0.7rem;
+}
+
 .invoice-actions-cell {
     width: 1%;
     white-space: nowrap;
