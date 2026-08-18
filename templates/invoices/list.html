@@ -37,6 +37,7 @@
                 <td>Rs {{ "{:,.2f}".format(invoice.Profit|default(0)) }}</td>
                 <td>{{ invoice.PaymentStatus or 'Unpaid' }}</td>
                 <td>
+                    <a href="{{ url_for('invoices.edit_invoice', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">Edit</a>
                     <a href="{{ url_for('invoices.invoice_pdf', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">Download PDF</a>
                     <form method="POST" action="{{ url_for('invoices.update_invoice_status', id=invoice.InvoiceID) }}" style="display:inline;">
                         {% if (invoice.PaymentStatus or 'Unpaid') == 'Paid' %}

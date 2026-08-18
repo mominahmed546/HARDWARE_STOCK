@@ -104,10 +104,11 @@ def _default_invoice_lines():
     return [{"item_id": "", "quantity": "1", "rate": "0"}]
 
 
-def _validate_invoice_lines(form, cursor, errors):
+def _validate_invoice_lines(form, cursor, errors, extra_stock_by_item=None):
     lines = _invoice_lines_from_form(form)
     valid_lines = []
     requested_qty_by_item = {}
+    extra_stock_by_item = extra_stock_by_item or {}
 
     if not any(line["item_id"] or line["quantity"] or line["rate"] for line in lines):
         errors.add("item_id[]", "At least one item is required.")
@@ -142,9 +143,10 @@ def _validate_invoice_lines(form, cursor, errors):
             errors.add("item_id[]", "Selected item was not found.")
             break
 
+        available_qty = int(item.Qty or 0) + int(extra_stock_by_item.get(item_value, 0) or 0)
         requested_qty_by_item[item_value] = requested_qty_by_item.get(item_value, 0) + quantity_value
-        if requested_qty_by_item[item_value] > item.Qty:
-            errors.add("quantity[]", f"Only {item.Qty} item(s) are available for {item.ItemName}.")
+        if requested_qty_by_item[item_value] > available_qty:
+            errors.add("quantity[]", f"Only {available_qty} item(s) are available for {item.ItemName}.")
             break
 
         valid_lines.append(
@@ -163,9 +165,15 @@ def _validate_invoice_lines(form, cursor, errors):
     return lines, valid_lines
 
 
-def _load_invoice_form_data(cursor):
+def _load_invoice_form_data(cursor, extra_item_ids=None, exclude_invoice_id=None):
+    unpaid_filter = "WHERE COALESCE(PaymentStatus, 'Unpaid') = 'Unpaid'"
+    unpaid_params = []
+    if exclude_invoice_id is not None:
+        unpaid_filter += " AND InvoiceID <> ?"
+        unpaid_params.append(exclude_invoice_id)
+
     cursor.execute(
-        """
+        f"""
         SELECT
             c.CustomerID,
             c.CustomerName,
@@ -175,25 +183,99 @@ def _load_invoice_form_data(cursor):
         LEFT JOIN (
             SELECT CustomerID, SUM(TotalAmount) AS UnpaidTotal
             FROM Invoices
-            WHERE COALESCE(PaymentStatus, 'Unpaid') = 'Unpaid'
+            {unpaid_filter}
             GROUP BY CustomerID
         ) unpaid ON unpaid.CustomerID = c.CustomerID
         ORDER BY c.CustomerName
-        """
+        """,
+        unpaid_params,
     )
     customers = cursor.fetchall()
 
-    cursor.execute(
-        """
-        SELECT ItemID, ItemName, SaleRate, Qty
-        FROM Item
-        WHERE Qty > 0
-        ORDER BY ItemName
-        """
-    )
+    extra_item_ids = [int(item_id) for item_id in (extra_item_ids or []) if item_id]
+    if extra_item_ids:
+        placeholders = ",".join("?" * len(extra_item_ids))
+        cursor.execute(
+            f"""
+            SELECT ItemID, ItemName, SaleRate, Qty
+            FROM Item
+            WHERE Qty > 0 OR ItemID IN ({placeholders})
+            ORDER BY ItemName
+            """,
+            extra_item_ids,
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT ItemID, ItemName, SaleRate, Qty
+            FROM Item
+            WHERE Qty > 0
+            ORDER BY ItemName
+            """
+        )
     items = cursor.fetchall()
 
     return customers, items
+
+
+def _invoice_date_iso(value):
+    if not value:
+        return date.today().isoformat()
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y-%m-%d")
+
+    value = str(value).strip()
+    for date_format in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(value[:19], date_format).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return date.today().isoformat()
+
+
+def _invoice_time(value):
+    if hasattr(value, "time"):
+        return value.time()
+    return datetime.now().time()
+
+
+def _existing_invoice_stock(cursor, invoice_id):
+    cursor.execute(
+        """
+        SELECT ItemID, Qty
+        FROM InvoiceDetails
+        WHERE InvoiceID = ?
+        """,
+        (invoice_id,),
+    )
+    extra_stock_by_item = {}
+    extra_item_ids = []
+    for row in cursor.fetchall():
+        item_id = row.ItemID
+        extra_item_ids.append(item_id)
+        extra_stock_by_item[item_id] = extra_stock_by_item.get(item_id, 0) + int(row.Qty or 0)
+    return extra_stock_by_item, extra_item_ids
+
+
+def _invoice_lines_from_details(cursor, invoice_id):
+    cursor.execute(
+        """
+        SELECT ItemID, Qty, Rate
+        FROM InvoiceDetails
+        WHERE InvoiceID = ?
+        ORDER BY DetailID
+        """,
+        (invoice_id,),
+    )
+    lines = [
+        {
+            "item_id": str(row.ItemID or ""),
+            "quantity": str(row.Qty or 1),
+            "rate": str(row.Rate or 0),
+        }
+        for row in cursor.fetchall()
+    ]
+    return lines or _default_invoice_lines()
 
 
 def _pdf_escape(value):
@@ -671,6 +753,199 @@ def invoice_pdf(id):
 
     except Exception as e:
         flash(f"Error generating invoice PDF: {str(e)}", "danger")
+        return redirect(url_for("invoices.list_invoices"))
+
+    finally:
+        cursor.close()
+
+
+@invoices_bp.route("/<int:id>/edit", methods=["GET", "POST"])
+@login_required
+def edit_invoice(id):
+    db = get_db_connection(app)
+    cursor = db.cursor()
+    errors = ValidationErrors()
+    form_data = {}
+    invoice_lines = _default_invoice_lines()
+
+    try:
+        _ensure_previous_balance_column(db, cursor)
+        _ensure_invoice_payment_status_column(db, cursor)
+        _ensure_invoice_previous_balance_column(db, cursor)
+        _ensure_invoice_date_is_timestamp(db, cursor)
+
+        cursor.execute(
+            """
+            SELECT
+                InvoiceID,
+                CustomerID,
+                [Date] AS InvoiceDate,
+                TotalAmount,
+                COALESCE(PaymentStatus, 'Unpaid') AS PaymentStatus,
+                COALESCE(PreviousBalance, 0) AS PreviousBalance
+            FROM Invoices
+            WHERE InvoiceID = ?
+            """,
+            (id,),
+        )
+        invoice = cursor.fetchone()
+
+        if not invoice:
+            flash("Invoice not found.", "danger")
+            return redirect(url_for("invoices.list_invoices"))
+
+        extra_stock_by_item, extra_item_ids = _existing_invoice_stock(cursor, id)
+        customers, items = _load_invoice_form_data(
+            cursor,
+            extra_item_ids=extra_item_ids,
+            exclude_invoice_id=id,
+        )
+
+        if request.method == "POST":
+            form_data = request.form.to_dict()
+            invoice_lines = _invoice_lines_from_form(request.form)
+            action = request.form.get("action", "update_invoice")
+
+            if action == "save_previous_balance":
+                customer_id = clean_select_id(request.form.get("customer_id"), "customer_id", errors, label="Customer")
+                previous_balance = clean_positive_decimal(
+                    request.form.get("previous_balance"),
+                    "previous_balance",
+                    errors,
+                    min_val=0,
+                    label="Previous balance",
+                )
+
+                if not errors.valid:
+                    flash(errors.first(), "danger")
+                    return render_template(
+                        "invoices/form.html",
+                        customers=customers,
+                        items=items,
+                        errors=errors.errors,
+                        form_data=form_data,
+                        invoice_lines=invoice_lines,
+                        is_edit=True,
+                        invoice_id=id,
+                    )
+
+                cursor.execute(
+                    "UPDATE Customers SET PreviousBalance = ? WHERE CustomerID = ?",
+                    (previous_balance, customer_id),
+                )
+                db.commit()
+                flash("Previous balance updated successfully.", "success")
+
+                customers, items = _load_invoice_form_data(
+                    cursor,
+                    extra_item_ids=extra_item_ids,
+                    exclude_invoice_id=id,
+                )
+                return render_template(
+                    "invoices/form.html",
+                    customers=customers,
+                    items=items,
+                    errors=errors.errors,
+                    form_data=form_data,
+                    invoice_lines=invoice_lines,
+                    is_edit=True,
+                    invoice_id=id,
+                )
+
+            data = _validate_invoice_header(request.form, errors)
+            invoice_lines, valid_lines = _validate_invoice_lines(
+                request.form,
+                cursor,
+                errors,
+                extra_stock_by_item=extra_stock_by_item,
+            )
+
+            if not errors.valid:
+                flash(errors.first(), "danger")
+                return render_template(
+                    "invoices/form.html",
+                    customers=customers,
+                    items=items,
+                    errors=errors.errors,
+                    form_data=form_data,
+                    invoice_lines=invoice_lines,
+                    is_edit=True,
+                    invoice_id=id,
+                )
+
+            total = sum(line["total"] for line in valid_lines)
+            invoice_datetime = datetime.combine(
+                datetime.strptime(data["invoice_date"], "%Y-%m-%d").date(),
+                _invoice_time(invoice.InvoiceDate),
+            )
+
+            cursor.execute(
+                "UPDATE Customers SET PreviousBalance = ? WHERE CustomerID = ?",
+                (data["previous_balance"], data["customer_id"]),
+            )
+
+            for item_id, qty in extra_stock_by_item.items():
+                cursor.execute(
+                    """
+                    UPDATE Item
+                    SET Qty = Qty + ?
+                    WHERE ItemID = ?
+                    """,
+                    (qty, item_id),
+                )
+
+            cursor.execute("DELETE FROM InvoiceDetails WHERE InvoiceID = ?", (id,))
+            cursor.execute(
+                """
+                UPDATE Invoices
+                SET CustomerID = ?, [Date] = ?, TotalAmount = ?, PreviousBalance = ?
+                WHERE InvoiceID = ?
+                """,
+                (data["customer_id"], invoice_datetime, total, data["previous_balance"], id),
+            )
+
+            for line in valid_lines:
+                cursor.execute(
+                    """
+                    INSERT INTO InvoiceDetails (InvoiceID, ItemID, Rate, Qty, Particulars)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (id, line["item_id"], line["rate"], line["quantity"], line["item_name"]),
+                )
+                cursor.execute(
+                    """
+                    UPDATE Item
+                    SET Qty = Qty - ?
+                    WHERE ItemID = ?
+                    """,
+                    (line["quantity"], line["item_id"]),
+                )
+
+            db.commit()
+            flash("Invoice updated successfully.", "success")
+            return redirect(url_for("invoices.invoice_pdf", id=id))
+
+        form_data = {
+            "invoice_date": _invoice_date_iso(invoice.InvoiceDate),
+            "customer_id": str(invoice.CustomerID),
+            "previous_balance": f"{float(invoice.PreviousBalance or 0):.2f}",
+        }
+        invoice_lines = _invoice_lines_from_details(cursor, id)
+
+        return render_template(
+            "invoices/form.html",
+            customers=customers,
+            items=items,
+            errors=errors.errors,
+            form_data=form_data,
+            invoice_lines=invoice_lines,
+            is_edit=True,
+            invoice_id=id,
+        )
+
+    except Exception as e:
+        db.rollback()
+        flash(f"Error updating invoice: {str(e)}", "danger")
         return redirect(url_for("invoices.list_invoices"))
 
     finally:

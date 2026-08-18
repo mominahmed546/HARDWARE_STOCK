@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% from 'macros/form.html' import field_error %}
 
-{% block title %}Create Invoice - Hardware Stock Management{% endblock %}
-{% block page_title %}Create Invoice{% endblock %}
+{% block title %}{% if is_edit|default(false) %}Edit Invoice{% else %}Create Invoice{% endif %} - Hardware Stock Management{% endblock %}
+{% block page_title %}{% if is_edit|default(false) %}Edit Invoice #{{ invoice_id }}{% else %}Create Invoice{% endif %}{% endblock %}
 
 {% block content %}
 {% set fd = form_data or {} %}
@@ -101,8 +101,13 @@
             </div>
 
             <div class="form-actions">
+                {% if is_edit|default(false) %}
+                <button type="submit" name="action" value="update_invoice" class="btn btn-primary">Update Invoice</button>
+                <a href="{{ url_for('invoices.list_invoices') }}" class="btn btn-secondary">Back to Invoices</a>
+                {% else %}
                 <button type="submit" name="action" value="create_invoice" class="btn btn-primary">Create PDF Invoice</button>
                 <a href="{{ url_for('dashboard.dashboard') }}" class="btn btn-secondary">&#8592; Home</a>
+                {% endif %}
             </div>
         </form>
     </div>
@@ -115,7 +120,7 @@
     const grandTotal = document.getElementById('invoice-grand-total');
     const customerSelect = document.getElementById('customer_id');
     const previousBalanceInput = document.getElementById('previous_balance');
-    const currentBalanceHint = document.getElementById('current-balance-hint');
+    const lockPreviousBalance = {{ 'true' if is_edit|default(false) else 'false' }};
 
     function formatMoney(value) {
         return 'Rs ' + value.toFixed(2);
@@ -170,18 +175,22 @@
         });
     }
 
-    function syncCustomerBalance() {
+    function syncCustomerBalance(overwriteValue) {
         const selected = customerSelect.options[customerSelect.selectedIndex];
         if (!selected) {
             currentBalanceHint.textContent = 'Current saved balance: Rs 0.00';
-            previousBalanceInput.value = '0';
+            if (overwriteValue) {
+                previousBalanceInput.value = '0';
+            }
             return;
         }
 
         const parsed = parseFloat(selected.getAttribute('data-previous-balance') || '0');
         const balance = Number.isFinite(parsed) ? parsed : 0;
         currentBalanceHint.textContent = 'Current saved balance: ' + formatMoney(balance);
-        previousBalanceInput.value = balance.toFixed(2);
+        if (overwriteValue) {
+            previousBalanceInput.value = balance.toFixed(2);
+        }
     }
 
     addInvoiceItem.addEventListener('click', function () {
@@ -199,16 +208,12 @@
     });
 
     customerSelect.addEventListener('change', function () {
-        const selected = customerSelect.options[customerSelect.selectedIndex];
-        const parsed = parseFloat(selected.getAttribute('data-previous-balance') || '0');
-        const balance = Number.isFinite(parsed) ? parsed : 0;
-        previousBalanceInput.value = balance.toFixed(2);
-        syncCustomerBalance();
+        syncCustomerBalance(true);
     });
 
     invoiceItemsBody.querySelectorAll('.invoice-item-row').forEach(bindRow);
     syncRemoveButtons();
     updateTotals();
-    syncCustomerBalance();
+    syncCustomerBalance(!lockPreviousBalance);
 </script>
 {% endblock %}
