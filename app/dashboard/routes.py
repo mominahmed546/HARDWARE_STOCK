@@ -77,25 +77,7 @@ def dashboard():
 
 
 
-        cursor.execute(
-
-            f"""
-
-            SELECT COUNT(*) AS ItemCount
-
-            FROM (
-
-                SELECT LOWER(LTRIM(RTRIM(ItemName))) AS ItemKey, CategoryID
-
-                FROM Item
-                WHERE {owner_sql()}
-                GROUP BY LOWER(LTRIM(RTRIM(ItemName))), CategoryID
-
-            ) grouped_items
-
-            """
-
-        )
+        cursor.execute(f"SELECT COUNT(*) FROM Item WHERE {owner_sql()}")
 
         total_items = cursor.fetchone()[0] or 0
 
