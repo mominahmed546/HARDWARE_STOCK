@@ -45,7 +45,7 @@
                 <td>
                     <a href="{{ url_for('invoices.edit_invoice', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">Edit</a>
                     <a href="{{ url_for('invoices.invoice_pdf', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">PDF</a>
-                    <a href="{{ url_for('invoices.invoice_payments', id=invoice.InvoiceID) }}" class="btn btn-sm btn-primary">Receive Payment</a>
+                    <a href="{{ url_for('invoices.invoice_payments', id=invoice.InvoiceID) }}" class="btn btn-sm btn-primary">Receive Partial Payment</a>
                     <form method="POST" action="{{ url_for('invoices.update_invoice_status', id=invoice.InvoiceID) }}" style="display:inline;">
                         {% if status == 'Paid' %}
                         <input type="hidden" name="status" value="Unpaid">
