@@ -1,47 +1,108 @@
 {% extends "base.html" %}
 
-{% block title %}Customer Ledger - Hardware Stock Management{% endblock %}
-{% block page_title %}Customer Ledger{% endblock %}
+{% block title %}Account Ledger - {{ customer.CustomerName }}{% endblock %}
+{% block page_title %}Account Ledger{% endblock %}
+{% block page_subtitle %}
+<p>Running customer account with particulars, debit, credit, and balance</p>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/ledger.css') }}">
+{% endblock %}
 
 {% block content %}
 <div class="container">
-    <div class="card" style="margin-bottom: 1rem;">
-        <h3>{{ customer.CustomerName }}</h3>
-        <p><strong>Contact:</strong> {{ customer.ContactNo or 'N/A' }}</p>
-        <p><strong>Opening Balance:</strong> Rs {{ "{:,.2f}".format(opening_balance|default(0)) }}</p>
-        <p><strong>Total Invoiced:</strong> Rs {{ "{:,.2f}".format(total_invoiced|default(0)) }}</p>
-        <p><strong>Total Paid:</strong> Rs {{ "{:,.2f}".format(total_paid|default(0)) }}</p>
-        <p><strong>Outstanding:</strong> Rs {{ "{:,.2f}".format(outstanding|default(0)) }}</p>
-        <a href="{{ url_for('ledger.list_ledger') }}" class="btn btn-secondary btn-sm">Back to Ledger</a>
-    </div>
+    <div class="ledger-book">
+        <div class="ledger-letterhead">
+            <h1>Euroglass Hardware</h1>
+            <p class="sub">Ph: 0300-5411417 &nbsp;|&nbsp; Customer Account Ledger</p>
+        </div>
 
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Invoice ID</th>
-                <th>Date</th>
-                <th>Amount</th>
-                <th>Status</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for invoice in invoices %}
-            <tr>
-                <td>{{ invoice.InvoiceID }}</td>
-                <td>{{ invoice.InvoiceDate|date_dmy }}</td>
-                <td>Rs {{ "{:,.2f}".format(invoice.TotalAmount|default(0)) }}</td>
-                <td>{{ invoice.PaymentStatus or 'Unpaid' }}</td>
-                <td>
-                    <a href="{{ url_for('invoices.invoice_pdf', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">PDF</a>
-                </td>
-            </tr>
-            {% else %}
-            <tr>
-                <td colspan="5">No invoices found for this customer.</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+        <div class="ledger-meta">
+            <div>
+                <span class="label">Account of</span>
+                <div class="value">{{ customer.CustomerName }}</div>
+                <div class="sub">{{ customer.ContactNo or 'No contact number' }}</div>
+            </div>
+            <div>
+                <span class="label">Opening Balance</span>
+                <div class="value">Rs {{ "{:,.2f}".format(opening_balance|default(0)) }}</div>
+            </div>
+            <div>
+                <span class="label">Total Debit</span>
+                <div class="value">Rs {{ "{:,.2f}".format(total_debit|default(0)) }}</div>
+            </div>
+            <div>
+                <span class="label">Closing Balance</span>
+                <div class="value dr">
+                    Rs {{ "{:,.2f}".format(closing_balance|abs) }}
+                    {{ 'Dr' if closing_balance >= 0 else 'Cr' }}
+                </div>
+            </div>
+        </div>
+
+        <div class="ledger-actions">
+            <a href="{{ url_for('ledger.customer_ledger_pdf', id=customer.CustomerID) }}" class="btn btn-primary">Download PDF</a>
+            <button type="button" class="btn btn-secondary" onclick="window.print()">Print</button>
+            <a href="{{ back_url or url_for('ledger.list_ledger') }}" class="btn btn-secondary">{{ back_label or 'Back to Ledger' }}</a>
+        </div>
+
+        <div class="ledger-table-wrap">
+            <table class="ledger-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>Vch No</th>
+                        <th>Particulars</th>
+                        <th class="num">Debit (Rs)</th>
+                        <th class="num">Credit (Rs)</th>
+                        <th class="num">Balance (Rs)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in entries %}
+                    <tr class="{% if entry.is_opening %}opening{% elif entry.vch_type == 'Receipt' %}receipt{% endif %}">
+                        <td>{{ entry.date|date_dmy if entry.date else '—' }}</td>
+                        <td><span class="vch-type">{{ entry.vch_type or '—' }}</span></td>
+                        <td>
+                            {% if entry.invoice_id %}
+                            <a href="{{ url_for('invoices.invoice_pdf', id=entry.invoice_id) }}">{{ entry.vch_no }}</a>
+                            {% else %}
+                            {{ entry.vch_no or '—' }}
+                            {% endif %}
+                        </td>
+                        <td class="particulars">{{ entry.particulars }}</td>
+                        <td class="num">{% if entry.debit %}{{ "{:,.2f}".format(entry.debit) }}{% else %}—{% endif %}</td>
+                        <td class="num">{% if entry.credit %}{{ "{:,.2f}".format(entry.credit) }}{% else %}—{% endif %}</td>
+                        <td class="num">{{ "{:,.2f}".format(entry.balance|abs) }} {{ entry.balance_side }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7">No ledger entries found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <th colspan="4">Total</th>
+                        <th class="num">{{ "{:,.2f}".format(total_debit|default(0)) }}</th>
+                        <th class="num">{{ "{:,.2f}".format(total_credit|default(0)) }}</th>
+                        <th class="num">{{ "{:,.2f}".format(closing_balance|abs) }} {{ 'Dr' if closing_balance >= 0 else 'Cr' }}</th>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        <div class="closing-strip">
+            <div class="closing-box">
+                <div class="label">Closing Balance</div>
+                <div class="value">
+                    Rs {{ "{:,.2f}".format(closing_balance|abs) }}
+                    {{ 'Dr' if closing_balance >= 0 else 'Cr' }}
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}

@@ -1,0 +1,219 @@
+/* Professional account ledger */
+
+.ledger-book {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+}
+
+.ledger-letterhead {
+    padding: 1.75rem 2rem 1.35rem;
+    border-bottom: 2px solid #0f172a;
+    background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
+}
+
+.ledger-letterhead h1 {
+    margin: 0;
+    font-size: 1.35rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.ledger-letterhead .sub {
+    margin: 0.35rem 0 0;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.ledger-meta {
+    display: grid;
+    grid-template-columns: 1.4fr repeat(3, 1fr);
+    gap: 1rem;
+    padding: 1.25rem 2rem;
+    border-bottom: 1px solid var(--border);
+    background: #f8fafc;
+}
+
+.ledger-meta .label {
+    display: block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 0.3rem;
+}
+
+.ledger-meta .value {
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+
+.ledger-meta .value.dr {
+    color: #1e3a8a;
+}
+
+.ledger-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    padding: 1rem 2rem 0;
+}
+
+.ledger-table-wrap {
+    padding: 0.5rem 1.25rem 1.5rem;
+    overflow-x: auto;
+}
+
+.ledger-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+}
+
+.ledger-table th {
+    background: #0f172a;
+    color: #f8fafc;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.85rem 0.75rem;
+    text-align: left;
+    border-bottom: 0;
+}
+
+.ledger-table th.num,
+.ledger-table td.num {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.ledger-table td {
+    padding: 0.8rem 0.75rem;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: top;
+    font-size: 0.92rem;
+}
+
+.ledger-table tbody tr:nth-child(even) {
+    background: #f8fafc;
+}
+
+.ledger-table .particulars {
+    min-width: 280px;
+    max-width: 420px;
+}
+
+.ledger-table .vch-type {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.ledger-table .opening td {
+    font-weight: 700;
+    background: #eff6ff;
+}
+
+.ledger-table .receipt td {
+    color: #166534;
+}
+
+.ledger-table tfoot th {
+    background: #e2e8f0;
+    color: #0f172a;
+    font-size: 0.9rem;
+    text-transform: none;
+    letter-spacing: 0;
+    padding: 0.95rem 0.75rem;
+    border-top: 2px solid #0f172a;
+}
+
+.closing-strip {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0 2rem 1.75rem;
+}
+
+.closing-box {
+    min-width: 280px;
+    border: 1px solid #0f172a;
+    padding: 0.85rem 1.1rem;
+    background: #fff;
+}
+
+.closing-box .label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+}
+
+.closing-box .value {
+    margin-top: 0.25rem;
+    font-size: 1.35rem;
+    font-weight: 800;
+}
+
+.ledger-index .amount-due {
+    font-weight: 700;
+    color: #1e3a8a;
+}
+
+.ledger-help {
+    margin: 0 0 1.25rem;
+    color: var(--text-muted);
+    font-size: 0.92rem;
+}
+
+[data-theme="dark"] .ledger-letterhead,
+[data-theme="dark"] .ledger-meta,
+[data-theme="dark"] .ledger-table tbody tr:nth-child(even),
+[data-theme="dark"] .ledger-table .opening td {
+    background: #0f172a;
+}
+
+[data-theme="dark"] .ledger-table th {
+    background: #020617;
+}
+
+[data-theme="dark"] .ledger-table tfoot th {
+    background: #1e293b;
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .closing-box {
+    background: #1e293b;
+    border-color: #94a3b8;
+}
+
+@media print {
+    .sidebar,
+    .topbar,
+    .page-header,
+    .ledger-actions,
+    .flash-messages {
+        display: none !important;
+    }
+
+    .app-shell,
+    .main-content {
+        display: block;
+        padding: 0;
+    }
+
+    .ledger-book {
+        box-shadow: none;
+        border: none;
+    }
+}
+
+@media (max-width: 900px) {
+    .ledger-meta {
+        grid-template-columns: 1fr 1fr;
+    }
+}
