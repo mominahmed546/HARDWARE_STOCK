@@ -4,7 +4,7 @@ from flask_login import login_required
 
 from app import app
 from app.db import execute_query, execute_query_one, execute_update, get_db_connection
-from app.tenancy import next_table_id
+from app.tenancy import next_table_id, owner_sql, request_user_id
 from app.items.import_utils import build_items_template_xlsx, import_items, parse_items_xlsx
 from app.validators import (
     ValidationErrors,
@@ -34,7 +34,7 @@ def list_items():
         search = request.args.get("search", "", type=str)
         category_id = request.args.get("category_id", "", type=str)
 
-        query = """
+        query = f"""
             SELECT
                 COALESCE(
                     MIN(CASE WHEN i.Qty > 0 THEN i.ItemID END),
@@ -49,7 +49,7 @@ def list_items():
                 c.CategoryName
             FROM Item i
             LEFT JOIN Category c ON i.CategoryID = c.CategoryID
-            WHERE 1=1
+            WHERE {owner_sql("i")}
         """
 
         params = []
@@ -69,7 +69,7 @@ def list_items():
         """
 
         items = execute_query(app, query, tuple(params) if params else None)
-        categories = execute_query(app, "SELECT CategoryID, CategoryName FROM Category ORDER BY CategoryName")
+        categories = execute_query(app, f"SELECT CategoryID, CategoryName FROM Category WHERE {owner_sql()} ORDER BY CategoryName")
 
         return render_template(
             "items/list.html",
@@ -147,7 +147,7 @@ def download_items_template():
 def create_item():
     errors = ValidationErrors()
     form_data = {}
-    categories = execute_query(app, "SELECT CategoryID, CategoryName FROM Category ORDER BY CategoryName")
+    categories = execute_query(app, f"SELECT CategoryID, CategoryName FROM Category WHERE {owner_sql()} ORDER BY CategoryName")
 
     if request.method == "POST":
         form_data = request.form.to_dict()
@@ -169,8 +169,8 @@ def create_item():
             next_id = next_table_id(cursor, "Item", "ItemID")
             cursor.execute(
                 """
-                INSERT INTO Item (ItemID, ItemName, CategoryID, PurchaseRate, SaleRate, Qty)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO Item (ItemID, ItemName, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     next_id,
@@ -179,6 +179,7 @@ def create_item():
                     data["purchase_rate"],
                     data["sale_rate"],
                     data["qty"],
+                    request_user_id(),
                 ),
             )
             db.commit()
@@ -206,13 +207,13 @@ def edit_item(id):
     form_data = {}
 
     try:
-        item = execute_query_one(app, "SELECT * FROM Item WHERE ItemID = ?", (id,))
+        item = execute_query_one(app, f"SELECT * FROM Item WHERE ItemID = ? AND {owner_sql()}", (id,))
 
         if not item:
             flash("Item not found", "danger")
             return redirect(url_for("items.list_items"))
 
-        categories = execute_query(app, "SELECT CategoryID, CategoryName FROM Category ORDER BY CategoryName")
+        categories = execute_query(app, f"SELECT CategoryID, CategoryName FROM Category WHERE {owner_sql()} ORDER BY CategoryName")
 
         if request.method == "POST":
             form_data = request.form.to_dict()
@@ -230,11 +231,11 @@ def edit_item(id):
 
             execute_update(
                 app,
-                """
+                f"""
                 UPDATE Item
                 SET ItemName = ?, CategoryID = ?, PurchaseRate = ?,
                     SaleRate = ?, Qty = ?
-                WHERE ItemID = ?
+                WHERE ItemID = ? AND {owner_sql()}
                 """,
                 (
                     data["item_name"],
@@ -287,7 +288,7 @@ def delete_item(id):
             )
             return redirect(url_for("items.list_items"))
 
-        execute_update(app, "DELETE FROM Item WHERE ItemID = ?", (id,))
+        execute_update(app, f"DELETE FROM Item WHERE ItemID = ? AND {owner_sql()}", (id,))
         flash("Item deleted successfully", "success")
 
     except Exception as e:

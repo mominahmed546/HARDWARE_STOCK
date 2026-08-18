@@ -156,17 +156,18 @@ def import_items(app, items):
 
     try:
         from app.db import get_db_connection
-        from app.tenancy import next_table_id
+        from app.tenancy import next_table_id, owner_sql, request_user_id
 
         db = get_db_connection(app)
         cursor = db.cursor()
 
         for item in items:
             cursor.execute(
-                """
+                f"""
                 SELECT TOP 1 CategoryID, CategoryName
                 FROM Category
                 WHERE LOWER(LTRIM(RTRIM(CategoryName))) = LOWER(LTRIM(RTRIM(?)))
+                  AND {owner_sql()}
                 """,
                 (item["category"],),
             )
@@ -177,10 +178,11 @@ def import_items(app, items):
                 continue
 
             cursor.execute(
-                """
+                f"""
                 SELECT TOP 1 SupplierID, SupplierName
                 FROM Supplier
                 WHERE LOWER(LTRIM(RTRIM(SupplierName))) = LOWER(LTRIM(RTRIM(?)))
+                  AND {owner_sql()}
                 """,
                 (item["supplier_name"],),
             )
@@ -191,11 +193,12 @@ def import_items(app, items):
                 continue
 
             cursor.execute(
-                """
+                f"""
                 SELECT TOP 1 ItemID
                 FROM Item
                 WHERE LOWER(LTRIM(RTRIM(ItemName))) = LOWER(LTRIM(RTRIM(?)))
                   AND CategoryID = ?
+                  AND {owner_sql()}
                 ORDER BY Qty DESC, ItemID ASC
                 """,
                 (item["item_name"], category.CategoryID),
@@ -205,10 +208,10 @@ def import_items(app, items):
             if existing_item:
                 item_id = existing_item.ItemID
                 cursor.execute(
-                    """
+                    f"""
                     UPDATE Item
                     SET Qty = Qty + ?, PurchaseRate = ?, SaleRate = ?
-                    WHERE ItemID = ?
+                    WHERE ItemID = ? AND {owner_sql()}
                     """,
                     (
                         item["qty"],
@@ -222,8 +225,8 @@ def import_items(app, items):
                 next_item_id = next_table_id(cursor, "Item", "ItemID")
                 cursor.execute(
                     """
-                    INSERT INTO Item (ItemID, ItemName, CategoryID, PurchaseRate, SaleRate, Qty)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO Item (ItemID, ItemName, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         next_item_id,
@@ -232,6 +235,7 @@ def import_items(app, items):
                         item["purchase_rate"],
                         item["sale_rate"],
                         item["qty"],
+                        request_user_id(),
                     ),
                 )
                 item_id = next_item_id
@@ -241,11 +245,11 @@ def import_items(app, items):
 
             cursor.execute(
                 """
-                INSERT INTO Purchases (PurchaseDate, SupplierID, TotalAmount)
+                INSERT INTO Purchases (PurchaseDate, SupplierID, TotalAmount, UserID)
                 OUTPUT INSERTED.PurchaseID
-                VALUES (?, ?, ?)
+                VALUES (?, ?, ?, ?)
                 """,
-                (date.today(), supplier.SupplierID, total),
+                (date.today(), supplier.SupplierID, total, request_user_id()),
             )
             purchase_id = int(cursor.fetchone()[0])
 

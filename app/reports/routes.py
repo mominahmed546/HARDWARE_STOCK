@@ -6,6 +6,7 @@ from flask_login import login_required
 
 from app import app
 from app.db import get_db_connection
+from app.tenancy import owner_sql
 from app.payments import ensure_invoice_payments_table
 
 reports_bp = Blueprint("reports", __name__, url_prefix="/reports")
@@ -102,9 +103,10 @@ def _build_monthly_sales_pdf(selected_year, monthly_rows, total_sales, total_inv
 
 def _monthly_sales_data(cursor, selected_year):
     cursor.execute(
-        """
+        f"""
         SELECT DISTINCT YEAR([Date]) AS SalesYear
         FROM Invoices
+        WHERE {owner_sql()}
         ORDER BY SalesYear DESC
         """
     )
@@ -113,13 +115,13 @@ def _monthly_sales_data(cursor, selected_year):
         selected_year = years[0]
 
     cursor.execute(
-        """
+        f"""
         SELECT
             MONTH([Date]) AS SalesMonth,
             COUNT(*) AS InvoiceCount,
             ISNULL(SUM(TotalAmount), 0) AS TotalSales
         FROM Invoices
-        WHERE YEAR([Date]) = ?
+        WHERE YEAR([Date]) = ? AND {owner_sql()}
         GROUP BY MONTH([Date])
         ORDER BY SalesMonth
         """,
@@ -150,13 +152,13 @@ def _monthly_sales_data(cursor, selected_year):
 
     # Payment status breakdown for pie chart
     cursor.execute(
-        """
+        f"""
         SELECT
             COALESCE(PaymentStatus, 'Unpaid') AS PaymentStatus,
             COUNT(*) AS InvoiceCount,
             ISNULL(SUM(TotalAmount), 0) AS TotalAmount
         FROM Invoices
-        WHERE YEAR([Date]) = ?
+        WHERE YEAR([Date]) = ? AND {owner_sql()}
         GROUP BY COALESCE(PaymentStatus, 'Unpaid')
         """,
         (selected_year,),

@@ -7,7 +7,7 @@ from flask_login import login_required
 from app import app
 from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
 from app.db import get_db_connection
-from app.tenancy import next_table_id
+from app.tenancy import next_table_id, owner_sql, request_user_id
 from app.payments import (
     add_invoice_payment,
     clear_invoice_payments,
@@ -132,7 +132,7 @@ def _load_invoice_record(cursor, invoice_id):
         FROM Invoices i
         JOIN Customers c ON c.CustomerID = i.CustomerID
         {payments_join_sql("i")}
-        WHERE i.InvoiceID = ?
+        WHERE i.InvoiceID = ? AND {owner_sql("i")}
         """,
         (invoice_id,),
     )
@@ -225,7 +225,7 @@ def _validate_invoice_lines(form, cursor, errors, extra_stock_by_item=None):
             break
 
         cursor.execute(
-            "SELECT ItemID, ItemName, Qty FROM Item WHERE ItemID = ?",
+            f"SELECT ItemID, ItemName, Qty FROM Item WHERE ItemID = ? AND {owner_sql()}",
             (item_value,),
         )
         item = cursor.fetchone()
@@ -283,8 +283,10 @@ def _load_invoice_form_data(cursor, extra_item_ids=None, exclude_invoice_id=None
             FROM Invoices i
             {payments_join_sql("i")}
             {unpaid_filter}
+            {"AND" if unpaid_filter else "WHERE"} {owner_sql("i")}
             GROUP BY i.CustomerID
         ) unpaid ON unpaid.CustomerID = c.CustomerID
+        WHERE {owner_sql("c")}
         ORDER BY c.CustomerName
         """,
         unpaid_params,
@@ -298,17 +300,17 @@ def _load_invoice_form_data(cursor, extra_item_ids=None, exclude_invoice_id=None
             f"""
             SELECT ItemID, ItemName, SaleRate, Qty
             FROM Item
-            WHERE Qty > 0 OR ItemID IN ({placeholders})
+            WHERE ({owner_sql()}) AND (Qty > 0 OR ItemID IN ({placeholders}))
             ORDER BY ItemName
             """,
             extra_item_ids,
         )
     else:
         cursor.execute(
-            """
+            f"""
             SELECT ItemID, ItemName, SaleRate, Qty
             FROM Item
-            WHERE Qty > 0
+            WHERE Qty > 0 AND {owner_sql()}
             ORDER BY ItemName
             """
         )
@@ -649,7 +651,7 @@ def create_invoice():
                     )
 
                 cursor.execute(
-                    "UPDATE Customers SET PreviousBalance = ? WHERE CustomerID = ?",
+                    f"UPDATE Customers SET PreviousBalance = ? WHERE CustomerID = ? AND {owner_sql()}",
                     (previous_balance, customer_id),
                 )
                 db.commit()
@@ -690,7 +692,7 @@ def create_invoice():
             # Persist manually entered previous balance so future invoices
             # start from the same user-confirmed opening balance.
             cursor.execute(
-                "UPDATE Customers SET PreviousBalance = ? WHERE CustomerID = ?",
+                f"UPDATE Customers SET PreviousBalance = ? WHERE CustomerID = ? AND {owner_sql()}",
                 (data["previous_balance"], data["customer_id"]),
             )
 
@@ -705,10 +707,10 @@ def create_invoice():
                 """
                 INSERT INTO Invoices (
                     InvoiceID, CustomerID, [Date], TotalAmount, PaymentStatus,
-                    PreviousBalance, CashReceived, NetBalance
+                    PreviousBalance, CashReceived, NetBalance, UserID
                 )
                 OUTPUT INSERTED.InvoiceID
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     next_id,
@@ -719,6 +721,7 @@ def create_invoice():
                     data["previous_balance"],
                     cash_received,
                     net_balance,
+                    request_user_id(),
                 ),
             )
             invoice_id = int(cursor.fetchone()[0])
@@ -733,10 +736,10 @@ def create_invoice():
                 )
 
                 cursor.execute(
-                    """
+                    f"""
                     UPDATE Item
                     SET Qty = Qty - ?
-                    WHERE ItemID = ?
+                    WHERE ItemID = ? AND {owner_sql()}
                     """,
                     (line["quantity"], line["item_id"]),
                 )
@@ -804,7 +807,7 @@ def list_invoices():
             LEFT JOIN Item it ON d.ItemID = it.ItemID
             {purchase_unit_cost_join("d")}
             {payments_join_sql("i")}
-            WHERE 1=1
+            WHERE {owner_sql("i")}
         """
         params = []
 
@@ -885,7 +888,7 @@ def edit_invoice(id):
         _ensure_invoice_schema(db, cursor)
 
         cursor.execute(
-            """
+            f"""
             SELECT
                 InvoiceID,
                 CustomerID,
@@ -894,7 +897,7 @@ def edit_invoice(id):
                 COALESCE(PaymentStatus, 'Unpaid') AS PaymentStatus,
                 COALESCE(PreviousBalance, 0) AS PreviousBalance
             FROM Invoices
-            WHERE InvoiceID = ?
+            WHERE InvoiceID = ? AND {owner_sql()}
             """,
             (id,),
         )
@@ -940,7 +943,7 @@ def edit_invoice(id):
                     )
 
                 cursor.execute(
-                    "UPDATE Customers SET PreviousBalance = ? WHERE CustomerID = ?",
+                    f"UPDATE Customers SET PreviousBalance = ? WHERE CustomerID = ? AND {owner_sql()}",
                     (previous_balance, customer_id),
                 )
                 db.commit()
@@ -990,26 +993,26 @@ def edit_invoice(id):
             )
 
             cursor.execute(
-                "UPDATE Customers SET PreviousBalance = ? WHERE CustomerID = ?",
+                f"UPDATE Customers SET PreviousBalance = ? WHERE CustomerID = ? AND {owner_sql()}",
                 (data["previous_balance"], data["customer_id"]),
             )
 
             for item_id, qty in extra_stock_by_item.items():
                 cursor.execute(
-                    """
+                    f"""
                     UPDATE Item
                     SET Qty = Qty + ?
-                    WHERE ItemID = ?
+                    WHERE ItemID = ? AND {owner_sql()}
                     """,
                     (qty, item_id),
                 )
 
             cursor.execute("DELETE FROM InvoiceDetails WHERE InvoiceID = ?", (id,))
             cursor.execute(
-                """
+                f"""
                 UPDATE Invoices
                 SET CustomerID = ?, [Date] = ?, TotalAmount = ?, PreviousBalance = ?
-                WHERE InvoiceID = ?
+                WHERE InvoiceID = ? AND {owner_sql()}
                 """,
                 (
                     data["customer_id"],
@@ -1029,10 +1032,10 @@ def edit_invoice(id):
                     (id, line["item_id"], line["rate"], line["quantity"], line["item_name"]),
                 )
                 cursor.execute(
-                    """
+                    f"""
                     UPDATE Item
                     SET Qty = Qty - ?
-                    WHERE ItemID = ?
+                    WHERE ItemID = ? AND {owner_sql()}
                     """,
                     (line["quantity"], line["item_id"]),
                 )
@@ -1088,13 +1091,13 @@ def delete_invoice(id):
         details = cursor.fetchall()
 
         cursor.execute(
-            """
+            f"""
             SELECT
                 i.InvoiceID,
                 i.CustomerID,
                 COALESCE(i.TotalAmount, 0) AS TotalAmount
             FROM Invoices i
-            WHERE i.InvoiceID = ?
+            WHERE i.InvoiceID = ? AND {owner_sql("i")}
             """,
             (id,),
         )
@@ -1107,27 +1110,27 @@ def delete_invoice(id):
         paid_amount = invoice_paid_total(cursor, id)
         if paid_amount > 0:
             cursor.execute(
-                """
+                f"""
                 UPDATE Customers
                 SET PreviousBalance = COALESCE(PreviousBalance, 0) + ?
-                WHERE CustomerID = ?
+                WHERE CustomerID = ? AND {owner_sql()}
                 """,
                 (paid_amount, int(invoice.CustomerID)),
             )
 
         for detail in details:
             cursor.execute(
-                """
+                f"""
                 UPDATE Item
                 SET Qty = Qty + ?
-                WHERE ItemID = ?
+                WHERE ItemID = ? AND {owner_sql()}
                 """,
                 (detail.Qty, detail.ItemID),
             )
 
         cursor.execute("DELETE FROM StockHistory WHERE InvoiceID = ?", (id,))
         cursor.execute("DELETE FROM InvoiceDetails WHERE InvoiceID = ?", (id,))
-        cursor.execute("DELETE FROM Invoices WHERE InvoiceID = ?", (id,))
+        cursor.execute(f"DELETE FROM Invoices WHERE InvoiceID = ? AND {owner_sql()}", (id,))
 
         db.commit()
         flash("Invoice deleted successfully. Stock quantities were restored.", "success")

@@ -7,6 +7,7 @@ from flask_login import login_required
 from app import app
 
 from app.db import get_db_connection
+from app.tenancy import owner_sql, request_user_id
 
 from app.validators import ValidationErrors, clean_string, clean_phone
 
@@ -54,7 +55,7 @@ def list_suppliers():
 
 
 
-        query = "SELECT * FROM Supplier WHERE 1=1"
+        query = f"SELECT * FROM Supplier WHERE {owner_sql()}"
 
         params = []
 
@@ -150,9 +151,9 @@ def create_supplier():
 
             cursor.execute(
 
-                "INSERT INTO Supplier (SupplierName, ContactNo) VALUES (?, ?)",
+                "INSERT INTO Supplier (SupplierName, ContactNo, UserID) VALUES (?, ?, ?)",
 
-                (data["supplier_name"], data["contact_no"]),
+                (data["supplier_name"], data["contact_no"], request_user_id()),
 
             )
 
@@ -212,7 +213,7 @@ def edit_supplier(id):
 
 
 
-        cursor.execute("SELECT * FROM Supplier WHERE SupplierID = ?", (id,))
+        cursor.execute(f"SELECT * FROM Supplier WHERE SupplierID = ? AND {owner_sql()}", (id,))
 
         supplier = cursor.fetchone()
 
@@ -254,7 +255,7 @@ def edit_supplier(id):
 
             cursor.execute(
 
-                "UPDATE Supplier SET SupplierName = ?, ContactNo = ? WHERE SupplierID = ?",
+                f"UPDATE Supplier SET SupplierName = ?, ContactNo = ? WHERE SupplierID = ? AND {owner_sql()}",
 
                 (data["supplier_name"], data["contact_no"], id),
 
@@ -316,7 +317,7 @@ def delete_supplier(id):
 
 
 
-        cursor.execute("DELETE FROM Supplier WHERE SupplierID = ?", (id,))
+        cursor.execute(f"DELETE FROM Supplier WHERE SupplierID = ? AND {owner_sql()}", (id,))
 
         db.commit()
 

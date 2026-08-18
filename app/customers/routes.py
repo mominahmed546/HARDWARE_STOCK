@@ -7,6 +7,7 @@ from flask_login import login_required
 from app import app
 
 from app.db import get_db_connection
+from app.tenancy import owner_sql, request_user_id
 
 from app.validators import ValidationErrors, clean_string, clean_phone, clean_positive_decimal
 
@@ -83,14 +84,14 @@ def list_customers():
 
 
 
-        query = """
+        query = f"""
             SELECT
                 CustomerID,
                 CustomerName,
                 ContactNo,
                 COALESCE(PreviousBalance, 0) AS PreviousBalance
             FROM Customers
-            WHERE 1=1
+            WHERE {owner_sql()}
         """
 
         params = []
@@ -211,9 +212,9 @@ def create_customer():
 
             cursor.execute(
 
-                "INSERT INTO Customers (CustomerName, ContactNo, PreviousBalance) VALUES (?, ?, ?)",
+                "INSERT INTO Customers (CustomerName, ContactNo, PreviousBalance, UserID) VALUES (?, ?, ?, ?)",
 
-                (data["customer_name"], data["contact_no"], previous_balance)
+                (data["customer_name"], data["contact_no"], previous_balance, request_user_id())
 
             )
 
@@ -275,7 +276,7 @@ def edit_customer(id):
 
 
 
-        cursor.execute("SELECT * FROM Customers WHERE CustomerID = ?", (id,))
+        cursor.execute(f"SELECT * FROM Customers WHERE CustomerID = ? AND {owner_sql()}", (id,))
 
         customer = cursor.fetchone()
 
@@ -329,7 +330,7 @@ def edit_customer(id):
 
             cursor.execute(
 
-                "UPDATE Customers SET CustomerName = ?, ContactNo = ?, PreviousBalance = ? WHERE CustomerID = ?",
+                f"UPDATE Customers SET CustomerName = ?, ContactNo = ?, PreviousBalance = ? WHERE CustomerID = ? AND {owner_sql()}",
 
                 (data["customer_name"], data["contact_no"], previous_balance, id)
 
@@ -391,7 +392,7 @@ def delete_customer(id):
 
 
 
-        cursor.execute("DELETE FROM Customers WHERE CustomerID = ?", (id,))
+        cursor.execute(f"DELETE FROM Customers WHERE CustomerID = ? AND {owner_sql()}", (id,))
 
         db.commit()
 

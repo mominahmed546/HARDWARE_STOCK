@@ -7,7 +7,7 @@ from flask_login import login_required
 from app import app
 
 from app.db import get_db_connection
-from app.tenancy import next_table_id
+from app.tenancy import next_table_id, owner_sql, request_user_id
 
 from app.validators import (
 
@@ -64,11 +64,11 @@ def _validate_purchase_form(form, errors):
 
 
 def _load_purchase_form_data(cursor):
-    cursor.execute("SELECT SupplierID, SupplierName FROM Supplier")
+    cursor.execute(f"SELECT SupplierID, SupplierName FROM Supplier WHERE {owner_sql()}")
     suppliers = cursor.fetchall()
 
     cursor.execute(
-        """
+        f"""
         SELECT
             COALESCE(
                 MIN(CASE WHEN i.Qty > 0 THEN i.ItemID END),
@@ -83,13 +83,14 @@ def _load_purchase_form_data(cursor):
             SUM(i.Qty) AS Qty
         FROM Item i
         LEFT JOIN Category c ON i.CategoryID = c.CategoryID
+        WHERE {owner_sql("i")}
         GROUP BY LOWER(LTRIM(RTRIM(i.ItemName))), i.CategoryID, c.CategoryName
         ORDER BY MIN(i.ItemName), c.CategoryName
         """
     )
     items = cursor.fetchall()
 
-    cursor.execute("SELECT CategoryID, CategoryName FROM Category ORDER BY CategoryName")
+    cursor.execute(f"SELECT CategoryID, CategoryName FROM Category WHERE {owner_sql()} ORDER BY CategoryName")
     categories = cursor.fetchall()
 
     return suppliers, items, categories
@@ -154,7 +155,7 @@ def create_purchase():
 
             if data["item_mode"] == "existing":
                 cursor.execute(
-                    "SELECT ItemName FROM Item WHERE ItemID = ?",
+                    f"SELECT ItemName FROM Item WHERE ItemID = ? AND {owner_sql()}",
                     (data["item_id"],),
                 )
                 item_row = cursor.fetchone()
@@ -175,10 +176,10 @@ def create_purchase():
                 item_name = item_row[0]
 
                 cursor.execute(
-                    """
+                    f"""
                     UPDATE Item
                     SET Qty = Qty + ?, PurchaseRate = ?, SaleRate = ?
-                    WHERE ItemID = ?
+                    WHERE ItemID = ? AND {owner_sql()}
                     """,
                     (data["quantity"], data["purchase_rate"], data["sale_rate"], item_id),
                 )
@@ -186,11 +187,12 @@ def create_purchase():
                 item_name = data["item_name"]
 
                 cursor.execute(
-                    """
+                    f"""
                     SELECT TOP 1 ItemID, ItemName
                     FROM Item
                     WHERE LOWER(LTRIM(RTRIM(ItemName))) = LOWER(LTRIM(RTRIM(?)))
                       AND CategoryID = ?
+                      AND {owner_sql()}
                     ORDER BY Qty DESC, ItemID ASC
                     """,
                     (item_name, data["category_id"]),
@@ -201,10 +203,10 @@ def create_purchase():
                     item_id = existing_item.ItemID
                     item_name = existing_item.ItemName
                     cursor.execute(
-                        """
+                        f"""
                         UPDATE Item
                         SET Qty = Qty + ?, PurchaseRate = ?, SaleRate = ?
-                        WHERE ItemID = ?
+                        WHERE ItemID = ? AND {owner_sql()}
                         """,
                         (data["quantity"], data["purchase_rate"], data["sale_rate"], item_id),
                     )
@@ -212,8 +214,8 @@ def create_purchase():
                     next_item_id = next_table_id(cursor, "Item", "ItemID")
                     cursor.execute(
                         """
-                        INSERT INTO Item (ItemID, ItemName, CategoryID, PurchaseRate, SaleRate, Qty)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        INSERT INTO Item (ItemID, ItemName, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             next_item_id,
@@ -222,6 +224,7 @@ def create_purchase():
                             data["purchase_rate"],
                             data["sale_rate"],
                             data["quantity"],
+                            request_user_id(),
                         ),
                     )
                     item_id = next_item_id
@@ -232,11 +235,11 @@ def create_purchase():
 
             cursor.execute(
                 """
-                INSERT INTO Purchases (PurchaseID, PurchaseDate, SupplierID, TotalAmount)
+                INSERT INTO Purchases (PurchaseID, PurchaseDate, SupplierID, TotalAmount, UserID)
                 OUTPUT INSERTED.PurchaseID
-                VALUES (?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (next_purchase_id, data["purchase_date"], data["supplier_id"], total),
+                (next_purchase_id, data["purchase_date"], data["supplier_id"], total, request_user_id()),
             )
 
 
@@ -350,7 +353,7 @@ def list_purchases():
 
 
 
-        query = """
+        query = f"""
 
             SELECT
                 COALESCE(p.SupplierID, 0) AS SupplierID,
@@ -375,7 +378,7 @@ def list_purchases():
                 GROUP BY pd.PurchaseID
             ) details ON details.PurchaseID = p.PurchaseID
 
-            WHERE 1=1
+            WHERE {owner_sql("p")}
 
         """
 
@@ -489,7 +492,7 @@ def purchase_details(supplier_id):
             FROM Purchases p
             LEFT JOIN Supplier s ON p.SupplierID = s.SupplierID
             LEFT JOIN PurchaseDetails pd ON p.PurchaseID = pd.PurchaseID
-            WHERE {supplier_filter}
+            WHERE {supplier_filter} AND {owner_sql("p")}
             ORDER BY p.PurchaseDate DESC, p.PurchaseID DESC, pd.DetailID ASC
             """,
 
@@ -550,7 +553,7 @@ def delete_purchase(id):
 
     try:
 
-        cursor.execute("SELECT PurchaseID FROM Purchases WHERE PurchaseID = ?", (id,))
+        cursor.execute(f"SELECT PurchaseID FROM Purchases WHERE PurchaseID = ? AND {owner_sql()}", (id,))
 
         purchase = cursor.fetchone()
 
@@ -614,10 +617,10 @@ def delete_purchase(id):
 
             cursor.execute(
 
-                """
+                f"""
                 UPDATE Item
                 SET Qty = Qty - ?
-                WHERE ItemID = ?
+                WHERE ItemID = ? AND {owner_sql()}
                 """,
 
                 (detail.Qty, detail.ItemID),
@@ -630,7 +633,7 @@ def delete_purchase(id):
 
         cursor.execute("DELETE FROM PurchaseDetails WHERE PurchaseID = ?", (id,))
 
-        cursor.execute("DELETE FROM Purchases WHERE PurchaseID = ?", (id,))
+        cursor.execute(f"DELETE FROM Purchases WHERE PurchaseID = ? AND {owner_sql()}", (id,))
 
 
 
@@ -666,12 +669,12 @@ def delete_supplier_purchases(supplier_id):
     try:
         if supplier_id == 0:
             cursor.execute(
-                "SELECT PurchaseID FROM Purchases WHERE SupplierID IS NULL ORDER BY PurchaseID"
+                f"SELECT PurchaseID FROM Purchases WHERE SupplierID IS NULL AND {owner_sql()} ORDER BY PurchaseID"
             )
             supplier_label = "N/A"
         else:
             cursor.execute(
-                "SELECT SupplierName FROM Supplier WHERE SupplierID = ?",
+                f"SELECT SupplierName FROM Supplier WHERE SupplierID = ? AND {owner_sql()}",
                 (supplier_id,),
             )
             supplier_row = cursor.fetchone()
@@ -682,7 +685,7 @@ def delete_supplier_purchases(supplier_id):
 
             supplier_label = supplier_row.SupplierName
             cursor.execute(
-                "SELECT PurchaseID FROM Purchases WHERE SupplierID = ? ORDER BY PurchaseID",
+                f"SELECT PurchaseID FROM Purchases WHERE SupplierID = ? AND {owner_sql()} ORDER BY PurchaseID",
                 (supplier_id,),
             )
 
@@ -723,10 +726,10 @@ def delete_supplier_purchases(supplier_id):
                 continue
 
             cursor.execute(
-                """
+                f"""
                 UPDATE Item
                 SET Qty = Qty - ?
-                WHERE ItemID = ?
+                WHERE ItemID = ? AND {owner_sql()}
                 """,
                 (detail.Qty, detail.ItemID),
             )
@@ -740,7 +743,7 @@ def delete_supplier_purchases(supplier_id):
             tuple(purchase_ids),
         )
         cursor.execute(
-            f"DELETE FROM Purchases WHERE PurchaseID IN ({placeholders})",
+            f"DELETE FROM Purchases WHERE PurchaseID IN ({placeholders}) AND {owner_sql()}",
             tuple(purchase_ids),
         )
 
@@ -776,10 +779,10 @@ def edit_purchase_items(id):
     try:
 
         cursor.execute(
-            """
+            f"""
             SELECT PurchaseID, PurchaseDate, SupplierID, TotalAmount
             FROM Purchases
-            WHERE PurchaseID = ?
+            WHERE PurchaseID = ? AND {owner_sql()}
             """,
             (id,),
         )
@@ -826,14 +829,14 @@ def edit_purchase_items(id):
 
 
 
-        cursor.execute("SELECT * FROM Supplier")
+        cursor.execute(f"SELECT * FROM Supplier WHERE {owner_sql()}")
 
         suppliers = cursor.fetchall()
 
 
 
         cursor.execute(
-            """
+            f"""
             SELECT
                 COALESCE(
                     MIN(CASE WHEN i.Qty > 0 THEN i.ItemID END),
@@ -847,6 +850,7 @@ def edit_purchase_items(id):
                 MAX(i.PurchaseRate) AS PurchaseRate
             FROM Item i
             LEFT JOIN Category c ON i.CategoryID = c.CategoryID
+            WHERE {owner_sql("i")}
             GROUP BY LOWER(LTRIM(RTRIM(i.ItemName))), i.CategoryID, c.CategoryName
             ORDER BY MIN(i.ItemName), c.CategoryName
             """
@@ -946,7 +950,7 @@ def edit_purchase_items(id):
 
                 cursor.execute(
 
-                    "SELECT ItemName, PurchaseRate FROM Item WHERE ItemID = ?",
+                    f"SELECT ItemName, PurchaseRate FROM Item WHERE ItemID = ? AND {owner_sql()}",
 
                     (item_value,),
 
@@ -1026,13 +1030,13 @@ def edit_purchase_items(id):
 
             cursor.execute(
 
-                """
+                f"""
 
                 UPDATE Purchases
 
                 SET SupplierID = ?, TotalAmount = ?
 
-                WHERE PurchaseID = ?
+                WHERE PurchaseID = ? AND {owner_sql()}
 
             """,
 

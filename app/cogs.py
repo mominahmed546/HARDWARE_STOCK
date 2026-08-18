@@ -18,13 +18,17 @@ _UNIT_COST = """COALESCE(
 
 
 def purchase_unit_cost_join(detail_alias="id"):
+    from app.tenancy import owner_sql
+
     return f"""
         LEFT JOIN (
             SELECT
-                ItemID,
-                SUM(Qty * PurchaseRate) / NULLIF(SUM(Qty), 0) AS UnitCost
-            FROM PurchaseDetails
-            GROUP BY ItemID
+                pd.ItemID,
+                SUM(pd.Qty * pd.PurchaseRate) / NULLIF(SUM(pd.Qty), 0) AS UnitCost
+            FROM PurchaseDetails pd
+            JOIN Purchases p ON p.PurchaseID = pd.PurchaseID
+            WHERE {owner_sql("p")}
+            GROUP BY pd.ItemID
         ) pc ON pc.ItemID = {detail_alias}.ItemID
     """
 
