@@ -5,20 +5,12 @@ from datetime import date, datetime
 from io import BytesIO
 
 from openpyxl import load_workbook
-from openpyxl.drawing.image import Image as XLImage
-from openpyxl.styles import Alignment, Font
 
 TEMPLATE_PATH = os.path.join(
     os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
     "static",
     "excel",
     "QUOTATION.xlsx",
-)
-LOGO_PATH = os.path.join(
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
-    "static",
-    "images",
-    "euroglass-logo.png",
 )
 
 FIRST_LINE_ROW = 16
@@ -102,16 +94,6 @@ def build_quotation_xlsx(header, lines):
     sheet["C9"] = header.get("work_type") or ""
     sheet["C10"] = header.get("engineer") or ""
     sheet["C11"] = header.get("contact_no") or ""
-
-    if os.path.exists(LOGO_PATH):
-        logo = XLImage(LOGO_PATH)
-        logo.width = 118
-        logo.height = 118
-        sheet.add_image(logo, "I1")
-    elif not sheet["I1"].value:
-        sheet["I1"] = "EUROGLASS HARDWARE\nPh: 0300-5411417"
-        sheet["I1"].alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        sheet["I1"].font = Font(name="Calibri", size=22, bold=True)
 
     note_lines = [part.strip() for part in str(header.get("notes") or "").splitlines() if part.strip()]
     sheet["B41"] = note_lines[0] if len(note_lines) > 0 else None
