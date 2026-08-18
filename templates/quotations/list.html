@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Quotations - Hardware Stock Management{% endblock %}
+{% block page_title %}Quotations{% endblock %}
+{% block page_subtitle %}
+<p>Saved quotations. Download the Excel file in quotation style.</p>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="list-header">
+        <div class="search-bar">
+            <form method="GET" class="search-form">
+                <input type="text" name="search" placeholder="Search quotation, name, or project..." value="{{ search }}">
+                <button type="submit" class="btn btn-primary">Search</button>
+            </form>
+        </div>
+        <a href="{{ url_for('quotations.create_quotation') }}" class="btn btn-success">+ New Quotation</a>
+    </div>
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>No.</th>
+                <th>Date</th>
+                <th>Name</th>
+                <th>Project</th>
+                <th>Work Type</th>
+                <th>Gross</th>
+                <th>Advance</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for quotation in quotations %}
+            <tr>
+                <td>{{ quotation.QuotationNo }}</td>
+                <td>{{ quotation.QuotationDate|date_dmy }}</td>
+                <td>{{ quotation.CustomerName }}</td>
+                <td>{{ quotation.Project or '-' }}</td>
+                <td>{{ quotation.WorkType or '-' }}</td>
+                <td>Rs {{ "{:,.2f}".format(quotation.TotalAmount|default(0)) }}</td>
+                <td>Rs {{ "{:,.2f}".format(quotation.Advance|default(0)) }}</td>
+                <td>
+                    <a href="{{ url_for('quotations.quotation_excel', id=quotation.QuotationID) }}" class="btn btn-sm btn-info">Excel</a>
+                    <form method="POST" action="{{ url_for('quotations.delete_quotation', id=quotation.QuotationID) }}" style="display:inline;">
+                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this quotation?')">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="8">No quotations found.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

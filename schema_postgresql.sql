@@ -85,6 +85,33 @@ CREATE TABLE IF NOT EXISTS cash_accounts (
 CREATE INDEX IF NOT EXISTS idx_invoice_payments_invoice_id
     ON invoice_payments (invoice_id);
 
+CREATE TABLE IF NOT EXISTS quotations (
+    quotation_id SERIAL PRIMARY KEY,
+    quotation_no INTEGER UNIQUE,
+    quotation_date DATE NOT NULL,
+    customer_id INTEGER REFERENCES customers(customer_id),
+    customer_name VARCHAR(100) NOT NULL,
+    address VARCHAR(255),
+    project VARCHAR(255),
+    work_type VARCHAR(100),
+    engineer VARCHAR(100),
+    contact_no VARCHAR(50),
+    notes VARCHAR(500),
+    advance NUMERIC(12, 2) DEFAULT 0,
+    total_amount NUMERIC(12, 2) DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS quotation_details (
+    detail_id SERIAL PRIMARY KEY,
+    quotation_id INTEGER NOT NULL REFERENCES quotations(quotation_id) ON DELETE CASCADE,
+    item_id INTEGER REFERENCES item(item_id),
+    description VARCHAR(255),
+    width NUMERIC(12, 2) DEFAULT 0,
+    height NUMERIC(12, 2) DEFAULT 0,
+    qty INTEGER NOT NULL,
+    rate NUMERIC(10, 2) DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS stock_history (
     history_id SERIAL PRIMARY KEY,
     item_id INTEGER REFERENCES item(item_id),

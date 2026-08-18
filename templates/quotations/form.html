@@ -1,0 +1,316 @@
+{% extends "base.html" %}
+{% from 'macros/form.html' import field_error %}
+
+{% block title %}Create Quotation - Hardware Stock Management{% endblock %}
+{% block page_title %}Create Quotation{% endblock %}
+{% block page_subtitle %}
+<p>Fill the quotation form and download <strong>QUOTATION.xlsx</strong></p>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/quotations.css') }}">
+{% endblock %}
+
+{% block content %}
+{% set fd = form_data or {} %}
+{% set lines = quotation_lines or [{'item_id': '', 'description': '', 'width': '', 'height': '', 'quantity': '1', 'rate': '0'}] %}
+<div class="container quotation-page">
+    <div class="card">
+        <form method="POST" class="form quotation-form" data-validate novalidate>
+            <div class="quotation-grid">
+                <div class="form-group">
+                    <label for="quotation_date">Date</label>
+                    <input type="date" id="quotation_date" name="quotation_date"
+                           value="{{ fd.get('quotation_date', '') }}" required
+                           class="{% if errors and errors.get('quotation_date') %}is-invalid{% endif %}">
+                    {{ field_error(errors, 'quotation_date') }}
+                </div>
+
+                <div class="form-group">
+                    <label for="customer_id">Customer (optional)</label>
+                    <select id="customer_id" name="customer_id"
+                            class="{% if errors and errors.get('customer_id') %}is-invalid{% endif %}">
+                        <option value="">Select saved customer</option>
+                        {% for customer in customers %}
+                        <option value="{{ customer.CustomerID }}"
+                                data-name="{{ customer.CustomerName }}"
+                                data-contact="{{ customer.ContactNo or '' }}"
+                            {% if fd.get('customer_id')|string == customer.CustomerID|string %}selected{% endif %}>
+                            {{ customer.CustomerName }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    {{ field_error(errors, 'customer_id') }}
+                </div>
+
+                <div class="form-group">
+                    <label for="customer_name">Name</label>
+                    <input type="text" id="customer_name" name="customer_name"
+                           value="{{ fd.get('customer_name', '') }}" required maxlength="100"
+                           class="{% if errors and errors.get('customer_name') %}is-invalid{% endif %}">
+                    {{ field_error(errors, 'customer_name') }}
+                </div>
+
+                <div class="form-group">
+                    <label for="contact_no">Contact</label>
+                    <input type="text" id="contact_no" name="contact_no"
+                           value="{{ fd.get('contact_no', '') }}" maxlength="50"
+                           class="{% if errors and errors.get('contact_no') %}is-invalid{% endif %}">
+                    {{ field_error(errors, 'contact_no') }}
+                </div>
+
+                <div class="form-group form-span-2">
+                    <label for="address">Address</label>
+                    <input type="text" id="address" name="address"
+                           value="{{ fd.get('address', '') }}" maxlength="255"
+                           class="{% if errors and errors.get('address') %}is-invalid{% endif %}">
+                    {{ field_error(errors, 'address') }}
+                </div>
+
+                <div class="form-group">
+                    <label for="project">Project</label>
+                    <input type="text" id="project" name="project"
+                           value="{{ fd.get('project', '') }}" maxlength="255"
+                           class="{% if errors and errors.get('project') %}is-invalid{% endif %}">
+                    {{ field_error(errors, 'project') }}
+                </div>
+
+                <div class="form-group">
+                    <label for="work_type">Work Type</label>
+                    <input type="text" id="work_type" name="work_type"
+                           value="{{ fd.get('work_type', '') }}" maxlength="100"
+                           class="{% if errors and errors.get('work_type') %}is-invalid{% endif %}">
+                    {{ field_error(errors, 'work_type') }}
+                </div>
+
+                <div class="form-group">
+                    <label for="engineer">Engineer</label>
+                    <input type="text" id="engineer" name="engineer"
+                           value="{{ fd.get('engineer', '') }}" maxlength="100"
+                           class="{% if errors and errors.get('engineer') %}is-invalid{% endif %}">
+                    {{ field_error(errors, 'engineer') }}
+                </div>
+
+                <div class="form-group">
+                    <label for="advance">Advance</label>
+                    <input type="number" id="advance" name="advance" min="0" step="0.01"
+                           value="{{ fd.get('advance', '0') }}"
+                           class="{% if errors and errors.get('advance') %}is-invalid{% endif %}">
+                    {{ field_error(errors, 'advance') }}
+                </div>
+            </div>
+
+            <h3>Quotation Items</h3>
+            <p class="quotation-help">Width and height are in inches. SQ/FT = (Width × Height ÷ 144) × Qty. Leave width/height empty for unit items.</p>
+            {{ field_error(errors, 'description[]') }}
+            {{ field_error(errors, 'item_id[]') }}
+            {{ field_error(errors, 'quantity[]') }}
+            {{ field_error(errors, 'rate[]') }}
+            {{ field_error(errors, 'width[]') }}
+            {{ field_error(errors, 'height[]') }}
+
+            <div class="table-wrap">
+                <table class="data-table quotation-items-table" id="quotation-items-table">
+                    <thead>
+                        <tr>
+                            <th>Product</th>
+                            <th>Description</th>
+                            <th>Width"</th>
+                            <th>Height"</th>
+                            <th>Qty</th>
+                            <th>Rate</th>
+                            <th>SQ/FT</th>
+                            <th>Amount</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for line in lines %}
+                        <tr class="quotation-item-row">
+                            <td>
+                                <select name="item_id[]" class="quotation-item-select">
+                                    <option value="">Custom item</option>
+                                    {% for item in items %}
+                                    <option value="{{ item.ItemID }}"
+                                            data-name="{{ item.ItemName }}"
+                                            data-rate="{{ item.SaleRate }}"
+                                        {% if line.get('item_id')|string == item.ItemID|string %}selected{% endif %}>
+                                        {{ item.ItemName }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td>
+                                <input type="text" name="description[]" maxlength="255"
+                                       value="{{ line.get('description', '') }}"
+                                       class="quotation-description {% if errors and errors.get('description[]') %}is-invalid{% endif %}"
+                                       placeholder="Item description">
+                            </td>
+                            <td>
+                                <input type="number" name="width[]" min="0" step="0.01"
+                                       value="{{ line.get('width', '') }}"
+                                       class="quotation-width">
+                            </td>
+                            <td>
+                                <input type="number" name="height[]" min="0" step="0.01"
+                                       value="{{ line.get('height', '') }}"
+                                       class="quotation-height">
+                            </td>
+                            <td>
+                                <input type="number" name="quantity[]" min="1" step="1"
+                                       value="{{ line.get('quantity', '1') }}" required
+                                       class="quotation-quantity">
+                            </td>
+                            <td>
+                                <input type="number" name="rate[]" min="0" step="0.01"
+                                       value="{{ line.get('rate', '0') }}" required
+                                       class="quotation-rate">
+                            </td>
+                            <td class="quotation-sqft">0.00</td>
+                            <td class="quotation-line-total">Rs 0.00</td>
+                            <td>
+                                <button type="button" class="btn btn-sm btn-danger remove-quotation-item">Remove</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="form-actions quotation-totals">
+                <button type="button" class="btn btn-secondary" id="add-quotation-item">+ Add Item</button>
+                <div class="quotation-summary">
+                    <div>Gross Amount: <strong id="quotation-gross">Rs 0.00</strong></div>
+                    <div>Balance Due: <strong id="quotation-balance">Rs 0.00</strong></div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="notes">Note</label>
+                <textarea id="notes" name="notes" rows="3" maxlength="500"
+                          class="{% if errors and errors.get('notes') %}is-invalid{% endif %}">{{ fd.get('notes', '') }}</textarea>
+                {{ field_error(errors, 'notes') }}
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Generate QUOTATION.xlsx</button>
+                <a href="{{ url_for('quotations.list_quotations') }}" class="btn btn-secondary">View Quotations</a>
+                <a href="{{ url_for('dashboard.dashboard') }}" class="btn btn-secondary">&#8592; Home</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    const maxLines = {{ max_lines|default(23) }};
+    const table = document.getElementById('quotation-items-table');
+    const body = table.querySelector('tbody');
+    const addButton = document.getElementById('add-quotation-item');
+    const customerSelect = document.getElementById('customer_id');
+    const nameInput = document.getElementById('customer_name');
+    const contactInput = document.getElementById('contact_no');
+    const advanceInput = document.getElementById('advance');
+
+    function money(value) {
+        return 'Rs ' + value.toFixed(2);
+    }
+
+    function rowSqft(row) {
+        const width = parseFloat(row.querySelector('.quotation-width').value) || 0;
+        const height = parseFloat(row.querySelector('.quotation-height').value) || 0;
+        const qty = parseFloat(row.querySelector('.quotation-quantity').value) || 0;
+        if (width > 0 && height > 0) {
+            return ((width * height) / 144) * qty;
+        }
+        return qty;
+    }
+
+    function updateTotals() {
+        let gross = 0;
+        body.querySelectorAll('.quotation-item-row').forEach(function (row) {
+            const sqft = rowSqft(row);
+            const rate = parseFloat(row.querySelector('.quotation-rate').value) || 0;
+            const amount = sqft * rate;
+            row.querySelector('.quotation-sqft').textContent = sqft.toFixed(2);
+            row.querySelector('.quotation-line-total').textContent = money(amount);
+            gross += amount;
+        });
+        const advance = parseFloat(advanceInput.value) || 0;
+        document.getElementById('quotation-gross').textContent = money(gross);
+        document.getElementById('quotation-balance').textContent = money(Math.max(gross - advance, 0));
+    }
+
+    function syncRemoveButtons() {
+        const rows = body.querySelectorAll('.quotation-item-row');
+        rows.forEach(function (row) {
+            row.querySelector('.remove-quotation-item').disabled = rows.length === 1;
+        });
+        addButton.disabled = rows.length >= maxLines;
+    }
+
+    function bindRow(row) {
+        const itemSelect = row.querySelector('.quotation-item-select');
+        const description = row.querySelector('.quotation-description');
+        const rateInput = row.querySelector('.quotation-rate');
+
+        itemSelect.addEventListener('change', function () {
+            const selected = itemSelect.options[itemSelect.selectedIndex];
+            const name = selected.getAttribute('data-name');
+            const rate = selected.getAttribute('data-rate');
+            if (name) {
+                description.value = name;
+            }
+            if (rate) {
+                rateInput.value = rate;
+            }
+            updateTotals();
+        });
+
+        row.querySelectorAll('input').forEach(function (input) {
+            input.addEventListener('input', updateTotals);
+        });
+
+        row.querySelector('.remove-quotation-item').addEventListener('click', function () {
+            if (body.querySelectorAll('.quotation-item-row').length === 1) {
+                return;
+            }
+            row.remove();
+            syncRemoveButtons();
+            updateTotals();
+        });
+    }
+
+    addButton.addEventListener('click', function () {
+        if (body.querySelectorAll('.quotation-item-row').length >= maxLines) {
+            return;
+        }
+        const row = body.querySelector('.quotation-item-row').cloneNode(true);
+        row.querySelector('.quotation-item-select').value = '';
+        row.querySelector('.quotation-description').value = '';
+        row.querySelector('.quotation-width').value = '';
+        row.querySelector('.quotation-height').value = '';
+        row.querySelector('.quotation-quantity').value = '1';
+        row.querySelector('.quotation-rate').value = '0';
+        row.querySelector('.quotation-sqft').textContent = '0.00';
+        row.querySelector('.quotation-line-total').textContent = money(0);
+        body.appendChild(row);
+        bindRow(row);
+        syncRemoveButtons();
+        updateTotals();
+    });
+
+    customerSelect.addEventListener('change', function () {
+        const selected = customerSelect.options[customerSelect.selectedIndex];
+        if (!selected || !selected.value) {
+            return;
+        }
+        nameInput.value = selected.getAttribute('data-name') || '';
+        contactInput.value = selected.getAttribute('data-contact') || '';
+    });
+
+    advanceInput.addEventListener('input', updateTotals);
+    body.querySelectorAll('.quotation-item-row').forEach(bindRow);
+    syncRemoveButtons();
+    updateTotals();
+</script>
+{% endblock %}
