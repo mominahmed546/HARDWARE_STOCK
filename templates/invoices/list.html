@@ -25,7 +25,7 @@
                 <th>Total Amount</th>
                 <th>Paid / Due</th>
                 <th>Profit</th>
-                <th>Status</th>
+                <th class="invoice-status-col">Status</th>
                 <th>Actions</th>
             </tr>
         </thead>
@@ -42,7 +42,7 @@
                     <div class="paid-due-sub">Due Rs {{ "{:,.2f}".format(invoice.RemainingAmount|default(0)) }}</div>
                 </td>
                 <td>Rs {{ "{:,.2f}".format(invoice.Profit|default(0)) }}</td>
-                <td><span class="pay-status {{ status|lower }}">{{ status }}</span></td>
+                <td class="invoice-status-col"><span class="pay-status {{ status|lower }}">{{ status }}</span></td>
                 <td class="invoice-actions-cell">
                     <div class="invoice-actions">
                         <div class="invoice-actions-row">
