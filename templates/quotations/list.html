@@ -3,7 +3,7 @@
 {% block title %}Quotations - Hardware Stock Management{% endblock %}
 {% block page_title %}Quotations{% endblock %}
 {% block page_subtitle %}
-<p>Saved quotations. Download the Excel file in quotation style.</p>
+<p>Saved quotations. Download Excel or PDF in quotation style.</p>
 {% endblock %}
 
 {% block content %}
@@ -41,11 +41,14 @@
                 <td>{{ quotation.WorkType or '-' }}</td>
                 <td>Rs {{ "{:,.2f}".format(quotation.TotalAmount|default(0)) }}</td>
                 <td>Rs {{ "{:,.2f}".format(quotation.Advance|default(0)) }}</td>
-                <td>
-                    <a href="{{ url_for('quotations.quotation_excel', id=quotation.QuotationID) }}" class="btn btn-sm btn-info">Excel</a>
-                    <form method="POST" action="{{ url_for('quotations.delete_quotation', id=quotation.QuotationID) }}" style="display:inline;">
-                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this quotation?')">Delete</button>
-                    </form>
+                <td class="list-actions-cell">
+                    <div class="list-actions">
+                        <a href="{{ url_for('quotations.quotation_excel', id=quotation.QuotationID) }}" class="btn btn-sm btn-info">Excel</a>
+                        <a href="{{ url_for('quotations.quotation_pdf', id=quotation.QuotationID) }}" class="btn btn-sm btn-info" target="_blank" rel="noopener noreferrer">PDF</a>
+                        <form method="POST" action="{{ url_for('quotations.delete_quotation', id=quotation.QuotationID) }}">
+                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this quotation?')">Delete</button>
+                        </form>
+                    </div>
                 </td>
             </tr>
             {% else %}
