@@ -7,7 +7,27 @@ from flask_login import login_required
 from app import app
 from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
 from app.db import get_db_connection
-from app.validators import ValidationErrors, clean_date, clean_positive_decimal, clean_positive_int, clean_select_id
+from app.payments import (
+    add_invoice_payment,
+    clear_invoice_payments,
+    delete_invoice_payment,
+    ensure_invoice_payments_table,
+    invoice_paid_total,
+    list_invoice_payments,
+    paid_ratio_sql,
+    pay_invoice_remaining,
+    payments_join_sql,
+    refresh_invoice_settlement,
+    remaining_due,
+)
+from app.validators import (
+    ValidationErrors,
+    clean_date,
+    clean_optional_string,
+    clean_positive_decimal,
+    clean_positive_int,
+    clean_select_id,
+)
 
 invoices_bp = Blueprint("invoices", __name__, url_prefix="/invoices")
 
@@ -62,33 +82,59 @@ def _ensure_invoice_settlement_columns(db, cursor):
         ADD COLUMN IF NOT EXISTS NetBalance NUMERIC(12, 2) DEFAULT 0
         """
     )
-    cursor.execute(
-        """
-        UPDATE Invoices
-        SET
-            CashReceived = CASE
-                WHEN COALESCE(PaymentStatus, 'Unpaid') = 'Paid'
-                    THEN COALESCE(PreviousBalance, 0) + COALESCE(TotalAmount, 0)
-                ELSE 0
-            END,
-            NetBalance = CASE
-                WHEN COALESCE(PaymentStatus, 'Unpaid') = 'Paid'
-                    THEN 0
-                ELSE COALESCE(PreviousBalance, 0) + COALESCE(TotalAmount, 0)
-            END
-        """
-    )
     db.commit()
 
 
-def _invoice_settlement(previous_balance, total_amount, payment_status="Unpaid"):
-    """Cash received and net balance for one invoice only."""
+def _ensure_invoice_schema(db, cursor):
+    _ensure_previous_balance_column(db, cursor)
+    _ensure_invoice_payment_status_column(db, cursor)
+    _ensure_invoice_previous_balance_column(db, cursor)
+    _ensure_invoice_settlement_columns(db, cursor)
+    _ensure_invoice_date_is_timestamp(db, cursor)
+    ensure_invoice_payments_table(db, cursor)
+
+
+def _invoice_settlement(previous_balance, total_amount, paid_amount=0):
+    """Cash received is money paid on this invoice; net includes previous balance."""
     previous_balance = float(previous_balance or 0)
     total_amount = float(total_amount or 0)
-    is_paid = str(payment_status or "Unpaid").strip() == "Paid"
-    cash_received = previous_balance + total_amount if is_paid else 0.0
+    paid_amount = float(paid_amount or 0)
+    cash_received = paid_amount
     net_balance = previous_balance + total_amount - cash_received
+    if net_balance < 0:
+        net_balance = 0.0
     return cash_received, net_balance
+
+
+def _load_invoice_record(cursor, invoice_id):
+    cursor.execute(
+        f"""
+        SELECT
+            i.InvoiceID,
+            i.CustomerID,
+            i.[Date] AS InvoiceDate,
+            COALESCE(i.TotalAmount, 0) AS TotalAmount,
+            COALESCE(i.PreviousBalance, 0) AS PreviousBalance,
+            COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus,
+            COALESCE(pay.PaidAmount, 0) AS PaidAmount,
+            COALESCE(pay.PaidAmount, 0) AS CashReceived,
+            GREATEST(
+                COALESCE(i.PreviousBalance, 0)
+                    + COALESCE(i.TotalAmount, 0)
+                    - COALESCE(pay.PaidAmount, 0),
+                0
+            ) AS NetBalance,
+            GREATEST(COALESCE(i.TotalAmount, 0) - COALESCE(pay.PaidAmount, 0), 0) AS RemainingAmount,
+            c.CustomerName,
+            c.ContactNo
+        FROM Invoices i
+        JOIN Customers c ON c.CustomerID = i.CustomerID
+        {payments_join_sql("i")}
+        WHERE i.InvoiceID = ?
+        """,
+        (invoice_id,),
+    )
+    return cursor.fetchone()
 
 
 def _ensure_invoice_date_is_timestamp(db, cursor):
@@ -209,10 +255,10 @@ def _validate_invoice_lines(form, cursor, errors, extra_stock_by_item=None):
 
 
 def _load_invoice_form_data(cursor, extra_item_ids=None, exclude_invoice_id=None):
-    unpaid_filter = "WHERE COALESCE(PaymentStatus, 'Unpaid') = 'Unpaid'"
+    unpaid_filter = ""
     unpaid_params = []
     if exclude_invoice_id is not None:
-        unpaid_filter += " AND InvoiceID <> ?"
+        unpaid_filter = "WHERE i.InvoiceID <> ?"
         unpaid_params.append(exclude_invoice_id)
 
     cursor.execute(
@@ -224,10 +270,18 @@ def _load_invoice_form_data(cursor, extra_item_ids=None, exclude_invoice_id=None
                 + COALESCE(unpaid.UnpaidTotal, 0) AS PreviousBalance
         FROM Customers c
         LEFT JOIN (
-            SELECT CustomerID, SUM(TotalAmount) AS UnpaidTotal
-            FROM Invoices
+            SELECT
+                i.CustomerID,
+                SUM(
+                    GREATEST(
+                        COALESCE(i.TotalAmount, 0) - COALESCE(pay.PaidAmount, 0),
+                        0
+                    )
+                ) AS UnpaidTotal
+            FROM Invoices i
+            {payments_join_sql("i")}
             {unpaid_filter}
-            GROUP BY CustomerID
+            GROUP BY i.CustomerID
         ) unpaid ON unpaid.CustomerID = c.CustomerID
         ORDER BY c.CustomerName
         """,
@@ -391,7 +445,7 @@ def _build_invoice_pdf(invoice, details):
         return max(18, 6 + len(wrapped) * line_h)
 
     extra_h = sum(_row_height(str(d.Particulars or "Item")) for d in details)
-    receipt_height = max(520, 260 + extra_h)
+    receipt_height = max(540, 280 + extra_h)
 
     def text(x, y, value, size=9, font="F1"):
         commands.append(f"BT /{font} {size} Tf {x} {y} Td ({_pdf_escape(value)}) Tj ET")
@@ -495,10 +549,11 @@ def _build_invoice_pdf(invoice, details):
         cash_received = float(invoice.CashReceived or 0)
         net_balance = float(invoice.NetBalance or 0)
     else:
+        paid_amount = float(getattr(invoice, "PaidAmount", 0) or 0)
         cash_received, net_balance = _invoice_settlement(
             previous_balance,
             total_amount,
-            getattr(invoice, "PaymentStatus", "Unpaid"),
+            paid_amount,
         )
 
     text(x_left, y, f"Items    {items_count}", 11, "F2")
@@ -507,6 +562,9 @@ def _build_invoice_pdf(invoice, details):
     text_right(x_right, y, f"Previous Balance: {money(previous_balance)}", 11, "F2")
     y -= 16
     text_right(x_right, y, f"Cash Received: {money(cash_received)}", 11, "F2")
+    y -= 16
+    invoice_due = max(total_amount - cash_received, 0)
+    text_right(x_right, y, f"Invoice Due: {money(invoice_due)}", 11, "F2")
     y -= 16
     text_right(x_right, y, f"Net Balance: {money(net_balance)}", 12, "F2")
 
@@ -559,11 +617,7 @@ def create_invoice():
     invoice_lines = _default_invoice_lines()
 
     try:
-        _ensure_previous_balance_column(db, cursor)
-        _ensure_invoice_payment_status_column(db, cursor)
-        _ensure_invoice_previous_balance_column(db, cursor)
-        _ensure_invoice_settlement_columns(db, cursor)
-        _ensure_invoice_date_is_timestamp(db, cursor)
+        _ensure_invoice_schema(db, cursor)
         customers, items = _load_invoice_form_data(cursor)
 
         if request.method == "POST":
@@ -643,7 +697,7 @@ def create_invoice():
             next_id = int(cursor.fetchone()[0])
 
             cash_received, net_balance = _invoice_settlement(
-                data["previous_balance"], total, "Unpaid"
+                data["previous_balance"], total, 0
             )
 
             cursor.execute(
@@ -722,9 +776,10 @@ def list_invoices():
     cursor = db.cursor()
 
     try:
-        _ensure_invoice_payment_status_column(db, cursor)
+        _ensure_invoice_schema(db, cursor)
         search = request.args.get("search", "")
         line_cost = sold_line_cost_sql("d")
+        paid_ratio = paid_ratio_sql("i", "pay")
 
         query = f"""
             SELECT
@@ -732,13 +787,14 @@ def list_invoices():
                 i.[Date] AS InvoiceDate,
                 i.TotalAmount,
                 COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus,
+                COALESCE(pay.PaidAmount, 0) AS PaidAmount,
+                GREATEST(COALESCE(i.TotalAmount, 0) - COALESCE(pay.PaidAmount, 0), 0) AS RemainingAmount,
                 c.CustomerName,
                 ISNULL(
-                    CASE
-                        WHEN COALESCE(i.PaymentStatus, 'Unpaid') = 'Paid'
-                        THEN SUM(COALESCE(d.Qty, 0) * COALESCE(d.Rate, 0) - ({line_cost}))
-                        ELSE 0
-                    END,
+                    SUM(
+                        (COALESCE(d.Qty, 0) * COALESCE(d.Rate, 0) - ({line_cost}))
+                        * ({paid_ratio})
+                    ),
                     0
                 ) AS Profit
             FROM Invoices i
@@ -746,6 +802,7 @@ def list_invoices():
             LEFT JOIN InvoiceDetails d ON i.InvoiceID = d.InvoiceID
             LEFT JOIN Item it ON d.ItemID = it.ItemID
             {purchase_unit_cost_join("d")}
+            {payments_join_sql("i")}
             WHERE 1=1
         """
         params = []
@@ -755,7 +812,9 @@ def list_invoices():
             params.extend([f"%{search}%", f"%{search}%"])
 
         query += """
-            GROUP BY i.InvoiceID, i.[Date], i.TotalAmount, i.PaymentStatus, c.CustomerName
+            GROUP BY
+                i.InvoiceID, i.[Date], i.TotalAmount, i.PaymentStatus,
+                pay.PaidAmount, c.CustomerName
             ORDER BY i.InvoiceID DESC
         """
 
@@ -779,30 +838,8 @@ def invoice_pdf(id):
     cursor = db.cursor()
 
     try:
-        _ensure_previous_balance_column(db, cursor)
-        _ensure_invoice_payment_status_column(db, cursor)
-        _ensure_invoice_previous_balance_column(db, cursor)
-        _ensure_invoice_settlement_columns(db, cursor)
-        _ensure_invoice_date_is_timestamp(db, cursor)
-        cursor.execute(
-            """
-            SELECT
-                i.InvoiceID,
-                i.[Date] AS InvoiceDate,
-                i.TotalAmount,
-                c.CustomerName,
-                c.ContactNo,
-                COALESCE(i.PreviousBalance, 0) AS PreviousBalance,
-                COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus,
-                COALESCE(i.CashReceived, 0) AS CashReceived,
-                COALESCE(i.NetBalance, 0) AS NetBalance
-            FROM Invoices i
-            JOIN Customers c ON i.CustomerID = c.CustomerID
-            WHERE i.InvoiceID = ?
-            """,
-            (id,),
-        )
-        invoice = cursor.fetchone()
+        _ensure_invoice_schema(db, cursor)
+        invoice = _load_invoice_record(cursor, id)
 
         if not invoice:
             flash("Invoice not found.", "danger")
@@ -844,11 +881,7 @@ def edit_invoice(id):
     invoice_lines = _default_invoice_lines()
 
     try:
-        _ensure_previous_balance_column(db, cursor)
-        _ensure_invoice_payment_status_column(db, cursor)
-        _ensure_invoice_previous_balance_column(db, cursor)
-        _ensure_invoice_settlement_columns(db, cursor)
-        _ensure_invoice_date_is_timestamp(db, cursor)
+        _ensure_invoice_schema(db, cursor)
 
         cursor.execute(
             """
@@ -971,16 +1004,10 @@ def edit_invoice(id):
                 )
 
             cursor.execute("DELETE FROM InvoiceDetails WHERE InvoiceID = ?", (id,))
-            cash_received, net_balance = _invoice_settlement(
-                data["previous_balance"],
-                total,
-                invoice.PaymentStatus,
-            )
             cursor.execute(
                 """
                 UPDATE Invoices
-                SET CustomerID = ?, [Date] = ?, TotalAmount = ?, PreviousBalance = ?,
-                    CashReceived = ?, NetBalance = ?
+                SET CustomerID = ?, [Date] = ?, TotalAmount = ?, PreviousBalance = ?
                 WHERE InvoiceID = ?
                 """,
                 (
@@ -988,8 +1015,6 @@ def edit_invoice(id):
                     invoice_datetime,
                     total,
                     data["previous_balance"],
-                    cash_received,
-                    net_balance,
                     id,
                 ),
             )
@@ -1011,6 +1036,7 @@ def edit_invoice(id):
                     (line["quantity"], line["item_id"]),
                 )
 
+            refresh_invoice_settlement(cursor, id)
             db.commit()
             flash("Invoice updated successfully.", "success")
             return redirect(url_for("invoices.invoice_pdf", id=id))
@@ -1049,6 +1075,7 @@ def delete_invoice(id):
     cursor = db.cursor()
 
     try:
+        _ensure_invoice_schema(db, cursor)
         cursor.execute(
             """
             SELECT ItemID, Qty
@@ -1059,12 +1086,33 @@ def delete_invoice(id):
         )
         details = cursor.fetchall()
 
-        cursor.execute("SELECT InvoiceID FROM Invoices WHERE InvoiceID = ?", (id,))
+        cursor.execute(
+            """
+            SELECT
+                i.InvoiceID,
+                i.CustomerID,
+                COALESCE(i.TotalAmount, 0) AS TotalAmount
+            FROM Invoices i
+            WHERE i.InvoiceID = ?
+            """,
+            (id,),
+        )
         invoice = cursor.fetchone()
 
         if not invoice:
             flash("Invoice not found.", "danger")
             return redirect(url_for("invoices.list_invoices"))
+
+        paid_amount = invoice_paid_total(cursor, id)
+        if paid_amount > 0:
+            cursor.execute(
+                """
+                UPDATE Customers
+                SET PreviousBalance = COALESCE(PreviousBalance, 0) + ?
+                WHERE CustomerID = ?
+                """,
+                (paid_amount, int(invoice.CustomerID)),
+            )
 
         for detail in details:
             cursor.execute(
@@ -1098,32 +1146,17 @@ def delete_invoice(id):
 def update_invoice_status(id):
     db = get_db_connection(app)
     cursor = db.cursor()
+    redirect_to = request.form.get("next") or url_for("invoices.list_invoices")
 
     try:
-        _ensure_invoice_payment_status_column(db, cursor)
-        _ensure_invoice_previous_balance_column(db, cursor)
-        _ensure_invoice_settlement_columns(db, cursor)
+        _ensure_invoice_schema(db, cursor)
         target_status = (request.form.get("status") or "").strip()
 
         if target_status not in {"Paid", "Unpaid"}:
             flash("Invalid payment status.", "danger")
-            return redirect(url_for("invoices.list_invoices"))
+            return redirect(redirect_to)
 
-        cursor.execute(
-            """
-            SELECT
-                i.InvoiceID,
-                i.CustomerID,
-                COALESCE(i.TotalAmount, 0) AS TotalAmount,
-                COALESCE(i.PreviousBalance, 0) AS PreviousBalance,
-                COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus
-            FROM Invoices i
-            WHERE i.InvoiceID = ?
-            """,
-            (id,),
-        )
-        invoice = cursor.fetchone()
-
+        invoice = _load_invoice_record(cursor, id)
         if not invoice:
             flash("Invoice not found.", "danger")
             return redirect(url_for("invoices.list_invoices"))
@@ -1131,51 +1164,20 @@ def update_invoice_status(id):
         current_status = (invoice.PaymentStatus or "Unpaid").strip()
         if current_status == target_status:
             flash(f"Invoice #{id} is already marked as {target_status}.", "info")
-            return redirect(url_for("invoices.list_invoices"))
+            return redirect(redirect_to)
 
-        cash_received, net_balance = _invoice_settlement(
-            invoice.PreviousBalance,
-            invoice.TotalAmount,
-            target_status,
-        )
-        cursor.execute(
-            """
-            UPDATE Invoices
-            SET PaymentStatus = ?, CashReceived = ?, NetBalance = ?
-            WHERE InvoiceID = ?
-            """,
-            (target_status, cash_received, net_balance, id),
-        )
-
-        # Keep the saved customer previous balance in sync with payment actions
-        # so the value shown on the next invoice reflects this status change.
-        invoice_total = float(invoice.TotalAmount or 0)
-        customer_id = int(invoice.CustomerID)
-        if current_status == "Unpaid" and target_status == "Paid":
-            cursor.execute(
-                """
-                UPDATE Customers
-                SET PreviousBalance = CASE
-                    WHEN COALESCE(PreviousBalance, 0) - ? < 0 THEN 0
-                    ELSE COALESCE(PreviousBalance, 0) - ?
-                END
-                WHERE CustomerID = ?
-                """,
-                (invoice_total, invoice_total, customer_id),
-            )
-        elif current_status == "Paid" and target_status == "Unpaid":
-            cursor.execute(
-                """
-                UPDATE Customers
-                SET PreviousBalance = COALESCE(PreviousBalance, 0) + ?
-                WHERE CustomerID = ?
-                """,
-                (invoice_total, customer_id),
-            )
+        if target_status == "Paid":
+            pay_invoice_remaining(cursor, invoice)
+            flash(f"Invoice #{id} marked as Paid.", "success")
+        else:
+            clear_invoice_payments(cursor, invoice)
+            flash(f"Invoice #{id} marked as Unpaid. Payments were cleared.", "success")
 
         db.commit()
-        flash(f"Invoice #{id} marked as {target_status}.", "success")
 
+    except ValueError as e:
+        db.rollback()
+        flash(str(e), "danger")
     except Exception as e:
         db.rollback()
         flash(f"Error updating invoice status: {str(e)}", "danger")
@@ -1183,4 +1185,118 @@ def update_invoice_status(id):
     finally:
         cursor.close()
 
-    return redirect(url_for("invoices.list_invoices"))
+    return redirect(redirect_to)
+
+
+@invoices_bp.route("/<int:id>/payments", methods=["GET", "POST"])
+@login_required
+def invoice_payments(id):
+    db = get_db_connection(app)
+    cursor = db.cursor()
+    errors = ValidationErrors()
+    form_data = {
+        "payment_date": date.today().isoformat(),
+        "amount": "",
+        "notes": "",
+    }
+
+    try:
+        _ensure_invoice_schema(db, cursor)
+        invoice = _load_invoice_record(cursor, id)
+        if not invoice:
+            flash("Invoice not found.", "danger")
+            return redirect(url_for("invoices.list_invoices"))
+
+        paid_amount = invoice_paid_total(cursor, id)
+        remaining = remaining_due(invoice.TotalAmount, paid_amount)
+
+        if request.method == "POST":
+            form_data = request.form.to_dict()
+            payment_date_value = clean_date(
+                request.form.get("payment_date") or date.today().isoformat(),
+                "payment_date",
+                errors,
+                label="Payment date",
+            )
+            amount = clean_positive_decimal(
+                request.form.get("amount"),
+                "amount",
+                errors,
+                min_val=0.01,
+                label="Amount received",
+            )
+            notes = clean_optional_string(
+                request.form.get("notes"),
+                "notes",
+                errors,
+                max_len=255,
+                label="Notes",
+            )
+
+            if not errors.valid:
+                flash(errors.first(), "danger")
+            else:
+                payment_datetime = datetime.combine(
+                    datetime.strptime(payment_date_value, "%Y-%m-%d").date(),
+                    datetime.now().time(),
+                )
+                result = add_invoice_payment(cursor, invoice, amount, payment_datetime, notes)
+                db.commit()
+                flash(
+                    f"Received Rs {amount:,.2f}. Invoice #{id} is now {result['status']}.",
+                    "success",
+                )
+                return redirect(url_for("invoices.invoice_payments", id=id))
+
+        payments = list_invoice_payments(cursor, id)
+        return render_template(
+            "invoices/payments.html",
+            invoice=invoice,
+            payments=payments,
+            paid_amount=paid_amount,
+            remaining=remaining,
+            errors=errors.errors,
+            form_data=form_data,
+        )
+
+    except ValueError as e:
+        db.rollback()
+        flash(str(e), "danger")
+        return redirect(url_for("invoices.invoice_payments", id=id))
+    except Exception as e:
+        db.rollback()
+        flash(f"Error loading payments: {str(e)}", "danger")
+        return redirect(url_for("invoices.list_invoices"))
+
+    finally:
+        cursor.close()
+
+
+@invoices_bp.route("/<int:id>/payments/<int:payment_id>/delete", methods=["POST"])
+@login_required
+def remove_invoice_payment(id, payment_id):
+    db = get_db_connection(app)
+    cursor = db.cursor()
+
+    try:
+        _ensure_invoice_schema(db, cursor)
+        invoice = _load_invoice_record(cursor, id)
+        if not invoice:
+            flash("Invoice not found.", "danger")
+            return redirect(url_for("invoices.list_invoices"))
+
+        delete_invoice_payment(cursor, invoice, payment_id)
+        db.commit()
+        flash("Payment removed.", "success")
+
+    except ValueError as e:
+        db.rollback()
+        flash(str(e), "danger")
+    except Exception as e:
+        db.rollback()
+        flash(f"Error removing payment: {str(e)}", "danger")
+
+    finally:
+        cursor.close()
+
+    return redirect(url_for("invoices.invoice_payments", id=id))

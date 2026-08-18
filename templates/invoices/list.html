@@ -22,25 +22,32 @@
                 <th>Date</th>
                 <th>Customer</th>
                 <th>Total Amount</th>
+                <th>Paid / Due</th>
                 <th>Profit</th>
-                <th>Payment Status</th>
+                <th>Status</th>
                 <th>Actions</th>
             </tr>
         </thead>
         <tbody>
             {% for invoice in invoices %}
+            {% set status = invoice.PaymentStatus or 'Unpaid' %}
             <tr>
                 <td>{{ invoice.InvoiceID }}</td>
                 <td>{{ invoice.InvoiceDate|date_dmy }}</td>
                 <td>{{ invoice.CustomerName }}</td>
                 <td>Rs {{ "{:,.2f}".format(invoice.TotalAmount|default(0)) }}</td>
+                <td>
+                    Rs {{ "{:,.2f}".format(invoice.PaidAmount|default(0)) }}
+                    <div class="paid-due-sub">Due Rs {{ "{:,.2f}".format(invoice.RemainingAmount|default(0)) }}</div>
+                </td>
                 <td>Rs {{ "{:,.2f}".format(invoice.Profit|default(0)) }}</td>
-                <td>{{ invoice.PaymentStatus or 'Unpaid' }}</td>
+                <td><span class="pay-status {{ status|lower }}">{{ status }}</span></td>
                 <td>
                     <a href="{{ url_for('invoices.edit_invoice', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">Edit</a>
-                    <a href="{{ url_for('invoices.invoice_pdf', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">Download PDF</a>
+                    <a href="{{ url_for('invoices.invoice_pdf', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">PDF</a>
+                    <a href="{{ url_for('invoices.invoice_payments', id=invoice.InvoiceID) }}" class="btn btn-sm btn-primary">Payment</a>
                     <form method="POST" action="{{ url_for('invoices.update_invoice_status', id=invoice.InvoiceID) }}" style="display:inline;">
-                        {% if (invoice.PaymentStatus or 'Unpaid') == 'Paid' %}
+                        {% if status == 'Paid' %}
                         <input type="hidden" name="status" value="Unpaid">
                         <button type="submit" class="btn btn-sm btn-secondary">Mark Unpaid</button>
                         {% else %}
@@ -55,7 +62,7 @@
             </tr>
             {% else %}
             <tr>
-                <td colspan="7">No invoices found.</td>
+                <td colspan="8">No invoices found.</td>
             </tr>
             {% endfor %}
         </tbody>

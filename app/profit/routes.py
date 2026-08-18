@@ -7,6 +7,7 @@ from flask_login import login_required
 from app import app
 from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
 from app.db import get_db_connection
+from app.payments import ensure_invoice_payments_table, paid_ratio_sql, payments_join_sql
 
 profit_bp = Blueprint("profit", __name__, url_prefix="/profit")
 
@@ -32,21 +33,24 @@ def _monthly_profit_data(cursor, selected_year):
     if selected_year not in years and years:
         selected_year = years[0]
 
-    # Revenue/cost/profit include only invoices marked Paid.
+    # Revenue/cost/profit scale with cash received on each invoice.
+    # Unpaid = 0, partial = paid/total, fully paid = 100%.
     line_cost = sold_line_cost_sql("id")
+    paid_ratio = paid_ratio_sql("i", "pay")
     cursor.execute(
         f"""
         SELECT
             MONTH(i.[Date]) AS SalesMonth,
-            ISNULL(SUM(id.Qty * id.Rate), 0) AS Revenue,
-            ISNULL(SUM({line_cost}), 0) AS Cost,
-            ISNULL(SUM(id.Qty * id.Rate), 0) - ISNULL(SUM({line_cost}), 0) AS Profit
+            ISNULL(SUM((id.Qty * id.Rate) * ({paid_ratio})), 0) AS Revenue,
+            ISNULL(SUM(({line_cost}) * ({paid_ratio})), 0) AS Cost,
+            ISNULL(SUM((id.Qty * id.Rate) * ({paid_ratio})), 0)
+                - ISNULL(SUM(({line_cost}) * ({paid_ratio})), 0) AS Profit
         FROM Invoices i
         JOIN InvoiceDetails id ON id.InvoiceID = i.InvoiceID
         LEFT JOIN Item it ON it.ItemID = id.ItemID
         {purchase_unit_cost_join("id")}
+        {payments_join_sql("i")}
         WHERE YEAR(i.[Date]) = ?
-          AND COALESCE(i.PaymentStatus, 'Unpaid') = 'Paid'
         GROUP BY MONTH(i.[Date])
         ORDER BY SalesMonth
         """,
@@ -94,8 +98,9 @@ def _build_profit_pdf(selected_year, monthly_rows, total_revenue, total_cost, to
     text(430, 760, f"Total Profit: Rs {total_profit:,.2f}", 10, "F1")
     best_name = best_month["month_name"] if best_month and best_month["profit"] > 0 else "N/A"
     text(50, 742, f"Best Month: {best_name}", 10, "F1")
+    text(50, 726, "Sales, cost and profit are counted in proportion to cash received.", 8, "F1")
 
-    table_top = 710
+    table_top = 700
     row_h = 20
     text(50, table_top, "Month", 10, "F2")
     text(175, table_top, "Revenue (Rs)", 10, "F2")
@@ -160,6 +165,7 @@ def monthly_profit():
     cursor = db.cursor()
 
     try:
+        ensure_invoice_payments_table(db, cursor)
         years, selected_year, monthly_rows, total_revenue, total_cost, total_profit, best_month = \
             _monthly_profit_data(cursor, selected_year)
 
@@ -199,6 +205,7 @@ def monthly_profit_pdf():
     cursor = db.cursor()
 
     try:
+        ensure_invoice_payments_table(db, cursor)
         years, selected_year, monthly_rows, total_revenue, total_cost, total_profit, best_month = \
             _monthly_profit_data(cursor, selected_year)
 

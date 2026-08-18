@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% from 'macros/form.html' import field_error %}
+
+{% block title %}Receive Payment - Invoice #{{ invoice.InvoiceID }}{% endblock %}
+{% block page_title %}Receive Payment{% endblock %}
+{% block page_subtitle %}
+<p>Invoice #{{ invoice.InvoiceID }} — {{ invoice.CustomerName }}</p>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/forms.css') }}">
+<style>
+    .payment-summary {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+    .payment-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1rem 1.15rem;
+        box-shadow: var(--shadow);
+    }
+    .payment-card .label {
+        color: var(--text-muted);
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-weight: 600;
+    }
+    .payment-card .value {
+        font-size: 1.15rem;
+        font-weight: 700;
+        margin-top: 0.25rem;
+    }
+    .payment-layout {
+        display: grid;
+        grid-template-columns: minmax(280px, 360px) 1fr;
+        gap: 1.5rem;
+        align-items: start;
+    }
+    @media (max-width: 900px) {
+        .payment-summary,
+        .payment-layout { grid-template-columns: 1fr; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set fd = form_data or {} %}
+{% set status = (invoice.PaymentStatus or 'Unpaid') %}
+<div class="container">
+    <div class="payment-summary">
+        <div class="payment-card">
+            <div class="label">Invoice Total</div>
+            <div class="value">Rs {{ "{:,.2f}".format(invoice.TotalAmount|default(0)) }}</div>
+        </div>
+        <div class="payment-card">
+            <div class="label">Cash Received</div>
+            <div class="value">Rs {{ "{:,.2f}".format(paid_amount|default(0)) }}</div>
+        </div>
+        <div class="payment-card">
+            <div class="label">Remaining Due</div>
+            <div class="value">Rs {{ "{:,.2f}".format(remaining|default(0)) }}</div>
+        </div>
+        <div class="payment-card">
+            <div class="label">Status</div>
+            <div class="value">
+                <span class="pay-status {{ status|lower }}">{{ status }}</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="payment-layout">
+        <div class="card">
+            <h3>Add payment</h3>
+            {% if remaining > 0 %}
+            <p class="text-muted">Profit, sales, and purchase cost count in proportion to cash received. Pay Rs 4,000 of a Rs 10,000 bill and 40% of that bill is included.</p>
+            <form method="POST" class="form">
+                <div class="form-group">
+                    <label for="payment_date">Payment Date</label>
+                    <input type="date" id="payment_date" name="payment_date"
+                           value="{{ fd.get('payment_date', '') }}" required
+                           class="{% if errors and errors.get('payment_date') %}is-invalid{% endif %}">
+                    {{ field_error(errors, 'payment_date') }}
+                </div>
+                <div class="form-group">
+                    <label for="amount">Amount Received</label>
+                    <input type="number" id="amount" name="amount" min="0.01" step="0.01"
+                           max="{{ remaining }}"
+                           value="{{ fd.get('amount', remaining) }}" required
+                           class="{% if errors and errors.get('amount') %}is-invalid{% endif %}">
+                    {{ field_error(errors, 'amount') }}
+                </div>
+                <div class="form-group">
+                    <label for="notes">Notes (optional)</label>
+                    <input type="text" id="notes" name="notes" maxlength="255"
+                           value="{{ fd.get('notes', '') }}"
+                           class="{% if errors and errors.get('notes') %}is-invalid{% endif %}">
+                    {{ field_error(errors, 'notes') }}
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-success">Save Payment</button>
+                    <a href="{{ url_for('invoices.list_invoices') }}" class="btn btn-secondary">Back to Invoices</a>
+                </div>
+            </form>
+            {% else %}
+            <p>This invoice is fully paid.</p>
+            <a href="{{ url_for('invoices.list_invoices') }}" class="btn btn-secondary">Back to Invoices</a>
+            {% endif %}
+        </div>
+
+        <div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Amount</th>
+                        <th>Notes</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for payment in payments %}
+                    <tr>
+                        <td>{{ payment.PaymentDate|date_dmy }}</td>
+                        <td>Rs {{ "{:,.2f}".format(payment.Amount|default(0)) }}</td>
+                        <td>{{ payment.Notes or '—' }}</td>
+                        <td>
+                            <form method="POST" action="{{ url_for('invoices.remove_invoice_payment', id=invoice.InvoiceID, payment_id=payment.PaymentID) }}" style="display:inline;">
+                                <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove this payment? Profit for this invoice will be reduced.')">Remove</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="4">No payments recorded yet.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

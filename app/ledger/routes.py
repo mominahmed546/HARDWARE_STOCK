@@ -6,6 +6,7 @@ from flask_login import login_required
 
 from app import app
 from app.db import get_db_connection
+from app.payments import ensure_invoice_payments_table, payments_join_sql
 
 ledger_bp = Blueprint("ledger", __name__, url_prefix="/ledger")
 
@@ -37,6 +38,14 @@ def _ensure_invoice_payment_status_column(db, cursor):
     db.commit()
 
 
+def _event_sort_date(value):
+    if value is None:
+        return datetime.min
+    if getattr(value, "tzinfo", None):
+        return value.replace(tzinfo=None)
+    return value
+
+
 def _pdf_escape(value):
     return str(value).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
@@ -45,7 +54,7 @@ def _balance_side(balance):
     return "Dr" if float(balance or 0) >= 0 else "Cr"
 
 
-def _build_ledger_entries(opening_balance, invoices, details_by_invoice):
+def _build_ledger_entries(opening_balance, invoices, details_by_invoice, payments_by_invoice):
     entries = []
     balance = float(opening_balance or 0)
     opening_debit = balance if balance > 0 else 0.0
@@ -68,57 +77,96 @@ def _build_ledger_entries(opening_balance, invoices, details_by_invoice):
 
     total_debit = opening_debit
     total_credit = opening_credit
+    events = []
 
     for invoice in invoices:
-        amount = float(invoice.TotalAmount or 0)
-        invoice_id = invoice.InvoiceID
-        item_names = [
-            str(row.Particulars or "Item").strip()
-            for row in details_by_invoice.get(invoice_id, [])
-            if str(row.Particulars or "").strip()
-        ]
-        if item_names:
-            preview = ", ".join(item_names[:3])
-            if len(item_names) > 3:
-                preview += f" and {len(item_names) - 3} more"
-            sale_particulars = f"To Sales Invoice No. {invoice_id} — {preview}"
-        else:
-            sale_particulars = f"To Sales Invoice No. {invoice_id}"
-
-        balance += amount
-        total_debit += amount
-        entries.append(
+        events.append(
             {
+                "kind": "invoice",
                 "date": invoice.InvoiceDate,
-                "vch_no": str(invoice_id),
-                "vch_type": "Invoice",
-                "particulars": sale_particulars,
-                "debit": amount,
-                "credit": 0.0,
-                "balance": balance,
-                "balance_side": _balance_side(balance),
-                "invoice_id": invoice_id,
-                "is_opening": False,
+                "invoice": invoice,
+                "sort": 0,
             }
         )
+        for payment in payments_by_invoice.get(invoice.InvoiceID, []):
+            events.append(
+                {
+                    "kind": "payment",
+                    "date": payment.PaymentDate,
+                    "invoice": invoice,
+                    "payment": payment,
+                    "sort": 1,
+                }
+            )
 
-        if (invoice.PaymentStatus or "Unpaid") == "Paid":
-            balance -= amount
-            total_credit += amount
+    events.sort(
+        key=lambda event: (
+            _event_sort_date(event["date"]),
+            event["sort"],
+            int(event["invoice"].InvoiceID),
+            int(getattr(event.get("payment"), "PaymentID", 0) or 0),
+        )
+    )
+
+    for event in events:
+        invoice = event["invoice"]
+        invoice_id = invoice.InvoiceID
+        if event["kind"] == "invoice":
+            amount = float(invoice.TotalAmount or 0)
+            item_names = [
+                str(row.Particulars or "Item").strip()
+                for row in details_by_invoice.get(invoice_id, [])
+                if str(row.Particulars or "").strip()
+            ]
+            if item_names:
+                preview = ", ".join(item_names[:3])
+                if len(item_names) > 3:
+                    preview += f" and {len(item_names) - 3} more"
+                sale_particulars = f"To Sales Invoice No. {invoice_id} — {preview}"
+            else:
+                sale_particulars = f"To Sales Invoice No. {invoice_id}"
+
+            balance += amount
+            total_debit += amount
             entries.append(
                 {
                     "date": invoice.InvoiceDate,
                     "vch_no": str(invoice_id),
-                    "vch_type": "Receipt",
-                    "particulars": f"By Cash / Bank received against Invoice No. {invoice_id}",
-                    "debit": 0.0,
-                    "credit": amount,
+                    "vch_type": "Invoice",
+                    "particulars": sale_particulars,
+                    "debit": amount,
+                    "credit": 0.0,
                     "balance": balance,
                     "balance_side": _balance_side(balance),
                     "invoice_id": invoice_id,
                     "is_opening": False,
                 }
             )
+            continue
+
+        payment = event["payment"]
+        amount = float(payment.Amount or 0)
+        notes = str(payment.Notes or "").strip()
+        particulars = f"By Cash received against Invoice No. {invoice_id}"
+        if notes and notes != "Backfilled from Paid status" and notes != "Marked paid":
+            particulars += f" — {notes}"
+
+        balance -= amount
+        total_credit += amount
+        entries.append(
+            {
+                "date": payment.PaymentDate,
+                "vch_no": str(invoice_id),
+                "vch_type": "Receipt",
+                "particulars": particulars,
+                "debit": 0.0,
+                "credit": amount,
+                "balance": balance,
+                "balance_side": _balance_side(balance),
+                "invoice_id": invoice_id,
+                "is_opening": False,
+            }
+        )
 
     return entries, total_debit, total_credit, balance
 
@@ -171,15 +219,31 @@ def _load_customer_ledger(cursor, customer_id):
         for row in cursor.fetchall():
             details_by_invoice.setdefault(row.InvoiceID, []).append(row)
 
+    payments_by_invoice = {}
+    if invoices:
+        invoice_ids = [int(row.InvoiceID) for row in invoices]
+        placeholders = ",".join("?" * len(invoice_ids))
+        cursor.execute(
+            f"""
+            SELECT PaymentID, InvoiceID, Amount, PaymentDate, Notes
+            FROM InvoicePayments
+            WHERE InvoiceID IN ({placeholders})
+            ORDER BY PaymentDate, PaymentID
+            """,
+            invoice_ids,
+        )
+        for row in cursor.fetchall():
+            payments_by_invoice.setdefault(row.InvoiceID, []).append(row)
+
     opening_balance = float(customer.PreviousBalance or 0)
     entries, total_debit, total_credit, closing_balance = _build_ledger_entries(
-        opening_balance, invoices, details_by_invoice
+        opening_balance, invoices, details_by_invoice, payments_by_invoice
     )
     total_invoiced = sum(float(invoice.TotalAmount or 0) for invoice in invoices)
     total_paid = sum(
-        float(invoice.TotalAmount or 0)
-        for invoice in invoices
-        if (invoice.PaymentStatus or "Unpaid") == "Paid"
+        float(payment.Amount or 0)
+        for payments in payments_by_invoice.values()
+        for payment in payments
     )
 
     return {
@@ -337,9 +401,10 @@ def list_ledger():
     try:
         _ensure_previous_balance_column(db, cursor)
         _ensure_invoice_payment_status_column(db, cursor)
+        ensure_invoice_payments_table(db, cursor)
 
         search = request.args.get("search", "")
-        query = """
+        query = f"""
             SELECT
                 c.CustomerID,
                 c.CustomerName,
@@ -356,13 +421,9 @@ def list_ledger():
                     i.CustomerID,
                     COUNT(*) AS InvoiceCount,
                     SUM(i.TotalAmount) AS TotalInvoiced,
-                    SUM(
-                        CASE
-                            WHEN COALESCE(i.PaymentStatus, 'Unpaid') = 'Paid' THEN i.TotalAmount
-                            ELSE 0
-                        END
-                    ) AS TotalPaid
+                    SUM(COALESCE(pay.PaidAmount, 0)) AS TotalPaid
                 FROM Invoices i
+                {payments_join_sql("i")}
                 GROUP BY i.CustomerID
             ) inv ON inv.CustomerID = c.CustomerID
             WHERE 1=1
@@ -403,6 +464,7 @@ def customer_ledger(id):
     try:
         _ensure_previous_balance_column(db, cursor)
         _ensure_invoice_payment_status_column(db, cursor)
+        ensure_invoice_payments_table(db, cursor)
         data = _load_customer_ledger(cursor, id)
 
         if not data:
@@ -433,6 +495,7 @@ def customer_ledger_pdf(id):
     try:
         _ensure_previous_balance_column(db, cursor)
         _ensure_invoice_payment_status_column(db, cursor)
+        ensure_invoice_payments_table(db, cursor)
         data = _load_customer_ledger(cursor, id)
 
         if not data:

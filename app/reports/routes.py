@@ -6,6 +6,7 @@ from flask_login import login_required
 
 from app import app
 from app.db import get_db_connection
+from app.payments import ensure_invoice_payments_table
 
 reports_bp = Blueprint("reports", __name__, url_prefix="/reports")
 
@@ -163,21 +164,29 @@ def _monthly_sales_data(cursor, selected_year):
     status_rows = cursor.fetchall()
     paid_count = 0
     unpaid_count = 0
+    partial_count = 0
     paid_amount = 0.0
     unpaid_amount = 0.0
+    partial_amount = 0.0
     for s in status_rows:
-        if str(s.PaymentStatus).strip().lower() == "paid":
+        status = str(s.PaymentStatus).strip().lower()
+        if status == "paid":
             paid_count = int(s.InvoiceCount)
             paid_amount = float(s.TotalAmount)
+        elif status == "partial":
+            partial_count = int(s.InvoiceCount)
+            partial_amount = float(s.TotalAmount)
         else:
-            unpaid_count = int(s.InvoiceCount)
-            unpaid_amount = float(s.TotalAmount)
+            unpaid_count += int(s.InvoiceCount)
+            unpaid_amount += float(s.TotalAmount)
 
     payment_status = {
         "paid_count": paid_count,
         "unpaid_count": unpaid_count,
+        "partial_count": partial_count,
         "paid_amount": paid_amount,
         "unpaid_amount": unpaid_amount,
+        "partial_amount": partial_amount,
     }
 
     return years, selected_year, monthly_rows, total_sales, total_invoices, best_month, payment_status
@@ -191,6 +200,7 @@ def monthly_sales():
     cursor = db.cursor()
 
     try:
+        ensure_invoice_payments_table(db, cursor)
         years, selected_year, monthly_rows, total_sales, total_invoices, best_month, payment_status = \
             _monthly_sales_data(cursor, selected_year)
 
@@ -215,7 +225,7 @@ def monthly_sales():
             total_sales=0,
             total_invoices=0,
             best_month=None,
-            payment_status={"paid_count":0,"unpaid_count":0,"paid_amount":0,"unpaid_amount":0},
+            payment_status={"paid_count":0,"unpaid_count":0,"partial_count":0,"paid_amount":0,"unpaid_amount":0,"partial_amount":0},
         )
 
     finally:
@@ -230,6 +240,7 @@ def monthly_sales_pdf():
     cursor = db.cursor()
 
     try:
+        ensure_invoice_payments_table(db, cursor)
         years, selected_year, monthly_rows, total_sales, total_invoices, best_month, _ = _monthly_sales_data(
             cursor, selected_year
         )

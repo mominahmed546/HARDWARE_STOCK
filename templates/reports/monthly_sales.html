@@ -146,19 +146,21 @@
     });
 
     // Pie chart — invoice status
-    const paidCount   = {{ payment_status.paid_count }};
-    const unpaidCount = {{ payment_status.unpaid_count }};
-    const paidAmt     = {{ payment_status.paid_amount }};
-    const unpaidAmt   = {{ payment_status.unpaid_amount }};
+    const paidCount    = {{ payment_status.paid_count }};
+    const partialCount = {{ payment_status.partial_count|default(0) }};
+    const unpaidCount  = {{ payment_status.unpaid_count }};
+    const paidAmt      = {{ payment_status.paid_amount }};
+    const partialAmt   = {{ payment_status.partial_amount|default(0) }};
+    const unpaidAmt    = {{ payment_status.unpaid_amount }};
 
     new Chart(document.getElementById('statusChart'), {
         type: 'pie',
         data: {
-            labels: ['Paid', 'Unpaid'],
+            labels: ['Paid', 'Partial', 'Unpaid'],
             datasets: [{
-                data: [paidCount, unpaidCount],
-                backgroundColor: ['rgba(46,125,50,0.8)', 'rgba(239,83,80,0.8)'],
-                borderColor: ['#1b5e20', '#b71c1c'],
+                data: [paidCount, partialCount, unpaidCount],
+                backgroundColor: ['rgba(46,125,50,0.8)', 'rgba(245,158,11,0.85)', 'rgba(239,83,80,0.8)'],
+                borderColor: ['#1b5e20', '#b45309', '#b71c1c'],
                 borderWidth: 1,
             }]
         },
@@ -170,7 +172,8 @@
                 tooltip: {
                     callbacks: {
                         label: ctx => {
-                            const amt = ctx.label === 'Paid' ? paidAmt : unpaidAmt;
+                            const amounts = { Paid: paidAmt, Partial: partialAmt, Unpaid: unpaidAmt };
+                            const amt = amounts[ctx.label] || 0;
                             return ` ${ctx.label}: ${ctx.parsed} invoices (Rs ${amt.toLocaleString('en-PK', {minimumFractionDigits:2})})`;
                         }
                     }

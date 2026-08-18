@@ -67,6 +67,17 @@ CREATE TABLE IF NOT EXISTS invoice_details (
     rate NUMERIC(10, 2) DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS invoice_payments (
+    payment_id SERIAL PRIMARY KEY,
+    invoice_id INTEGER NOT NULL REFERENCES invoices(invoice_id) ON DELETE CASCADE,
+    amount NUMERIC(12, 2) NOT NULL,
+    payment_date TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    notes VARCHAR(255)
+);
+
+CREATE INDEX IF NOT EXISTS idx_invoice_payments_invoice_id
+    ON invoice_payments (invoice_id);
+
 CREATE TABLE IF NOT EXISTS stock_history (
     history_id SERIAL PRIMARY KEY,
     item_id INTEGER REFERENCES item(item_id),

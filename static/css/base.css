@@ -423,6 +423,40 @@ a {
     margin-left: 0.4rem;
 }
 
+.paid-due-sub {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-top: 0.15rem;
+}
+
+.pay-status {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.pay-status.paid {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.pay-status.partial {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.pay-status.unpaid {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.text-muted {
+    color: var(--text-muted);
+}
+
 /* ---- Dark mode overrides ---- */
 [data-theme="dark"] .data-table th {
     background: #1e293b;
@@ -430,6 +464,18 @@ a {
 }
 [data-theme="dark"] .data-table tbody tr:hover {
     background: #263548;
+}
+[data-theme="dark"] .pay-status.paid {
+    background: #14532d;
+    color: #86efac;
+}
+[data-theme="dark"] .pay-status.partial {
+    background: #78350f;
+    color: #fde68a;
+}
+[data-theme="dark"] .pay-status.unpaid {
+    background: #7f1d1d;
+    color: #fecaca;
 }
 [data-theme="dark"] .flash-success {
     background: #14532d;
