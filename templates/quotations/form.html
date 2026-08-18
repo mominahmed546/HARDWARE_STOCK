@@ -13,7 +13,7 @@
 
 {% block content %}
 {% set fd = form_data or {} %}
-{% set lines = quotation_lines or [{'item_id': '', 'description': '', 'width': '', 'height': '', 'quantity': '1', 'rate': '0'}] %}
+{% set lines = quotation_lines or [{'description': '', 'width': '', 'height': '', 'quantity': '1', 'rate': '0', 'sqft': ''}] %}
 <div class="container quotation-page">
     <div class="card">
         <form method="POST" class="form quotation-form" data-validate novalidate>
@@ -101,19 +101,19 @@
             </div>
 
             <h3>Quotation Items</h3>
-            <p class="quotation-help">Width and height are in inches. SQ/FT = (Width × Height ÷ 144) × Qty. Leave width/height empty for unit items.</p>
+            <p class="quotation-help">Width and height are in inches. SQ/FT is calculated as (Width × Height ÷ 144) × Qty when measurements are entered. Type SQ/FT yourself when only the area is known.</p>
             {{ field_error(errors, 'description[]') }}
-            {{ field_error(errors, 'item_id[]') }}
             {{ field_error(errors, 'quantity[]') }}
             {{ field_error(errors, 'rate[]') }}
             {{ field_error(errors, 'width[]') }}
             {{ field_error(errors, 'height[]') }}
+            {{ field_error(errors, 'sqft[]') }}
 
             <div class="table-wrap">
                 <table class="data-table quotation-items-table" id="quotation-items-table">
                     <thead>
                         <tr>
-                            <th>Product</th>
+                            <th>Sr No.</th>
                             <th>Description</th>
                             <th>Width"</th>
                             <th>Height"</th>
@@ -127,19 +127,7 @@
                     <tbody>
                         {% for line in lines %}
                         <tr class="quotation-item-row">
-                            <td>
-                                <select name="item_id[]" class="quotation-item-select">
-                                    <option value="">Custom item</option>
-                                    {% for item in items %}
-                                    <option value="{{ item.ItemID }}"
-                                            data-name="{{ item.ItemName }}"
-                                            data-rate="{{ item.SaleRate }}"
-                                        {% if line.get('item_id')|string == item.ItemID|string %}selected{% endif %}>
-                                        {{ item.ItemName }}
-                                    </option>
-                                    {% endfor %}
-                                </select>
-                            </td>
+                            <td class="quotation-sr">{{ loop.index }}</td>
                             <td>
                                 <input type="text" name="description[]" maxlength="255"
                                        value="{{ line.get('description', '') }}"
@@ -166,7 +154,11 @@
                                        value="{{ line.get('rate', '0') }}" required
                                        class="quotation-rate">
                             </td>
-                            <td class="quotation-sqft">0.00</td>
+                            <td>
+                                <input type="number" name="sqft[]" min="0" step="0.0001"
+                                       value="{{ line.get('sqft', '') }}"
+                                       class="quotation-sqft" data-auto="1">
+                            </td>
                             <td class="quotation-line-total">Rs 0.00</td>
                             <td>
                                 <button type="button" class="btn btn-sm btn-danger remove-quotation-item">Remove</button>
@@ -215,7 +207,14 @@
         return 'Rs ' + value.toFixed(2);
     }
 
-    function rowSqft(row) {
+    function formatSqft(value) {
+        if (!Number.isFinite(value)) {
+            return '';
+        }
+        return String(Math.round(value * 10000) / 10000);
+    }
+
+    function calculatedSqft(row) {
         const width = parseFloat(row.querySelector('.quotation-width').value) || 0;
         const height = parseFloat(row.querySelector('.quotation-height').value) || 0;
         const qty = parseFloat(row.querySelector('.quotation-quantity').value) || 0;
@@ -225,13 +224,29 @@
         return qty;
     }
 
+    function syncSqft(row) {
+        const sqftInput = row.querySelector('.quotation-sqft');
+        if (sqftInput.dataset.auto === '0') {
+            return;
+        }
+        sqftInput.value = formatSqft(calculatedSqft(row));
+    }
+
+    function rowSqft(row) {
+        const entered = parseFloat(row.querySelector('.quotation-sqft').value);
+        if (Number.isFinite(entered) && entered > 0) {
+            return entered;
+        }
+        return calculatedSqft(row);
+    }
+
     function updateTotals() {
         let gross = 0;
         body.querySelectorAll('.quotation-item-row').forEach(function (row) {
+            syncSqft(row);
             const sqft = rowSqft(row);
             const rate = parseFloat(row.querySelector('.quotation-rate').value) || 0;
             const amount = sqft * rate;
-            row.querySelector('.quotation-sqft').textContent = sqft.toFixed(2);
             row.querySelector('.quotation-line-total').textContent = money(amount);
             gross += amount;
         });
@@ -240,33 +255,37 @@
         document.getElementById('quotation-balance').textContent = money(Math.max(gross - advance, 0));
     }
 
+    function renumberRows() {
+        body.querySelectorAll('.quotation-item-row').forEach(function (row, index) {
+            row.querySelector('.quotation-sr').textContent = index + 1;
+        });
+    }
+
     function syncRemoveButtons() {
         const rows = body.querySelectorAll('.quotation-item-row');
         rows.forEach(function (row) {
             row.querySelector('.remove-quotation-item').disabled = rows.length === 1;
         });
         addButton.disabled = rows.length >= maxLines;
+        renumberRows();
     }
 
     function bindRow(row) {
-        const itemSelect = row.querySelector('.quotation-item-select');
-        const description = row.querySelector('.quotation-description');
-        const rateInput = row.querySelector('.quotation-rate');
+        const sqftInput = row.querySelector('.quotation-sqft');
 
-        itemSelect.addEventListener('change', function () {
-            const selected = itemSelect.options[itemSelect.selectedIndex];
-            const name = selected.getAttribute('data-name');
-            const rate = selected.getAttribute('data-rate');
-            if (name) {
-                description.value = name;
-            }
-            if (rate) {
-                rateInput.value = rate;
-            }
+        sqftInput.addEventListener('input', function () {
+            sqftInput.dataset.auto = '0';
             updateTotals();
         });
 
-        row.querySelectorAll('input').forEach(function (input) {
+        row.querySelectorAll('.quotation-width, .quotation-height').forEach(function (input) {
+            input.addEventListener('input', function () {
+                sqftInput.dataset.auto = '1';
+                updateTotals();
+            });
+        });
+
+        row.querySelectorAll('.quotation-quantity, .quotation-rate').forEach(function (input) {
             input.addEventListener('input', updateTotals);
         });
 
@@ -285,13 +304,14 @@
             return;
         }
         const row = body.querySelector('.quotation-item-row').cloneNode(true);
-        row.querySelector('.quotation-item-select').value = '';
         row.querySelector('.quotation-description').value = '';
         row.querySelector('.quotation-width').value = '';
         row.querySelector('.quotation-height').value = '';
         row.querySelector('.quotation-quantity').value = '1';
         row.querySelector('.quotation-rate').value = '0';
-        row.querySelector('.quotation-sqft').textContent = '0.00';
+        const sqftInput = row.querySelector('.quotation-sqft');
+        sqftInput.value = '';
+        sqftInput.dataset.auto = '1';
         row.querySelector('.quotation-line-total').textContent = money(0);
         body.appendChild(row);
         bindRow(row);

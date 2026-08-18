@@ -109,7 +109,8 @@ CREATE TABLE IF NOT EXISTS quotation_details (
     width NUMERIC(12, 2) DEFAULT 0,
     height NUMERIC(12, 2) DEFAULT 0,
     qty INTEGER NOT NULL,
-    rate NUMERIC(10, 2) DEFAULT 0
+    rate NUMERIC(10, 2) DEFAULT 0,
+    sqft NUMERIC(12, 4) DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS stock_history (

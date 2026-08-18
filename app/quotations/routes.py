@@ -5,7 +5,7 @@ from flask_login import login_required
 
 from app import app
 from app.db import get_db_connection
-from app.quotations.excel import MAX_LINE_ROWS, build_quotation_xlsx, line_amount
+from app.quotations.excel import MAX_LINE_ROWS, build_quotation_xlsx, line_amount, sqft_for_line
 from app.validators import (
     ValidationErrors,
     clean_date,
@@ -49,8 +49,15 @@ def ensure_quotations_schema(db, cursor):
             Width NUMERIC(12, 2) DEFAULT 0,
             Height NUMERIC(12, 2) DEFAULT 0,
             Qty INTEGER NOT NULL,
-            Rate NUMERIC(10, 2) DEFAULT 0
+            Rate NUMERIC(10, 2) DEFAULT 0,
+            SqFt NUMERIC(12, 4) DEFAULT 0
         )
+        """
+    )
+    cursor.execute(
+        """
+        ALTER TABLE QuotationDetails
+        ADD COLUMN IF NOT EXISTS SqFt NUMERIC(12, 4) DEFAULT 0
         """
     )
     db.commit()
@@ -59,35 +66,35 @@ def ensure_quotations_schema(db, cursor):
 def _default_quotation_lines():
     return [
         {
-            "item_id": "",
             "description": "",
             "width": "",
             "height": "",
             "quantity": "1",
             "rate": "0",
+            "sqft": "",
         }
     ]
 
 
 def _quotation_lines_from_form(form):
-    item_ids = form.getlist("item_id[]")
     descriptions = form.getlist("description[]")
     widths = form.getlist("width[]")
     heights = form.getlist("height[]")
     quantities = form.getlist("quantity[]")
     rates = form.getlist("rate[]")
+    sqfts = form.getlist("sqft[]")
 
-    line_count = max(len(item_ids), len(descriptions), len(widths), len(heights), len(quantities), len(rates), 1)
+    line_count = max(len(descriptions), len(widths), len(heights), len(quantities), len(rates), len(sqfts), 1)
     lines = []
     for index in range(line_count):
         lines.append(
             {
-                "item_id": item_ids[index] if index < len(item_ids) else "",
                 "description": descriptions[index] if index < len(descriptions) else "",
                 "width": widths[index] if index < len(widths) else "",
                 "height": heights[index] if index < len(heights) else "",
                 "quantity": quantities[index] if index < len(quantities) else "",
                 "rate": rates[index] if index < len(rates) else "",
+                "sqft": sqfts[index] if index < len(sqfts) else "",
             }
         )
     return lines
@@ -117,12 +124,12 @@ def _validate_quotation_header(form, errors):
     }
 
 
-def _validate_quotation_lines(form, cursor, errors):
+def _validate_quotation_lines(form, errors):
     lines = _quotation_lines_from_form(form)
     valid_lines = []
 
     if not any(
-        line["description"] or line["item_id"] or line["quantity"] or line["rate"] or line["width"] or line["height"]
+        line["description"] or line["quantity"] or line["rate"] or line["width"] or line["height"] or line["sqft"]
         for line in lines
     ):
         errors.add("description[]", "At least one quotation item is required.")
@@ -133,34 +140,15 @@ def _validate_quotation_lines(form, cursor, errors):
         return lines, valid_lines
 
     for line in lines:
-        has_content = any(str(line.get(key) or "").strip() for key in ("description", "item_id", "width", "height"))
+        has_content = any(str(line.get(key) or "").strip() for key in ("description", "width", "height", "sqft"))
         qty_filled = str(line.get("quantity") or "").strip() not in {"", "1"}
         rate_filled = str(line.get("rate") or "").strip() not in {"", "0", "0.0", "0.00"}
         if not has_content and not qty_filled and not rate_filled:
             continue
 
-        item_id = None
-        if str(line.get("item_id") or "").strip():
-            item_id = clean_optional_select_id(line["item_id"], "item_id[]", errors, label="Item")
-            if not errors.valid:
-                break
-
-        description = clean_optional_string(
+        description = clean_string(
             line.get("description"), "description[]", errors, max_len=255, label="Description"
         )
-        if item_id and not description:
-            cursor.execute("SELECT ItemName, SaleRate FROM Item WHERE ItemID = ?", (item_id,))
-            item = cursor.fetchone()
-            if not item:
-                errors.add("item_id[]", "Selected item was not found.")
-                break
-            description = item.ItemName
-            if not str(line.get("rate") or "").strip():
-                line["rate"] = str(item.SaleRate or 0)
-
-        if not description:
-            errors.add("description[]", "Each item row needs a description or a selected product.")
-            break
 
         quantity = clean_positive_int(line.get("quantity"), "quantity[]", errors, min_val=1, label="Quantity")
         rate = clean_positive_decimal(line.get("rate"), "rate[]", errors, min_val=0, label="Rate")
@@ -170,19 +158,24 @@ def _validate_quotation_lines(form, cursor, errors):
         height = clean_positive_decimal(
             line.get("height") or "0", "height[]", errors, min_val=0, label="Height"
         )
+        sqft = clean_positive_decimal(
+            line.get("sqft") or "0", "sqft[]", errors, min_val=0, label="SQ/FT"
+        )
 
         if not errors.valid:
             break
 
+        sqft_value = sqft_for_line(width or 0, height or 0, quantity, sqft)
         valid_lines.append(
             {
-                "item_id": item_id,
+                "item_id": None,
                 "description": description,
                 "width": width or 0,
                 "height": height or 0,
                 "quantity": quantity,
                 "rate": rate,
-                "total": line_amount(width or 0, height or 0, quantity, rate),
+                "sqft": sqft_value,
+                "total": line_amount(width or 0, height or 0, quantity, rate, sqft_value),
             }
         )
 
@@ -201,15 +194,7 @@ def _load_form_lookups(cursor):
         """
     )
     customers = cursor.fetchall()
-    cursor.execute(
-        """
-        SELECT ItemID, ItemName, SaleRate, Qty
-        FROM Item
-        ORDER BY ItemName
-        """
-    )
-    items = cursor.fetchall()
-    return customers, items
+    return customers
 
 
 def _quotation_header_payload(quotation, valid_lines):
@@ -232,6 +217,7 @@ def _quotation_header_payload(quotation, valid_lines):
             "height": row.Height,
             "quantity": row.Qty,
             "rate": row.Rate,
+            "sqft": getattr(row, "SqFt", None) or getattr(row, "sqft", None),
         }
         for row in valid_lines
     ]
@@ -254,7 +240,7 @@ def _load_quotation(cursor, quotation_id):
 def _load_quotation_details(cursor, quotation_id):
     cursor.execute(
         """
-        SELECT DetailID, ItemID, Description, Width, Height, Qty, Rate
+        SELECT DetailID, ItemID, Description, Width, Height, Qty, Rate, SqFt
         FROM QuotationDetails
         WHERE QuotationID = ?
         ORDER BY DetailID
@@ -289,20 +275,19 @@ def create_quotation():
 
     try:
         ensure_quotations_schema(db, cursor)
-        customers, items = _load_form_lookups(cursor)
+        customers = _load_form_lookups(cursor)
 
         if request.method == "POST":
             form_data = request.form.to_dict()
             quotation_lines = _quotation_lines_from_form(request.form)
             header = _validate_quotation_header(request.form, errors)
-            quotation_lines, valid_lines = _validate_quotation_lines(request.form, cursor, errors)
+            quotation_lines, valid_lines = _validate_quotation_lines(request.form, errors)
 
             if not errors.valid:
                 flash(errors.first(), "danger")
                 return render_template(
                     "quotations/form.html",
                     customers=customers,
-                    items=items,
                     errors=errors.errors,
                     form_data=form_data,
                     quotation_lines=quotation_lines,
@@ -345,9 +330,9 @@ def create_quotation():
                 cursor.execute(
                     """
                     INSERT INTO QuotationDetails (
-                        QuotationID, ItemID, Description, Width, Height, Qty, Rate
+                        QuotationID, ItemID, Description, Width, Height, Qty, Rate, SqFt
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         quotation_id,
@@ -357,6 +342,7 @@ def create_quotation():
                         line["height"],
                         line["quantity"],
                         line["rate"],
+                        line["sqft"],
                     ),
                 )
 
@@ -368,7 +354,6 @@ def create_quotation():
         return render_template(
             "quotations/form.html",
             customers=customers,
-            items=items,
             errors=errors.errors,
             form_data=form_data,
             quotation_lines=quotation_lines,
@@ -381,7 +366,6 @@ def create_quotation():
         return render_template(
             "quotations/form.html",
             customers=[],
-            items=[],
             errors=errors.errors,
             form_data=form_data,
             quotation_lines=quotation_lines,

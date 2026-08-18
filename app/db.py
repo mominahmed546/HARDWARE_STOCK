@@ -53,6 +53,7 @@ _COLUMN_REPLACEMENTS = {
     "Description": "description",
     "Width": "width",
     "Height": "height",
+    "SqFt": "sqft",
     "InvoicePayments": "invoice_payments",
     "PaymentID": "payment_id",
     "PaymentDate": "payment_date",

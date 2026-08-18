@@ -19,7 +19,7 @@ LAST_LINE_ROW = 38
 MAX_LINE_ROWS = LAST_LINE_ROW - FIRST_LINE_ROW + 1
 
 
-def sqft_for_line(width, height, qty):
+def calculated_sqft(width, height, qty):
     width = float(width or 0)
     height = float(height or 0)
     qty = float(qty or 0)
@@ -28,8 +28,26 @@ def sqft_for_line(width, height, qty):
     return qty
 
 
-def line_amount(width, height, qty, rate):
-    return sqft_for_line(width, height, qty) * float(rate or 0)
+def sqft_for_line(width, height, qty, sqft=None):
+    if sqft not in (None, ""):
+        custom = float(sqft)
+        if custom > 0:
+            return custom
+    return calculated_sqft(width, height, qty)
+
+
+def uses_custom_sqft(width, height, qty, sqft):
+    try:
+        entered = float(sqft or 0)
+    except (TypeError, ValueError):
+        return False
+    if entered <= 0:
+        return False
+    return abs(entered - calculated_sqft(width, height, qty)) > 0.005
+
+
+def line_amount(width, height, qty, rate, sqft=None):
+    return sqft_for_line(width, height, qty, sqft) * float(rate or 0)
 
 
 def _as_date(value):
@@ -97,6 +115,7 @@ def build_quotation_xlsx(header, lines):
             height = line.get("height") or 0
             qty = line.get("quantity") or line.get("qty") or 0
             rate = line.get("rate") or 0
+            sqft = line.get("sqft")
 
             sheet[f"A{row}"] = offset + 1
             sheet[f"B{row}"] = line.get("description") or line.get("item_name") or ""
@@ -105,7 +124,9 @@ def build_quotation_xlsx(header, lines):
             _set_number(sheet[f"K{row}"], qty)
             _set_number(sheet[f"M{row}"], rate)
 
-            if float(width or 0) > 0 and float(height or 0) > 0:
+            if uses_custom_sqft(width, height, qty, sqft):
+                sheet[f"L{row}"] = round(float(sqft), 4)
+            elif float(width or 0) > 0 and float(height or 0) > 0:
                 sheet[f"L{row}"] = f"=((I{row}*J{row})/144)*K{row}"
             else:
                 sheet[f"L{row}"] = f"=IF(K{row}=\"\",\"\",K{row})"

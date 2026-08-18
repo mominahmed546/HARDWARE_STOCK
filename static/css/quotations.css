@@ -36,8 +36,16 @@
 .quotation-items-table .quotation-width,
 .quotation-items-table .quotation-height,
 .quotation-items-table .quotation-quantity,
-.quotation-items-table .quotation-rate {
+.quotation-items-table .quotation-rate,
+.quotation-items-table .quotation-sqft {
     width: 5.5rem;
+}
+
+.quotation-sr {
+    width: 3.5rem;
+    text-align: center;
+    font-weight: 600;
+    color: var(--text-muted);
 }
 
 .quotation-items-table .quotation-description {
