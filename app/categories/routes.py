@@ -3,7 +3,7 @@ from flask_login import login_required
 
 from app import app
 from app.db import get_db_connection
-from app.tenancy import next_table_id
+from app.tenancy import next_table_id, owner_sql, request_user_id
 from app.validators import ValidationErrors, clean_string
 
 categories_bp = Blueprint("categories", __name__, url_prefix="/categories")
@@ -26,7 +26,7 @@ def list_categories():
 
         search = request.args.get("search", "")
 
-        query = "SELECT * FROM Category WHERE 1=1"
+        query = f"SELECT * FROM Category WHERE {owner_sql()}"
         params = []
 
         if search:
@@ -76,8 +76,8 @@ def create_category():
             next_category_id = next_table_id(cursor, "Category", "CategoryID")
 
             cursor.execute(
-                "INSERT INTO Category (CategoryID, CategoryName) VALUES (?, ?)",
-                (next_category_id, data["category_name"]),
+                "INSERT INTO Category (CategoryID, CategoryName, UserID) VALUES (?, ?, ?)",
+                (next_category_id, data["category_name"], request_user_id()),
             )
             db.commit()
             cursor.close()
@@ -106,7 +106,7 @@ def edit_category(id):
         db = get_db_connection(app)
         cursor = db.cursor()
 
-        cursor.execute("SELECT * FROM Category WHERE CategoryID = ?", (id,))
+        cursor.execute(f"SELECT * FROM Category WHERE CategoryID = ? AND {owner_sql()}", (id,))
         category = cursor.fetchone()
 
         if not category:
@@ -127,7 +127,7 @@ def edit_category(id):
                 )
 
             cursor.execute(
-                "UPDATE Category SET CategoryName = ? WHERE CategoryID = ?",
+                f"UPDATE Category SET CategoryName = ? WHERE CategoryID = ? AND {owner_sql()}",
                 (data["category_name"], id),
             )
             db.commit()
@@ -157,12 +157,12 @@ def delete_category(id):
         db = get_db_connection(app)
         cursor = db.cursor()
 
-        cursor.execute("SELECT COUNT(*) FROM Item WHERE CategoryID = ?", (id,))
+        cursor.execute(f"SELECT COUNT(*) FROM Item WHERE CategoryID = ? AND {owner_sql()}", (id,))
         if cursor.fetchone()[0] > 0:
             flash("Cannot delete category that is used by items.", "danger")
             return redirect(url_for("categories.list_categories"))
 
-        cursor.execute("DELETE FROM Category WHERE CategoryID = ?", (id,))
+        cursor.execute(f"DELETE FROM Category WHERE CategoryID = ? AND {owner_sql()}", (id,))
         db.commit()
         cursor.close()
 

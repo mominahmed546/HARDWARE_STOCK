@@ -8,6 +8,7 @@ from app import app
 
 from app.db import get_db_connection
 from app.payments import ensure_cash_accounts, ensure_invoice_payments_table, get_cash_openings
+from app.tenancy import owner_sql
 
 
 
@@ -58,19 +59,19 @@ def dashboard():
 
 
 
-        cursor.execute("SELECT ISNULL(SUM(TotalAmount), 0) FROM Invoices")
+        cursor.execute(f"SELECT ISNULL(SUM(TotalAmount), 0) FROM Invoices WHERE {owner_sql()}")
 
         total_sales = cursor.fetchone()[0] or 0
 
 
 
-        cursor.execute("SELECT ISNULL(SUM(TotalAmount), 0) FROM Purchases")
+        cursor.execute(f"SELECT ISNULL(SUM(TotalAmount), 0) FROM Purchases WHERE {owner_sql()}")
 
         total_purchases = cursor.fetchone()[0] or 0
 
 
 
-        cursor.execute("SELECT COUNT(*) FROM Customers")
+        cursor.execute(f"SELECT COUNT(*) FROM Customers WHERE {owner_sql()}")
 
         total_customers = cursor.fetchone()[0] or 0
 
@@ -78,7 +79,7 @@ def dashboard():
 
         cursor.execute(
 
-            """
+            f"""
 
             SELECT COUNT(*) AS ItemCount
 
@@ -87,7 +88,7 @@ def dashboard():
                 SELECT LOWER(LTRIM(RTRIM(ItemName))) AS ItemKey, CategoryID
 
                 FROM Item
-
+                WHERE {owner_sql()}
                 GROUP BY LOWER(LTRIM(RTRIM(ItemName))), CategoryID
 
             ) grouped_items
@@ -102,14 +103,13 @@ def dashboard():
 
         cursor.execute(
 
-            """
+            f"""
 
             SELECT TOP 5 MIN(ItemName) AS ItemName, SUM(Qty) AS Qty
 
             FROM Item
-
+            WHERE {owner_sql()}
             GROUP BY LOWER(LTRIM(RTRIM(ItemName))), CategoryID
-
             HAVING SUM(Qty) <= 0
 
             ORDER BY MIN(ItemName) ASC
@@ -124,14 +124,13 @@ def dashboard():
 
         cursor.execute(
 
-            """
+            f"""
 
             SELECT TOP 5 MIN(ItemName) AS ItemName, SUM(Qty) AS Qty
 
             FROM Item
-
+            WHERE {owner_sql()}
             GROUP BY LOWER(LTRIM(RTRIM(ItemName))), CategoryID
-
             HAVING SUM(Qty) > 0 AND SUM(Qty) < 10
 
             ORDER BY SUM(Qty) ASC
@@ -146,12 +145,12 @@ def dashboard():
 
         cursor.execute(
 
-            """
+            f"""
 
             SELECT TOP 5 CustomerName, ContactNo
 
             FROM Customers
-
+            WHERE {owner_sql()}
             ORDER BY CustomerID DESC
 
             """
@@ -166,12 +165,13 @@ def dashboard():
         cash_opening, bank_opening = get_cash_openings(cursor)
         today = _date.today()
         cursor.execute(
-            """
+            f"""
             SELECT
                 ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Bank' THEN Amount ELSE 0 END), 0) AS BankAmount,
                 ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') <> 'Bank' THEN Amount ELSE 0 END), 0) AS CashAmount
             FROM InvoicePayments
             WHERE CAST(PaymentDate AS DATE) = ?
+              AND InvoiceID IN (SELECT InvoiceID FROM Invoices WHERE {owner_sql()})
             """,
             (today,),
         )
@@ -179,12 +179,13 @@ def dashboard():
         today_cash = float(today_row.CashAmount or 0) if today_row else 0
         today_bank = float(today_row.BankAmount or 0) if today_row else 0
         cursor.execute(
-            """
+            f"""
             SELECT
                 ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Bank' THEN Amount ELSE 0 END), 0) AS BankAmount,
                 ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') <> 'Bank' THEN Amount ELSE 0 END), 0) AS CashAmount
             FROM InvoicePayments
             WHERE CAST(PaymentDate AS DATE) <= ?
+              AND InvoiceID IN (SELECT InvoiceID FROM Invoices WHERE {owner_sql()})
             """,
             (today,),
         )

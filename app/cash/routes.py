@@ -13,6 +13,7 @@ from app.payments import (
     get_cash_openings,
     save_cash_openings,
 )
+from app.tenancy import owner_sql
 from app.validators import ValidationErrors, clean_positive_decimal
 
 cash_bp = Blueprint("cash", __name__, url_prefix="/cash")
@@ -52,6 +53,7 @@ def _payment_split(cursor, where_sql="", params=()):
             ISNULL(SUM(Amount), 0) AS TotalAmount
         FROM InvoicePayments
         {where_sql}
+        {"AND" if where_sql else "WHERE"} InvoiceID IN (SELECT InvoiceID FROM Invoices WHERE {owner_sql()})
         """,
         params,
     )
@@ -69,7 +71,7 @@ def _balances_through(cursor, through_date, cash_opening, bank_opening):
 
 def _daily_receipts(cursor, selected_date):
     cursor.execute(
-        """
+        f"""
         SELECT
             p.PaymentID,
             p.Amount,
@@ -81,7 +83,7 @@ def _daily_receipts(cursor, selected_date):
         FROM InvoicePayments p
         JOIN Invoices i ON i.InvoiceID = p.InvoiceID
         JOIN Customers c ON c.CustomerID = i.CustomerID
-        WHERE CAST(p.PaymentDate AS DATE) = ?
+        WHERE CAST(p.PaymentDate AS DATE) = ? AND {owner_sql("i")}
         ORDER BY p.PaymentDate ASC, p.PaymentID ASC
         """,
         (selected_date,),
@@ -95,7 +97,7 @@ def _month_day_rows(cursor, year, month, cash_opening, bank_opening):
     running_cash, running_bank = _balances_through(cursor, day_before, cash_opening, bank_opening)
 
     cursor.execute(
-        """
+        f"""
         SELECT
             CAST(PaymentDate AS DATE) AS SaleDate,
             ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Bank' THEN Amount ELSE 0 END), 0) AS BankAmount,
@@ -103,6 +105,7 @@ def _month_day_rows(cursor, year, month, cash_opening, bank_opening):
             ISNULL(SUM(Amount), 0) AS TotalAmount
         FROM InvoicePayments
         WHERE YEAR(PaymentDate) = ? AND MONTH(PaymentDate) = ?
+          AND InvoiceID IN (SELECT InvoiceID FROM Invoices WHERE {owner_sql()})
         GROUP BY CAST(PaymentDate AS DATE)
         ORDER BY SaleDate
         """,

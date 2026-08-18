@@ -6,6 +6,7 @@ from flask_login import login_required
 
 from app import app
 from app.db import get_db_connection
+from app.tenancy import owner_sql
 from app.payments import ensure_invoice_payments_table, payments_join_sql
 
 ledger_bp = Blueprint("ledger", __name__, url_prefix="/ledger")
@@ -175,14 +176,14 @@ def _build_ledger_entries(opening_balance, invoices, details_by_invoice, payment
 
 def _load_customer_ledger(cursor, customer_id):
     cursor.execute(
-        """
+        f"""
         SELECT
             CustomerID,
             CustomerName,
             ContactNo,
             COALESCE(PreviousBalance, 0) AS PreviousBalance
         FROM Customers
-        WHERE CustomerID = ?
+        WHERE CustomerID = ? AND {owner_sql()}
         """,
         (customer_id,),
     )
@@ -191,14 +192,14 @@ def _load_customer_ledger(cursor, customer_id):
         return None
 
     cursor.execute(
-        """
+        f"""
         SELECT
             i.InvoiceID,
             i.[Date] AS InvoiceDate,
             i.TotalAmount,
             COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus
         FROM Invoices i
-        WHERE i.CustomerID = ?
+        WHERE i.CustomerID = ? AND {owner_sql("i")}
         ORDER BY i.[Date] ASC, i.InvoiceID ASC
         """,
         (customer_id,),
@@ -427,9 +428,10 @@ def list_ledger():
                     SUM(COALESCE(pay.PaidAmount, 0)) AS TotalPaid
                 FROM Invoices i
                 {payments_join_sql("i")}
+                WHERE {owner_sql("i")}
                 GROUP BY i.CustomerID
             ) inv ON inv.CustomerID = c.CustomerID
-            WHERE 1=1
+            WHERE {owner_sql("c")}
         """
         params = []
 

@@ -53,7 +53,12 @@ def bind_account_data():
         return
     from app.tenancy import bind_current_account
 
-    bind_current_account(get_db_connection(app))
+    try:
+        bind_current_account(get_db_connection(app))
+    except Exception:
+        # Isolation setup must never take the site down (login, dashboard, etc.).
+        app.logger.exception("Account isolation setup failed")
+        return
 
 
 class User:

@@ -129,10 +129,13 @@ def ensure_cash_accounts(db, cursor):
 
 
 def get_cash_openings(cursor):
+    from app.tenancy import owner_sql
+
     cursor.execute(
-        """
+        f"""
         SELECT COALESCE(CashOpening, 0) AS CashOpening, COALESCE(BankOpening, 0) AS BankOpening
         FROM CashAccounts
+        WHERE {owner_sql()}
         ORDER BY AccountID
         LIMIT 1
         """
@@ -144,16 +147,15 @@ def get_cash_openings(cursor):
 
 
 def save_cash_openings(cursor, cash_opening, bank_opening):
-    from app.tenancy import request_user_id
+    from app.tenancy import owner_sql
 
-    user_id = request_user_id()
     cursor.execute(
-        """
+        f"""
         UPDATE CashAccounts
         SET CashOpening = ?, BankOpening = ?
-        WHERE UserID = ? OR (UserID IS NULL AND AccountID = 1)
+        WHERE {owner_sql()}
         """,
-        (float(cash_opening or 0), float(bank_opening or 0), user_id or 0),
+        (float(cash_opening or 0), float(bank_opening or 0)),
     )
 
 

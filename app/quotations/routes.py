@@ -6,6 +6,7 @@ from flask_login import login_required
 from app import app
 from app.db import get_db_connection
 from app.quotations.excel import MAX_LINE_ROWS, build_quotation_xlsx, line_amount, sqft_for_line
+from app.tenancy import owner_sql, request_user_id
 from app.validators import (
     ValidationErrors,
     clean_date,
@@ -187,9 +188,10 @@ def _validate_quotation_lines(form, errors):
 
 def _load_form_lookups(cursor):
     cursor.execute(
-        """
+        f"""
         SELECT CustomerID, CustomerName, ContactNo
         FROM Customers
+        WHERE {owner_sql()}
         ORDER BY CustomerName
         """
     )
@@ -225,12 +227,12 @@ def _quotation_header_payload(quotation, valid_lines):
 
 def _load_quotation(cursor, quotation_id):
     cursor.execute(
-        """
+        f"""
         SELECT
             QuotationID, QuotationNo, QuotationDate, CustomerID, CustomerName,
             Address, Project, WorkType, Engineer, ContactNo, Notes, Advance, TotalAmount
         FROM Quotations
-        WHERE QuotationID = ?
+        WHERE QuotationID = ? AND {owner_sql()}
         """,
         (quotation_id,),
     )
@@ -297,17 +299,17 @@ def create_quotation():
             total = sum(line["total"] for line in valid_lines)
             quotation_date = datetime.strptime(header["quotation_date"], "%Y-%m-%d").date()
 
-            cursor.execute("SELECT COALESCE(MAX(QuotationNo), 0) + 1 AS NextNo FROM Quotations")
+            cursor.execute(f"SELECT COALESCE(MAX(QuotationNo), 0) + 1 AS NextNo FROM Quotations WHERE {owner_sql()}")
             quotation_no = int(cursor.fetchone()[0])
 
             cursor.execute(
                 """
                 INSERT INTO Quotations (
                     QuotationNo, QuotationDate, CustomerID, CustomerName, Address,
-                    Project, WorkType, Engineer, ContactNo, Notes, Advance, TotalAmount
+                    Project, WorkType, Engineer, ContactNo, Notes, Advance, TotalAmount, UserID
                 )
                 OUTPUT INSERTED.QuotationID
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     quotation_no,
@@ -322,6 +324,7 @@ def create_quotation():
                     header["notes"],
                     header["advance"] or 0,
                     total,
+                    request_user_id(),
                 ),
             )
             quotation_id = int(cursor.fetchone()[0])
@@ -385,12 +388,12 @@ def list_quotations():
     try:
         ensure_quotations_schema(db, cursor)
         search = request.args.get("search", "")
-        query = """
+        query = f"""
             SELECT
                 QuotationID, QuotationNo, QuotationDate, CustomerName, Project,
                 WorkType, Advance, TotalAmount
             FROM Quotations
-            WHERE 1=1
+            WHERE {owner_sql()}
         """
         params = []
         if search:
@@ -446,13 +449,13 @@ def delete_quotation(id):
 
     try:
         ensure_quotations_schema(db, cursor)
-        cursor.execute("SELECT QuotationID FROM Quotations WHERE QuotationID = ?", (id,))
+        cursor.execute(f"SELECT QuotationID FROM Quotations WHERE QuotationID = ? AND {owner_sql()}", (id,))
         if not cursor.fetchone():
             flash("Quotation not found.", "danger")
             return redirect(url_for("quotations.list_quotations"))
 
         cursor.execute("DELETE FROM QuotationDetails WHERE QuotationID = ?", (id,))
-        cursor.execute("DELETE FROM Quotations WHERE QuotationID = ?", (id,))
+        cursor.execute(f"DELETE FROM Quotations WHERE QuotationID = ? AND {owner_sql()}", (id,))
         db.commit()
         flash("Quotation deleted.", "success")
 
