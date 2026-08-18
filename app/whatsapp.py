@@ -1,16 +1,7 @@
-"""Shared WhatsApp click-to-chat and file-share helpers."""
+"""Shared WhatsApp click-to-chat helpers."""
 
-import hashlib
-import hmac
 import re
 from urllib.parse import quote
-
-from flask import request
-
-from app import app
-
-INVOICE_PDF_KIND = "invoice-pdf"
-QUOTATION_EXCEL_KIND = "quotation-excel"
 
 
 def whatsapp_digits(raw):
@@ -34,31 +25,3 @@ def whatsapp_url(raw_number, message=""):
     if message:
         return f"https://wa.me/{digits}?text={quote(str(message))}"
     return f"https://wa.me/{digits}"
-
-
-def share_token(kind, record_id):
-    secret = str(app.config.get("SECRET_KEY") or "hardware-stock")
-    digest = hmac.new(
-        secret.encode("utf-8"),
-        f"{kind}:{int(record_id)}".encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-    return digest[:32]
-
-
-def share_token_valid(kind, record_id, token):
-    expected = share_token(kind, record_id)
-    provided = str(token or "")
-    if len(provided) != len(expected):
-        return False
-    return hmac.compare_digest(provided, expected)
-
-
-def public_absolute_url(path):
-    root = request.url_root.rstrip("/")
-    forwarded = (request.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip()
-    if forwarded == "https" and root.startswith("http://"):
-        root = "https://" + root[len("http://") :]
-    if not path.startswith("/"):
-        path = "/" + path
-    return root + path

@@ -76,12 +76,11 @@
     max-width: 720px;
 }
 
-.quotation-whatsapp-preview {
-    min-height: 18rem;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 0.86rem;
-    line-height: 1.45;
-    white-space: pre-wrap;
-    resize: vertical;
-    background: #f8fafc;
+.quotation-whatsapp-card [data-whatsapp-status] {
+    font-weight: 600;
+    color: #0f6f64;
+}
+
+.quotation-whatsapp-card [data-whatsapp-status].whatsapp-file-status-error {
+    color: #b91c1c;
 }

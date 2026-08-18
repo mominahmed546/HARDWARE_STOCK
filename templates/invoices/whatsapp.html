@@ -35,7 +35,8 @@
                 <a href="{{ url_for('invoices.invoice_pdf', id=invoice.InvoiceID) }}" class="btn btn-info" target="_blank" rel="noopener noreferrer">Open PDF</a>
                 <a href="{{ url_for('invoices.list_invoices') }}" class="btn btn-secondary">Back to Invoices</a>
             </div>
-            <p class="quotation-help">This sends only the invoice PDF, not a text message. On a phone you can attach the file directly.</p>
+            <p class="quotation-help" data-whatsapp-status hidden></p>
+            <p class="quotation-help">This saves the invoice PDF on this device and sends that file in WhatsApp. The customer can open it without internet. A link is not sent.</p>
         </form>
     </div>
 </div>

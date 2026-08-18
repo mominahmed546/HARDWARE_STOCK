@@ -35,7 +35,8 @@
                 <a href="{{ url_for('quotations.quotation_excel', id=quotation.QuotationID) }}" class="btn btn-info">Download Excel</a>
                 <a href="{{ url_for('quotations.list_quotations') }}" class="btn btn-secondary">Back to Quotations</a>
             </div>
-            <p class="quotation-help">This sends only the QUOTATION.xlsx file, not a text message. On a phone you can attach the file directly.</p>
+            <p class="quotation-help" data-whatsapp-status hidden></p>
+            <p class="quotation-help">This saves QUOTATION.xlsx on this device and sends that file in WhatsApp. The customer can open it without internet. A link is not sent.</p>
         </form>
     </div>
 </div>

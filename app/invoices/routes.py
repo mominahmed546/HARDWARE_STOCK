@@ -1,19 +1,13 @@
 from datetime import date, datetime
 from io import BytesIO
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, send_file, url_for
+from flask import Blueprint, flash, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
 
 from app import app
 from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
 from app.db import get_db_connection
-from app.whatsapp import (
-    INVOICE_PDF_KIND,
-    public_absolute_url,
-    share_token,
-    share_token_valid,
-    whatsapp_url,
-)
+from app.whatsapp import whatsapp_url
 from app.tenancy import next_table_id, owner_sql, request_user_id
 from app.payments import (
     add_invoice_payment,
@@ -116,8 +110,7 @@ def _invoice_settlement(previous_balance, total_amount, paid_amount=0):
     return cash_received, net_balance
 
 
-def _load_invoice_record(cursor, invoice_id, owned_only=True):
-    owner_filter = f"AND {owner_sql('i')}" if owned_only else ""
+def _load_invoice_record(cursor, invoice_id):
     cursor.execute(
         f"""
         SELECT
@@ -141,7 +134,7 @@ def _load_invoice_record(cursor, invoice_id, owned_only=True):
         FROM Invoices i
         JOIN Customers c ON c.CustomerID = i.CustomerID
         {payments_join_sql("i")}
-        WHERE i.InvoiceID = ? {owner_filter}
+        WHERE i.InvoiceID = ? AND {owner_sql("i")}
         """,
         (invoice_id,),
     )
@@ -421,19 +414,14 @@ def _load_invoice_pdf_details(cursor, invoice_id):
     return cursor.fetchall()
 
 
-def _send_invoice_pdf(invoice, details, invoice_id):
+def _send_invoice_pdf(invoice, details, invoice_id, as_attachment=False):
     pdf = _build_invoice_pdf(invoice, details)
     return send_file(
         pdf,
         mimetype="application/pdf",
-        as_attachment=False,
+        as_attachment=as_attachment,
         download_name=f"invoice_{invoice_id}.pdf",
     )
-
-
-def _invoice_pdf_share_url(invoice_id):
-    token = share_token(INVOICE_PDF_KIND, invoice_id)
-    return public_absolute_url(f"/invoices/{invoice_id}/pdf/share/{token}")
 
 
 def _format_datetime_for_invoice(value):
@@ -886,30 +874,17 @@ def invoice_pdf(id):
             return redirect(url_for("invoices.list_invoices"))
 
         details = _load_invoice_pdf_details(cursor, id)
-        return _send_invoice_pdf(invoice, details, id)
+        return _send_invoice_pdf(
+            invoice,
+            details,
+            id,
+            as_attachment=request.args.get("download") == "1",
+        )
 
     except Exception as e:
         flash(f"Error generating invoice PDF: {str(e)}", "danger")
         return redirect(url_for("invoices.list_invoices"))
 
-    finally:
-        cursor.close()
-
-
-@invoices_bp.route("/<int:id>/pdf/share/<token>")
-def invoice_pdf_share(id, token):
-    if not share_token_valid(INVOICE_PDF_KIND, id, token):
-        abort(404)
-
-    db = get_db_connection(app)
-    cursor = db.cursor()
-    try:
-        _ensure_invoice_schema(db, cursor)
-        invoice = _load_invoice_record(cursor, id, owned_only=False)
-        if not invoice:
-            abort(404)
-        details = _load_invoice_pdf_details(cursor, id)
-        return _send_invoice_pdf(invoice, details, id)
     finally:
         cursor.close()
 
@@ -928,25 +903,25 @@ def invoice_whatsapp(id):
             flash("Invoice not found.", "danger")
             return redirect(url_for("invoices.list_invoices"))
 
-        pdf_url = _invoice_pdf_share_url(id)
         entered_number = (
             request.form.get("whatsapp_number") if request.method == "POST" else (invoice.ContactNo or "")
         )
 
         if request.method == "POST":
             phone = clean_phone(entered_number, "whatsapp_number", errors, required=True, max_len=20)
-            link = whatsapp_url(phone, pdf_url) if errors.valid else None
+            link = whatsapp_url(phone) if errors.valid else None
             if errors.valid and not link:
                 errors.add("whatsapp_number", "Enter a valid WhatsApp mobile number.")
             if not errors.valid:
                 flash(errors.first(), "danger")
             else:
+                flash("The PDF must be attached from this device. Download it, then attach that file in WhatsApp.", "info")
                 return redirect(link)
 
         return render_template(
             "invoices/whatsapp.html",
             invoice=invoice,
-            file_url=url_for("invoices.invoice_pdf", id=id),
+            file_url=url_for("invoices.invoice_pdf", id=id, download=1),
             form_data={"whatsapp_number": entered_number or ""},
             errors=errors.errors,
         )
