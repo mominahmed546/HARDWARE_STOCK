@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% from 'macros/form.html' import field_error %}
 
-{% block title %}Send Quotation on WhatsApp - Hardware Stock Management{% endblock %}
-{% block page_title %}Send Quotation on WhatsApp{% endblock %}
+{% block title %}Send Quotation Excel on WhatsApp - Hardware Stock Management{% endblock %}
+{% block page_title %}Send Quotation Excel on WhatsApp{% endblock %}
 {% block page_subtitle %}
 <p>Quotation No. {{ quotation.QuotationNo }} for {{ quotation.CustomerName }}</p>
 {% endblock %}
@@ -15,7 +15,10 @@
 {% set fd = form_data or {} %}
 <div class="form-container">
     <div class="form-card quotation-whatsapp-card">
-        <form method="POST" class="form" data-validate novalidate>
+        <form method="POST" class="form" data-whatsapp-file data-validate novalidate
+              data-file-url="{{ file_url }}"
+              data-file-name="QUOTATION.xlsx"
+              data-file-type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
             <div class="form-group">
                 <label for="whatsapp_number">WhatsApp number</label>
                 <input type="tel" id="whatsapp_number" name="whatsapp_number"
@@ -27,18 +30,17 @@
                 <p class="quotation-help">Pakistan numbers like 0300-1234567 are converted automatically. You can also type a number with country code.</p>
             </div>
 
-            <div class="form-group">
-                <label for="whatsapp_message">Message preview</label>
-                <textarea id="whatsapp_message" class="quotation-whatsapp-preview" readonly rows="16">{{ message }}</textarea>
-            </div>
-
             <div class="form-actions">
-                <button type="submit" class="btn btn-whatsapp">Open WhatsApp</button>
+                <button type="submit" class="btn btn-whatsapp">Send Excel on WhatsApp</button>
                 <a href="{{ url_for('quotations.quotation_excel', id=quotation.QuotationID) }}" class="btn btn-info">Download Excel</a>
                 <a href="{{ url_for('quotations.list_quotations') }}" class="btn btn-secondary">Back to Quotations</a>
             </div>
-            <p class="quotation-help">WhatsApp opens with this quotation text. Attach QUOTATION.xlsx in the chat if you also want to send the Excel file.</p>
+            <p class="quotation-help">This sends only the QUOTATION.xlsx file, not a text message. On a phone you can attach the file directly.</p>
         </form>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/whatsapp-file.js') }}"></script>
 {% endblock %}

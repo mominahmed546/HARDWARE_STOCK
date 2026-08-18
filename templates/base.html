@@ -99,6 +99,7 @@
         </main>
     </div>
     <script src="{{ url_for('static', filename='js/forms.js') }}"></script>
+    {% block extra_js %}{% endblock %}
     <script>
         (function () {
             const html = document.documentElement;

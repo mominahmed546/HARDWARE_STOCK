@@ -7,12 +7,13 @@ from flask_login import login_required
 from app import app
 from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
 from app.db import get_db_connection
-from app.invoices.whatsapp import (
-    build_invoice_message,
-    invoice_pdf_token,
-    invoice_pdf_token_valid,
+from app.whatsapp import (
+    INVOICE_PDF_KIND,
+    public_absolute_url,
+    share_token,
+    share_token_valid,
+    whatsapp_url,
 )
-from app.whatsapp import whatsapp_url
 from app.tenancy import next_table_id, owner_sql, request_user_id
 from app.payments import (
     add_invoice_payment,
@@ -431,12 +432,8 @@ def _send_invoice_pdf(invoice, details, invoice_id):
 
 
 def _invoice_pdf_share_url(invoice_id):
-    token = invoice_pdf_token(invoice_id)
-    root = request.url_root.rstrip("/")
-    forwarded = (request.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip()
-    if forwarded == "https" and root.startswith("http://"):
-        root = "https://" + root[len("http://") :]
-    return f"{root}/invoices/{invoice_id}/pdf/share/{token}"
+    token = share_token(INVOICE_PDF_KIND, invoice_id)
+    return public_absolute_url(f"/invoices/{invoice_id}/pdf/share/{token}")
 
 
 def _format_datetime_for_invoice(value):
@@ -901,7 +898,7 @@ def invoice_pdf(id):
 
 @invoices_bp.route("/<int:id>/pdf/share/<token>")
 def invoice_pdf_share(id, token):
-    if not invoice_pdf_token_valid(id, token):
+    if not share_token_valid(INVOICE_PDF_KIND, id, token):
         abort(404)
 
     db = get_db_connection(app)
@@ -931,16 +928,14 @@ def invoice_whatsapp(id):
             flash("Invoice not found.", "danger")
             return redirect(url_for("invoices.list_invoices"))
 
-        details = _load_invoice_pdf_details(cursor, id)
         pdf_url = _invoice_pdf_share_url(id)
-        message = build_invoice_message(invoice, details, pdf_url)
         entered_number = (
             request.form.get("whatsapp_number") if request.method == "POST" else (invoice.ContactNo or "")
         )
 
         if request.method == "POST":
             phone = clean_phone(entered_number, "whatsapp_number", errors, required=True, max_len=20)
-            link = whatsapp_url(phone, message) if errors.valid else None
+            link = whatsapp_url(phone, pdf_url) if errors.valid else None
             if errors.valid and not link:
                 errors.add("whatsapp_number", "Enter a valid WhatsApp mobile number.")
             if not errors.valid:
@@ -951,8 +946,7 @@ def invoice_whatsapp(id):
         return render_template(
             "invoices/whatsapp.html",
             invoice=invoice,
-            message=message,
-            pdf_url=url_for("invoices.invoice_pdf", id=id),
+            file_url=url_for("invoices.invoice_pdf", id=id),
             form_data={"whatsapp_number": entered_number or ""},
             errors=errors.errors,
         )

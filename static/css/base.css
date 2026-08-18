@@ -554,6 +554,10 @@ a {
     min-width: 5.25rem;
 }
 
+.list-actions .btn-whatsapp {
+    min-width: 7.5rem;
+}
+
 .data-table .list-actions-cell .btn + .btn,
 .data-table .list-actions-cell form + .btn,
 .data-table .list-actions-cell .btn + form,

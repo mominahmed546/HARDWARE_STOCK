@@ -1,13 +1,19 @@
 from datetime import date, datetime
 
-from flask import Blueprint, flash, redirect, render_template, request, send_file, url_for
+from flask import Blueprint, abort, flash, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
 
 from app import app
 from app.db import get_db_connection
 from app.quotations.excel import MAX_LINE_ROWS, build_quotation_xlsx, line_amount, sqft_for_line
-from app.quotations.whatsapp import build_quotation_message, whatsapp_url
 from app.tenancy import owner_sql, request_user_id
+from app.whatsapp import (
+    QUOTATION_EXCEL_KIND,
+    public_absolute_url,
+    share_token,
+    share_token_valid,
+    whatsapp_url,
+)
 from app.validators import (
     ValidationErrors,
     clean_date,
@@ -227,14 +233,15 @@ def _quotation_header_payload(quotation, valid_lines):
     ]
 
 
-def _load_quotation(cursor, quotation_id):
+def _load_quotation(cursor, quotation_id, owned_only=True):
+    owner_filter = f"AND {owner_sql()}" if owned_only else ""
     cursor.execute(
         f"""
         SELECT
             QuotationID, QuotationNo, QuotationDate, CustomerID, CustomerName,
             Address, Project, WorkType, Engineer, ContactNo, Notes, Advance, TotalAmount
         FROM Quotations
-        WHERE QuotationID = ? AND {owner_sql()}
+        WHERE QuotationID = ? {owner_filter}
         """,
         (quotation_id,),
     )
@@ -263,6 +270,11 @@ def _send_quotation_excel(quotation, details):
         as_attachment=True,
         download_name="QUOTATION.xlsx",
     )
+
+
+def _quotation_excel_share_url(quotation_id):
+    token = share_token(QUOTATION_EXCEL_KIND, quotation_id)
+    return public_absolute_url(f"/quotations/{quotation_id}/excel/share/{token}")
 
 
 @quotations_bp.route("/create", methods=["GET", "POST"])
@@ -443,6 +455,24 @@ def quotation_excel(id):
         cursor.close()
 
 
+@quotations_bp.route("/<int:id>/excel/share/<token>")
+def quotation_excel_share(id, token):
+    if not share_token_valid(QUOTATION_EXCEL_KIND, id, token):
+        abort(404)
+
+    db = get_db_connection(app)
+    cursor = db.cursor()
+    try:
+        ensure_quotations_schema(db, cursor)
+        quotation = _load_quotation(cursor, id, owned_only=False)
+        if not quotation:
+            abort(404)
+        details = _load_quotation_details(cursor, id)
+        return _send_quotation_excel(quotation, details)
+    finally:
+        cursor.close()
+
+
 @quotations_bp.route("/<int:id>/whatsapp", methods=["GET", "POST"])
 @login_required
 def quotation_whatsapp(id):
@@ -457,16 +487,14 @@ def quotation_whatsapp(id):
             flash("Quotation not found.", "danger")
             return redirect(url_for("quotations.list_quotations"))
 
-        details = _load_quotation_details(cursor, id)
-        header, lines = _quotation_header_payload(quotation, details)
-        message = build_quotation_message(header, lines)
+        file_url = _quotation_excel_share_url(id)
         entered_number = (
             request.form.get("whatsapp_number") if request.method == "POST" else (quotation.ContactNo or "")
         )
 
         if request.method == "POST":
             phone = clean_phone(entered_number, "whatsapp_number", errors, required=True, max_len=20)
-            link = whatsapp_url(phone, message) if errors.valid else None
+            link = whatsapp_url(phone, file_url) if errors.valid else None
             if errors.valid and not link:
                 errors.add("whatsapp_number", "Enter a valid WhatsApp mobile number.")
             if not errors.valid:
@@ -477,7 +505,7 @@ def quotation_whatsapp(id):
         return render_template(
             "quotations/whatsapp.html",
             quotation=quotation,
-            message=message,
+            file_url=url_for("quotations.quotation_excel", id=id),
             form_data={"whatsapp_number": entered_number or ""},
             errors=errors.errors,
         )

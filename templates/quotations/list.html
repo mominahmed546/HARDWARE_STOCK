@@ -3,7 +3,7 @@
 {% block title %}Quotations - Hardware Stock Management{% endblock %}
 {% block page_title %}Quotations{% endblock %}
 {% block page_subtitle %}
-<p>Saved quotations. Download Excel or send on WhatsApp.</p>
+<p>Saved quotations. Download Excel or send the Excel file on WhatsApp.</p>
 {% endblock %}
 
 {% block content %}
@@ -44,7 +44,7 @@
                 <td class="list-actions-cell">
                     <div class="list-actions">
                         <a href="{{ url_for('quotations.quotation_excel', id=quotation.QuotationID) }}" class="btn btn-sm btn-info">Excel</a>
-                        <a href="{{ url_for('quotations.quotation_whatsapp', id=quotation.QuotationID) }}" class="btn btn-sm btn-whatsapp">WhatsApp</a>
+                        <a href="{{ url_for('quotations.quotation_whatsapp', id=quotation.QuotationID) }}" class="btn btn-sm btn-whatsapp">WhatsApp Excel</a>
                         <form method="POST" action="{{ url_for('quotations.delete_quotation', id=quotation.QuotationID) }}">
                             <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this quotation?')">Delete</button>
                         </form>
