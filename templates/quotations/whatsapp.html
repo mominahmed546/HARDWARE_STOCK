@@ -15,7 +15,7 @@
 {% set fd = form_data or {} %}
 <div class="form-container">
     <div class="form-card quotation-whatsapp-card">
-        <form method="POST" class="form" data-whatsapp-file data-validate novalidate
+        <form class="form" data-whatsapp-file onsubmit="return false;"
               data-file-url="{{ file_url }}"
               data-file-name="QUOTATION.xlsx"
               data-file-type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
@@ -31,7 +31,7 @@
             </div>
 
             <div class="form-actions">
-                <button type="submit" class="btn btn-whatsapp">Send Excel on WhatsApp</button>
+                <button type="button" class="btn btn-whatsapp" data-whatsapp-send>Send Excel on WhatsApp</button>
                 <a href="{{ url_for('quotations.quotation_excel', id=quotation.QuotationID) }}" class="btn btn-info">Download Excel</a>
                 <a href="{{ url_for('quotations.list_quotations') }}" class="btn btn-secondary">Back to Quotations</a>
             </div>

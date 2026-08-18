@@ -15,7 +15,7 @@
 {% set fd = form_data or {} %}
 <div class="form-container">
     <div class="form-card quotation-whatsapp-card">
-        <form method="POST" class="form" data-whatsapp-file data-validate novalidate
+        <form class="form" data-whatsapp-file onsubmit="return false;"
               data-file-url="{{ file_url }}"
               data-file-name="invoice_{{ invoice.InvoiceID }}.pdf"
               data-file-type="application/pdf">
@@ -31,7 +31,7 @@
             </div>
 
             <div class="form-actions">
-                <button type="submit" class="btn btn-whatsapp">Send PDF on WhatsApp</button>
+                <button type="button" class="btn btn-whatsapp" data-whatsapp-send>Send PDF on WhatsApp</button>
                 <a href="{{ url_for('invoices.invoice_pdf', id=invoice.InvoiceID) }}" class="btn btn-info" target="_blank" rel="noopener noreferrer">Open PDF</a>
                 <a href="{{ url_for('invoices.list_invoices') }}" class="btn btn-secondary">Back to Invoices</a>
             </div>

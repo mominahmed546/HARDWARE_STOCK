@@ -20,12 +20,13 @@
         var link = document.createElement("a");
         link.href = objectUrl;
         link.download = fileName;
+        link.rel = "noopener";
         document.body.appendChild(link);
         link.click();
         link.remove();
         setTimeout(function () {
             URL.revokeObjectURL(objectUrl);
-        }, 2000);
+        }, 4000);
     }
 
     function setStatus(form, message, isError) {
@@ -38,67 +39,128 @@
         status.classList.toggle("whatsapp-file-status-error", Boolean(isError));
     }
 
+    function canShareFiles(file) {
+        try {
+            return Boolean(navigator.canShare && navigator.canShare({ files: [file] }));
+        } catch (error) {
+            return false;
+        }
+    }
+
+    function isFileResponse(response) {
+        var type = (response.headers.get("content-type") || "").toLowerCase();
+        if (!response.ok) {
+            return false;
+        }
+        return type.indexOf("text/html") === -1;
+    }
+
+    function makeFile(blob, fileName, mime) {
+        try {
+            return new File([blob], fileName, { type: mime || blob.type || "application/octet-stream" });
+        } catch (error) {
+            return blob;
+        }
+    }
+
+    function loadFormFile(form) {
+        if (form._whatsappFile) {
+            return Promise.resolve(form._whatsappFile);
+        }
+        if (form._whatsappFilePromise) {
+            return form._whatsappFilePromise;
+        }
+        var fileUrl = form.getAttribute("data-file-url");
+        var fileName = form.getAttribute("data-file-name") || "file";
+        var mime = form.getAttribute("data-file-type") || "application/octet-stream";
+        form._whatsappFilePromise = fetch(fileUrl, {
+            credentials: "same-origin",
+            cache: "no-store",
+        }).then(function (response) {
+            if (!isFileResponse(response)) {
+                throw new Error("file");
+            }
+            return response.blob();
+        }).then(function (blob) {
+            if (!blob || blob.size < 20) {
+                throw new Error("file");
+            }
+            form._whatsappFile = makeFile(blob, fileName, mime);
+            return form._whatsappFile;
+        }).catch(function (error) {
+            form._whatsappFilePromise = null;
+            throw error;
+        });
+        return form._whatsappFilePromise;
+    }
+
     function bindWhatsAppFileForm(form) {
-        var button = form.querySelector('button[type="submit"]');
-        form.addEventListener("submit", async function (event) {
+        var button = form.querySelector("[data-whatsapp-send]") || form.querySelector('button[type="submit"]');
+        loadFormFile(form).catch(function () {});
+
+        async function sendFile(event) {
             event.preventDefault();
-            if (!form.checkValidity()) {
-                form.reportValidity();
+            event.stopPropagation();
+            if (form._whatsappSending) {
                 return;
             }
 
-            var fileUrl = form.getAttribute("data-file-url");
             var fileName = form.getAttribute("data-file-name") || "file";
-            var mime = form.getAttribute("data-file-type") || "application/octet-stream";
             var numberInput = form.querySelector("#whatsapp_number");
             var digits = whatsappDigits(numberInput && numberInput.value);
-            if (!fileUrl) {
-                setStatus(form, "The file could not be prepared.", true);
-                return;
-            }
             if (!digits) {
                 setStatus(form, "Enter a valid WhatsApp mobile number.", true);
+                if (numberInput) {
+                    numberInput.focus();
+                }
                 return;
             }
 
+            form._whatsappSending = true;
             if (button) {
                 button.disabled = true;
             }
-            setStatus(form, "Saving the file on this device…");
+            setStatus(form, "Preparing the file on this device…");
 
             try {
-                var response = await fetch(fileUrl, { credentials: "same-origin" });
-                if (!response.ok) {
-                    throw new Error("file");
+                var file = await loadFormFile(form);
+                var blob = file instanceof Blob ? file : form._whatsappFile;
+
+                if (navigator.share && canShareFiles(file)) {
+                    try {
+                        setStatus(form, "Choose WhatsApp to send the file. The customer can open it without internet.");
+                        await navigator.share({ files: [file], title: fileName });
+                        setStatus(form, "File sent. The customer can open it offline from WhatsApp.");
+                        return;
+                    } catch (shareError) {
+                        if (shareError && shareError.name === "AbortError") {
+                            setStatus(form, "Sharing was cancelled. The file is ready on this device if you want to attach it.");
+                            return;
+                        }
+                    }
                 }
-                var blob = await response.blob();
-                var file = new File([blob], fileName, { type: mime });
+
                 saveFile(blob, fileName);
-
-                if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                    setStatus(form, "Choose WhatsApp and send the saved file. The customer can open it without internet.");
-                    await navigator.share({ files: [file], title: fileName });
-                    setStatus(form, "File sent. The customer can open it offline from WhatsApp.");
-                    return;
-                }
-
-                setStatus(
-                    form,
-                    "The file is saved on this device. Attach that downloaded file in WhatsApp (paperclip). Do not send a link."
-                );
-                window.open("https://wa.me/" + digits, "_blank", "noopener,noreferrer");
+                setStatus(form, "File saved on this device. Opening WhatsApp — attach that file with the paperclip.");
+                window.setTimeout(function () {
+                    window.location.href = "https://wa.me/" + digits;
+                }, 700);
             } catch (error) {
-                if (error && error.name === "AbortError") {
-                    setStatus(form, "The file is saved on this device. Attach it in WhatsApp if it was not sent.");
-                    return;
-                }
-                setStatus(form, "Could not prepare the file. Download it on this page, then attach that file in WhatsApp.", true);
+                form._whatsappFile = null;
+                form._whatsappFilePromise = null;
+                setStatus(form, "Could not prepare the file. Use Download on this page, then attach that saved file in WhatsApp.", true);
             } finally {
+                form._whatsappSending = false;
                 if (button) {
                     button.disabled = false;
                 }
             }
-        });
+        }
+
+        if (button) {
+            button.addEventListener("click", sendFile);
+        }
+        form.addEventListener("submit", sendFile);
     }
 
     document.querySelectorAll("form[data-whatsapp-file]").forEach(bindWhatsAppFileForm);
