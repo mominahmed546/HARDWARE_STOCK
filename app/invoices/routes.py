@@ -733,7 +733,14 @@ def list_invoices():
                 i.TotalAmount,
                 COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus,
                 c.CustomerName,
-                ISNULL(SUM(COALESCE(d.Qty, 0) * COALESCE(d.Rate, 0) - ({line_cost})), 0) AS Profit
+                ISNULL(
+                    CASE
+                        WHEN COALESCE(i.PaymentStatus, 'Unpaid') = 'Paid'
+                        THEN SUM(COALESCE(d.Qty, 0) * COALESCE(d.Rate, 0) - ({line_cost}))
+                        ELSE 0
+                    END,
+                    0
+                ) AS Profit
             FROM Invoices i
             JOIN Customers c ON i.CustomerID = c.CustomerID
             LEFT JOIN InvoiceDetails d ON i.InvoiceID = d.InvoiceID

@@ -32,8 +32,7 @@ def _monthly_profit_data(cursor, selected_year):
     if selected_year not in years and years:
         selected_year = years[0]
 
-    # Revenue = qty * sale rate. Cost uses per-piece purchase cost, and
-    # does not multiply again when Purchase Rate was saved as a line total.
+    # Revenue/cost/profit include only invoices marked Paid.
     line_cost = sold_line_cost_sql("id")
     cursor.execute(
         f"""
@@ -47,6 +46,7 @@ def _monthly_profit_data(cursor, selected_year):
         LEFT JOIN Item it ON it.ItemID = id.ItemID
         {purchase_unit_cost_join("id")}
         WHERE YEAR(i.[Date]) = ?
+          AND COALESCE(i.PaymentStatus, 'Unpaid') = 'Paid'
         GROUP BY MONTH(i.[Date])
         ORDER BY SalesMonth
         """,

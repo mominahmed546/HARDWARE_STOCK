@@ -2,6 +2,9 @@
 
 {% block title %}Monthly Profit Report - Hardware Stock Management{% endblock %}
 {% block page_title %}Monthly Profit Report{% endblock %}
+{% block page_subtitle %}
+<p>Profit is counted only for invoices marked Paid</p>
+{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/reports.css') }}">
