@@ -448,7 +448,9 @@ def _build_invoice_pdf(invoice, details):
     y -= 12
     items_count = len(details)
     total_amount = float(invoice.TotalAmount or 0)
-    cash_received = float(getattr(invoice, "CashReceived", 0) or 0)
+    is_paid = str(getattr(invoice, "PaymentStatus", "Unpaid") or "Unpaid").strip() == "Paid"
+    # Cash received is for THIS invoice only. If it is paid, the slip is settled.
+    cash_received = previous_balance + total_amount if is_paid else 0.0
     net_balance = previous_balance + total_amount - cash_received
 
     text(x_left, y, f"Items    {items_count}", 11, "F2")
@@ -704,6 +706,7 @@ def invoice_pdf(id):
 
     try:
         _ensure_previous_balance_column(db, cursor)
+        _ensure_invoice_payment_status_column(db, cursor)
         _ensure_invoice_previous_balance_column(db, cursor)
         _ensure_invoice_date_is_timestamp(db, cursor)
         cursor.execute(
@@ -715,12 +718,7 @@ def invoice_pdf(id):
                 c.CustomerName,
                 c.ContactNo,
                 COALESCE(i.PreviousBalance, 0) AS PreviousBalance,
-                COALESCE((
-                    SELECT SUM(i2.TotalAmount)
-                    FROM Invoices i2
-                    WHERE i2.CustomerID = i.CustomerID
-                      AND COALESCE(i2.PaymentStatus, 'Unpaid') = 'Paid'
-                ), 0) AS CashReceived
+                COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus
             FROM Invoices i
             JOIN Customers c ON i.CustomerID = c.CustomerID
             WHERE i.InvoiceID = ?
