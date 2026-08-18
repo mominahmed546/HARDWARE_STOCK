@@ -150,7 +150,13 @@
     padding: 0.35rem 0.75rem;
     line-height: 1.3;
     border-bottom: 1px solid #e2e8f0;
-    color: #475569;
+    color: #0f172a;
+    font-weight: 600;
+}
+
+[data-theme="dark"] .data-table.items-table td {
+    color: #f1f5f9;
+    border-bottom-color: #334155;
 }
 
 .items-table .btn-sm {
