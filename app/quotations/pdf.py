@@ -1,9 +1,17 @@
 """Build an A4 quotation PDF in the same style as the Excel quotation."""
 
+import os
 from datetime import date, datetime
 from io import BytesIO
 
 from app.quotations.excel import line_amount, sqft_for_line
+
+LOGO_PATH = os.path.join(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+    "static",
+    "images",
+    "euroglass-logo.png",
+)
 
 
 def _pdf_escape(value):
@@ -52,6 +60,20 @@ def _qty(value):
     return f"{number:g}"
 
 
+def _logo_jpeg():
+    if not os.path.exists(LOGO_PATH):
+        return None
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    image = Image.open(LOGO_PATH).convert("RGB")
+    image.thumbnail((220, 220))
+    buffer = BytesIO()
+    image.save(buffer, format="JPEG", quality=88)
+    return image.size[0], image.size[1], buffer.getvalue()
+
+
 def build_quotation_pdf(header, lines):
     commands = []
     page_width = 612
@@ -79,6 +101,13 @@ def build_quotation_pdf(header, lines):
 
     def draw_line(x1, y1, x2, y2):
         commands.append(f"0.6 w {x1} {y1} m {x2} {y2} l S")
+
+    logo = _logo_jpeg()
+    logo_pt = 86
+    if logo:
+        commands.append(
+            f"q {logo_pt} 0 0 {logo_pt} {right - logo_pt} {page_height - 18 - logo_pt} cm /Im1 Do Q"
+        )
 
     y = page_height - 40
     text_center(page_width / 2, y, "EUROGLASS HARDWARE", 16, "F2")
@@ -185,6 +214,22 @@ def build_quotation_pdf(header, lines):
             y -= 11
 
     content = "\n".join(commands).encode("latin-1", errors="replace")
+    page_resources = b"/Font << /F1 4 0 R /F2 5 0 R >>"
+    extra_objects = []
+    if logo:
+        page_resources += b" /XObject << /Im1 7 0 R >>"
+        extra_objects.append(
+            b"<< /Type /XObject /Subtype /Image /Width "
+            + str(logo[0]).encode("ascii")
+            + b" /Height "
+            + str(logo[1]).encode("ascii")
+            + b" /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length "
+            + str(len(logo[2])).encode("ascii")
+            + b" >>\nstream\n"
+            + logo[2]
+            + b"\nendstream"
+        )
+
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
@@ -192,10 +237,13 @@ def build_quotation_pdf(header, lines):
         + str(page_width).encode("ascii")
         + b" "
         + str(page_height).encode("ascii")
-        + b"] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>",
+        + b"] /Resources << "
+        + page_resources
+        + b" >> /Contents 6 0 R >>",
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
         b"<< /Length " + str(len(content)).encode("ascii") + b" >>\nstream\n" + content + b"\nendstream",
+        *extra_objects,
     ]
 
     pdf = BytesIO()
