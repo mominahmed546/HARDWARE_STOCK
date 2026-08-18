@@ -48,6 +48,48 @@ def _ensure_invoice_previous_balance_column(db, cursor):
     db.commit()
 
 
+def _ensure_invoice_settlement_columns(db, cursor):
+    cursor.execute(
+        """
+        ALTER TABLE Invoices
+        ADD COLUMN IF NOT EXISTS CashReceived NUMERIC(12, 2) DEFAULT 0
+        """
+    )
+    cursor.execute(
+        """
+        ALTER TABLE Invoices
+        ADD COLUMN IF NOT EXISTS NetBalance NUMERIC(12, 2) DEFAULT 0
+        """
+    )
+    cursor.execute(
+        """
+        UPDATE Invoices
+        SET
+            CashReceived = CASE
+                WHEN COALESCE(PaymentStatus, 'Unpaid') = 'Paid'
+                    THEN COALESCE(PreviousBalance, 0) + COALESCE(TotalAmount, 0)
+                ELSE 0
+            END,
+            NetBalance = CASE
+                WHEN COALESCE(PaymentStatus, 'Unpaid') = 'Paid'
+                    THEN 0
+                ELSE COALESCE(PreviousBalance, 0) + COALESCE(TotalAmount, 0)
+            END
+        """
+    )
+    db.commit()
+
+
+def _invoice_settlement(previous_balance, total_amount, payment_status="Unpaid"):
+    """Cash received and net balance for one invoice only."""
+    previous_balance = float(previous_balance or 0)
+    total_amount = float(total_amount or 0)
+    is_paid = str(payment_status or "Unpaid").strip() == "Paid"
+    cash_received = previous_balance + total_amount if is_paid else 0.0
+    net_balance = previous_balance + total_amount - cash_received
+    return cash_received, net_balance
+
+
 def _ensure_invoice_date_is_timestamp(db, cursor):
     """Migrate the date column from DATE to TIMESTAMP WITH TIME ZONE if needed."""
     cursor.execute(
@@ -448,10 +490,15 @@ def _build_invoice_pdf(invoice, details):
     y -= 12
     items_count = len(details)
     total_amount = float(invoice.TotalAmount or 0)
-    is_paid = str(getattr(invoice, "PaymentStatus", "Unpaid") or "Unpaid").strip() == "Paid"
-    # Cash received is for THIS invoice only. If it is paid, the slip is settled.
-    cash_received = previous_balance + total_amount if is_paid else 0.0
-    net_balance = previous_balance + total_amount - cash_received
+    if hasattr(invoice, "CashReceived") and hasattr(invoice, "NetBalance"):
+        cash_received = float(invoice.CashReceived or 0)
+        net_balance = float(invoice.NetBalance or 0)
+    else:
+        cash_received, net_balance = _invoice_settlement(
+            previous_balance,
+            total_amount,
+            getattr(invoice, "PaymentStatus", "Unpaid"),
+        )
 
     text(x_left, y, f"Items    {items_count}", 11, "F2")
     text_right(x_right, y, f"TOTAL: {money(total_amount)}", 12, "F2")
@@ -514,6 +561,7 @@ def create_invoice():
         _ensure_previous_balance_column(db, cursor)
         _ensure_invoice_payment_status_column(db, cursor)
         _ensure_invoice_previous_balance_column(db, cursor)
+        _ensure_invoice_settlement_columns(db, cursor)
         _ensure_invoice_date_is_timestamp(db, cursor)
         customers, items = _load_invoice_form_data(cursor)
 
@@ -593,13 +641,29 @@ def create_invoice():
             cursor.execute("SELECT COALESCE(MAX(InvoiceID), 0) + 1 AS NextID FROM Invoices")
             next_id = int(cursor.fetchone()[0])
 
+            cash_received, net_balance = _invoice_settlement(
+                data["previous_balance"], total, "Unpaid"
+            )
+
             cursor.execute(
                 """
-                INSERT INTO Invoices (InvoiceID, CustomerID, [Date], TotalAmount, PaymentStatus, PreviousBalance)
+                INSERT INTO Invoices (
+                    InvoiceID, CustomerID, [Date], TotalAmount, PaymentStatus,
+                    PreviousBalance, CashReceived, NetBalance
+                )
                 OUTPUT INSERTED.InvoiceID
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (next_id, data["customer_id"], invoice_datetime, total, "Unpaid", data["previous_balance"]),
+                (
+                    next_id,
+                    data["customer_id"],
+                    invoice_datetime,
+                    total,
+                    "Unpaid",
+                    data["previous_balance"],
+                    cash_received,
+                    net_balance,
+                ),
             )
             invoice_id = int(cursor.fetchone()[0])
 
@@ -708,6 +772,7 @@ def invoice_pdf(id):
         _ensure_previous_balance_column(db, cursor)
         _ensure_invoice_payment_status_column(db, cursor)
         _ensure_invoice_previous_balance_column(db, cursor)
+        _ensure_invoice_settlement_columns(db, cursor)
         _ensure_invoice_date_is_timestamp(db, cursor)
         cursor.execute(
             """
@@ -718,7 +783,9 @@ def invoice_pdf(id):
                 c.CustomerName,
                 c.ContactNo,
                 COALESCE(i.PreviousBalance, 0) AS PreviousBalance,
-                COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus
+                COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus,
+                COALESCE(i.CashReceived, 0) AS CashReceived,
+                COALESCE(i.NetBalance, 0) AS NetBalance
             FROM Invoices i
             JOIN Customers c ON i.CustomerID = c.CustomerID
             WHERE i.InvoiceID = ?
@@ -770,6 +837,7 @@ def edit_invoice(id):
         _ensure_previous_balance_column(db, cursor)
         _ensure_invoice_payment_status_column(db, cursor)
         _ensure_invoice_previous_balance_column(db, cursor)
+        _ensure_invoice_settlement_columns(db, cursor)
         _ensure_invoice_date_is_timestamp(db, cursor)
 
         cursor.execute(
@@ -893,13 +961,27 @@ def edit_invoice(id):
                 )
 
             cursor.execute("DELETE FROM InvoiceDetails WHERE InvoiceID = ?", (id,))
+            cash_received, net_balance = _invoice_settlement(
+                data["previous_balance"],
+                total,
+                invoice.PaymentStatus,
+            )
             cursor.execute(
                 """
                 UPDATE Invoices
-                SET CustomerID = ?, [Date] = ?, TotalAmount = ?, PreviousBalance = ?
+                SET CustomerID = ?, [Date] = ?, TotalAmount = ?, PreviousBalance = ?,
+                    CashReceived = ?, NetBalance = ?
                 WHERE InvoiceID = ?
                 """,
-                (data["customer_id"], invoice_datetime, total, data["previous_balance"], id),
+                (
+                    data["customer_id"],
+                    invoice_datetime,
+                    total,
+                    data["previous_balance"],
+                    cash_received,
+                    net_balance,
+                    id,
+                ),
             )
 
             for line in valid_lines:
@@ -1009,6 +1091,8 @@ def update_invoice_status(id):
 
     try:
         _ensure_invoice_payment_status_column(db, cursor)
+        _ensure_invoice_previous_balance_column(db, cursor)
+        _ensure_invoice_settlement_columns(db, cursor)
         target_status = (request.form.get("status") or "").strip()
 
         if target_status not in {"Paid", "Unpaid"}:
@@ -1021,6 +1105,7 @@ def update_invoice_status(id):
                 i.InvoiceID,
                 i.CustomerID,
                 COALESCE(i.TotalAmount, 0) AS TotalAmount,
+                COALESCE(i.PreviousBalance, 0) AS PreviousBalance,
                 COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus
             FROM Invoices i
             WHERE i.InvoiceID = ?
@@ -1038,9 +1123,18 @@ def update_invoice_status(id):
             flash(f"Invoice #{id} is already marked as {target_status}.", "info")
             return redirect(url_for("invoices.list_invoices"))
 
+        cash_received, net_balance = _invoice_settlement(
+            invoice.PreviousBalance,
+            invoice.TotalAmount,
+            target_status,
+        )
         cursor.execute(
-            "UPDATE Invoices SET PaymentStatus = ? WHERE InvoiceID = ?",
-            (target_status, id),
+            """
+            UPDATE Invoices
+            SET PaymentStatus = ?, CashReceived = ?, NetBalance = ?
+            WHERE InvoiceID = ?
+            """,
+            (target_status, cash_received, net_balance, id),
         )
 
         # Keep the saved customer previous balance in sync with payment actions

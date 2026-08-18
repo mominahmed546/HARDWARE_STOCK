@@ -38,6 +38,8 @@ _COLUMN_REPLACEMENTS = {
     "PaymentStatus": "payment_status",
     "TotalAmount": "total_amount",
     "PreviousBalance": "previous_balance",
+    "CashReceived": "cash_received",
+    "NetBalance": "net_balance",
     "DetailID": "detail_id",
     "StockHistory": "stock_history",
     "HistoryID": "history_id",
