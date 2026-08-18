@@ -519,6 +519,38 @@ a {
     margin-left: 0;
 }
 
+.list-actions-cell {
+    width: 1%;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.list-actions {
+    display: flex;
+    align-items: stretch;
+    gap: 0.3rem;
+}
+
+.list-actions form {
+    display: flex;
+    margin: 0;
+}
+
+.list-actions .btn {
+    margin: 0;
+    padding: 0.28rem 0.55rem;
+    font-size: 0.74rem;
+    border-radius: 6px;
+    min-width: 5.25rem;
+}
+
+.data-table .list-actions-cell .btn + .btn,
+.data-table .list-actions-cell form + .btn,
+.data-table .list-actions-cell .btn + form,
+.data-table .list-actions-cell form + form {
+    margin-left: 0;
+}
+
 .paid-due-sub {
     color: var(--text-muted);
     font-size: 0.8rem;

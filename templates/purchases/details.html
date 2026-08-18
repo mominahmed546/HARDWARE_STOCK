@@ -36,11 +36,13 @@
                 <td>Rs {{ "{:,.2f}".format(detail.PurchaseRate|default(0)) }}</td>
                 <td>Rs {{ "{:,.2f}".format(detail.LineTotal|default(0)) }}</td>
                 <td>Rs {{ "{:,.2f}".format(detail.TotalAmount|default(0)) }}</td>
-                <td>
-                    <a href="{{ url_for('purchases.edit_purchase_items', id=detail.PurchaseID) }}" class="btn btn-sm btn-info">Edit</a>
-                    <form method="POST" action="{{ url_for('purchases.delete_purchase', id=detail.PurchaseID) }}" style="display:inline;">
-                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this purchase? Stock quantities from this purchase will be reduced.')">Delete</button>
-                    </form>
+                <td class="list-actions-cell">
+                    <div class="list-actions">
+                        <a href="{{ url_for('purchases.edit_purchase_items', id=detail.PurchaseID) }}" class="btn btn-sm btn-info">Edit</a>
+                        <form method="POST" action="{{ url_for('purchases.delete_purchase', id=detail.PurchaseID) }}">
+                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this purchase? Stock quantities from this purchase will be reduced.')">Delete</button>
+                        </form>
+                    </div>
                 </td>
             </tr>
             {% else %}
