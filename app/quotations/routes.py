@@ -6,12 +6,14 @@ from flask_login import login_required
 from app import app
 from app.db import get_db_connection
 from app.quotations.excel import MAX_LINE_ROWS, build_quotation_xlsx, line_amount, sqft_for_line
+from app.quotations.whatsapp import build_quotation_message, whatsapp_url
 from app.tenancy import owner_sql, request_user_id
 from app.validators import (
     ValidationErrors,
     clean_date,
     clean_optional_select_id,
     clean_optional_string,
+    clean_phone,
     clean_positive_decimal,
     clean_positive_int,
     clean_string,
@@ -435,6 +437,53 @@ def quotation_excel(id):
 
     except Exception as e:
         flash(f"Error generating quotation Excel: {str(e)}", "danger")
+        return redirect(url_for("quotations.list_quotations"))
+
+    finally:
+        cursor.close()
+
+
+@quotations_bp.route("/<int:id>/whatsapp", methods=["GET", "POST"])
+@login_required
+def quotation_whatsapp(id):
+    db = get_db_connection(app)
+    cursor = db.cursor()
+    errors = ValidationErrors()
+
+    try:
+        ensure_quotations_schema(db, cursor)
+        quotation = _load_quotation(cursor, id)
+        if not quotation:
+            flash("Quotation not found.", "danger")
+            return redirect(url_for("quotations.list_quotations"))
+
+        details = _load_quotation_details(cursor, id)
+        header, lines = _quotation_header_payload(quotation, details)
+        message = build_quotation_message(header, lines)
+        entered_number = (
+            request.form.get("whatsapp_number") if request.method == "POST" else (quotation.ContactNo or "")
+        )
+
+        if request.method == "POST":
+            phone = clean_phone(entered_number, "whatsapp_number", errors, required=True, max_len=20)
+            link = whatsapp_url(phone, message) if errors.valid else None
+            if errors.valid and not link:
+                errors.add("whatsapp_number", "Enter a valid WhatsApp mobile number.")
+            if not errors.valid:
+                flash(errors.first(), "danger")
+            else:
+                return redirect(link)
+
+        return render_template(
+            "quotations/whatsapp.html",
+            quotation=quotation,
+            message=message,
+            form_data={"whatsapp_number": entered_number or ""},
+            errors=errors.errors,
+        )
+
+    except Exception as e:
+        flash(f"Error opening WhatsApp quotation: {str(e)}", "danger")
         return redirect(url_for("quotations.list_quotations"))
 
     finally:

@@ -320,6 +320,16 @@ a {
     background: #b91c1c;
 }
 
+.btn-whatsapp {
+    background: #128c7e;
+    color: #fff;
+}
+
+.btn-whatsapp:hover {
+    background: #0f6f64;
+    color: #fff;
+}
+
 .btn-sm {
     padding: 0.4rem 0.8rem;
     font-size: 0.82rem;

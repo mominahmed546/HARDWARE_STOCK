@@ -71,3 +71,17 @@
         grid-template-columns: 1fr;
     }
 }
+
+.quotation-whatsapp-card {
+    max-width: 720px;
+}
+
+.quotation-whatsapp-preview {
+    min-height: 18rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.86rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    resize: vertical;
+    background: #f8fafc;
+}
