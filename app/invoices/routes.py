@@ -863,7 +863,7 @@ def invoice_pdf(id):
         return send_file(
             pdf,
             mimetype="application/pdf",
-            as_attachment=True,
+            as_attachment=False,
             download_name=f"invoice_{id}.pdf",
         )
 

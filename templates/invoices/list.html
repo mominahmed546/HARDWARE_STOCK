@@ -47,7 +47,7 @@
                     <div class="invoice-actions">
                         <div class="invoice-actions-row">
                             <a href="{{ url_for('invoices.edit_invoice', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">Edit</a>
-                            <a href="{{ url_for('invoices.invoice_pdf', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">PDF</a>
+                            <a href="{{ url_for('invoices.invoice_pdf', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info" target="_blank" rel="noopener noreferrer">PDF</a>
                         </div>
                         <a href="{{ url_for('invoices.invoice_payments', id=invoice.InvoiceID) }}" class="btn btn-sm btn-primary invoice-action-wide">Receive Partial Payment</a>
                         <div class="invoice-actions-row">

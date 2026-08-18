@@ -33,7 +33,7 @@
                 <td>Rs {{ "{:,.2f}".format(invoice.TotalAmount|default(0)) }}</td>
                 <td>{{ invoice.PaymentStatus or 'Unpaid' }}</td>
                 <td>
-                    <a href="{{ url_for('invoices.invoice_pdf', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info">PDF</a>
+                    <a href="{{ url_for('invoices.invoice_pdf', id=invoice.InvoiceID) }}" class="btn btn-sm btn-info" target="_blank" rel="noopener noreferrer">PDF</a>
                 </td>
             </tr>
             {% else %}
