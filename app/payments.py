@@ -27,12 +27,26 @@ def ensure_invoice_payments_table(db, cursor):
     )
     cursor.execute(
         """
-        INSERT INTO InvoicePayments (InvoiceID, Amount, PaymentDate, Notes)
+        ALTER TABLE InvoicePayments
+        ADD COLUMN IF NOT EXISTS PaymentMethod VARCHAR(20) DEFAULT 'Cash'
+        """
+    )
+    cursor.execute(
+        """
+        UPDATE InvoicePayments
+        SET PaymentMethod = 'Cash'
+        WHERE PaymentMethod IS NULL OR BTRIM(PaymentMethod) = ''
+        """
+    )
+    cursor.execute(
+        """
+        INSERT INTO InvoicePayments (InvoiceID, Amount, PaymentDate, Notes, PaymentMethod)
         SELECT
             i.InvoiceID,
             i.TotalAmount,
             i.[Date],
-            'Backfilled from Paid status'
+            'Backfilled from Paid status',
+            'Cash'
         FROM Invoices i
         WHERE COALESCE(i.PaymentStatus, 'Unpaid') = 'Paid'
           AND COALESCE(i.TotalAmount, 0) > 0
@@ -80,6 +94,57 @@ def payment_status(total_amount, paid_amount, epsilon=0.005):
     return "Partial"
 
 
+def normalize_payment_method(value):
+    if str(value or "").strip().lower() == "bank":
+        return "Bank"
+    return "Cash"
+
+
+def ensure_cash_accounts(db, cursor):
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS CashAccounts (
+            AccountID INTEGER PRIMARY KEY,
+            CashOpening NUMERIC(12, 2) DEFAULT 0,
+            BankOpening NUMERIC(12, 2) DEFAULT 0
+        )
+        """
+    )
+    cursor.execute(
+        """
+        INSERT INTO CashAccounts (AccountID, CashOpening, BankOpening)
+        SELECT 1, 0, 0
+        WHERE NOT EXISTS (SELECT 1 FROM CashAccounts WHERE AccountID = 1)
+        """
+    )
+    db.commit()
+
+
+def get_cash_openings(cursor):
+    cursor.execute(
+        """
+        SELECT COALESCE(CashOpening, 0) AS CashOpening, COALESCE(BankOpening, 0) AS BankOpening
+        FROM CashAccounts
+        WHERE AccountID = 1
+        """
+    )
+    row = cursor.fetchone()
+    if not row:
+        return 0.0, 0.0
+    return float(row.CashOpening or 0), float(row.BankOpening or 0)
+
+
+def save_cash_openings(cursor, cash_opening, bank_opening):
+    cursor.execute(
+        """
+        UPDATE CashAccounts
+        SET CashOpening = ?, BankOpening = ?
+        WHERE AccountID = 1
+        """,
+        (float(cash_opening or 0), float(bank_opening or 0)),
+    )
+
+
 def remaining_due(total_amount, paid_amount, epsilon=0.005):
     remaining = float(total_amount or 0) - float(paid_amount or 0)
     return remaining if remaining > epsilon else 0.0
@@ -101,7 +166,8 @@ def invoice_paid_total(cursor, invoice_id):
 def list_invoice_payments(cursor, invoice_id):
     cursor.execute(
         """
-        SELECT PaymentID, InvoiceID, Amount, PaymentDate, Notes
+        SELECT PaymentID, InvoiceID, Amount, PaymentDate, Notes,
+               COALESCE(PaymentMethod, 'Cash') AS PaymentMethod
         FROM InvoicePayments
         WHERE InvoiceID = ?
         ORDER BY PaymentDate ASC, PaymentID ASC
@@ -177,7 +243,7 @@ def adjust_customer_previous_balance(cursor, customer_id, delta):
     )
 
 
-def add_invoice_payment(cursor, invoice, amount, payment_date, notes=""):
+def add_invoice_payment(cursor, invoice, amount, payment_date, notes="", payment_method="Cash"):
     invoice_id = int(invoice.InvoiceID)
     customer_id = int(invoice.CustomerID)
     total_amount = float(invoice.TotalAmount or 0)
@@ -192,10 +258,10 @@ def add_invoice_payment(cursor, invoice, amount, payment_date, notes=""):
 
     cursor.execute(
         """
-        INSERT INTO InvoicePayments (InvoiceID, Amount, PaymentDate, Notes)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO InvoicePayments (InvoiceID, Amount, PaymentDate, Notes, PaymentMethod)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (invoice_id, amount, payment_date, notes or None),
+        (invoice_id, amount, payment_date, notes or None, normalize_payment_method(payment_method)),
     )
     adjust_customer_previous_balance(cursor, customer_id, -amount)
     return refresh_invoice_settlement(cursor, invoice_id)
@@ -232,13 +298,13 @@ def clear_invoice_payments(cursor, invoice):
     return refresh_invoice_settlement(cursor, invoice_id)
 
 
-def pay_invoice_remaining(cursor, invoice, payment_date=None, notes="Marked paid"):
+def pay_invoice_remaining(cursor, invoice, payment_date=None, notes="Marked paid", payment_method="Cash"):
     remaining = remaining_due(invoice.TotalAmount, invoice_paid_total(cursor, int(invoice.InvoiceID)))
     if remaining <= 0:
         return refresh_invoice_settlement(cursor, int(invoice.InvoiceID))
     if payment_date is None:
         payment_date = datetime.now()
-    return add_invoice_payment(cursor, invoice, remaining, payment_date, notes)
+    return add_invoice_payment(cursor, invoice, remaining, payment_date, notes, payment_method)
 
 
 def _sync_invoices_with_payments(cursor):

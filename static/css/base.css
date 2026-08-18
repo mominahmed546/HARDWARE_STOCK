@@ -457,6 +457,17 @@ a {
     color: var(--text-muted);
 }
 
+.pay-method-select {
+    display: inline-block;
+    margin-right: 0.35rem;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 0.82rem;
+}
+
 /* ---- Dark mode overrides ---- */
 [data-theme="dark"] .data-table th {
     background: #1e293b;

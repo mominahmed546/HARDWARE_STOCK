@@ -72,7 +72,14 @@ CREATE TABLE IF NOT EXISTS invoice_payments (
     invoice_id INTEGER NOT NULL REFERENCES invoices(invoice_id) ON DELETE CASCADE,
     amount NUMERIC(12, 2) NOT NULL,
     payment_date TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    notes VARCHAR(255)
+    notes VARCHAR(255),
+    payment_method VARCHAR(20) DEFAULT 'Cash'
+);
+
+CREATE TABLE IF NOT EXISTS cash_accounts (
+    account_id INTEGER PRIMARY KEY,
+    cash_opening NUMERIC(12, 2) DEFAULT 0,
+    bank_opening NUMERIC(12, 2) DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_invoice_payments_invoice_id

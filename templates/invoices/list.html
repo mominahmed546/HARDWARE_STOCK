@@ -52,6 +52,10 @@
                         <button type="submit" class="btn btn-sm btn-secondary">Mark Unpaid</button>
                         {% else %}
                         <input type="hidden" name="status" value="Paid">
+                        <select name="payment_method" class="pay-method-select" title="Cash or bank">
+                            <option value="Cash">Cash</option>
+                            <option value="Bank">Bank</option>
+                        </select>
                         <button type="submit" class="btn btn-sm btn-success">Mark Paid</button>
                         {% endif %}
                     </form>

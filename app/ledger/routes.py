@@ -147,7 +147,9 @@ def _build_ledger_entries(opening_balance, invoices, details_by_invoice, payment
         payment = event["payment"]
         amount = float(payment.Amount or 0)
         notes = str(payment.Notes or "").strip()
-        particulars = f"By Cash received against Invoice No. {invoice_id}"
+        method = str(getattr(payment, "PaymentMethod", "Cash") or "Cash")
+        source = "Bank" if method == "Bank" else "Cash"
+        particulars = f"By {source} received against Invoice No. {invoice_id}"
         if notes and notes != "Backfilled from Paid status" and notes != "Marked paid":
             particulars += f" — {notes}"
 
@@ -225,7 +227,8 @@ def _load_customer_ledger(cursor, customer_id):
         placeholders = ",".join("?" * len(invoice_ids))
         cursor.execute(
             f"""
-            SELECT PaymentID, InvoiceID, Amount, PaymentDate, Notes
+            SELECT PaymentID, InvoiceID, Amount, PaymentDate, Notes,
+                   COALESCE(PaymentMethod, 'Cash') AS PaymentMethod
             FROM InvoicePayments
             WHERE InvoiceID IN ({placeholders})
             ORDER BY PaymentDate, PaymentID

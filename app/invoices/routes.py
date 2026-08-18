@@ -17,6 +17,7 @@ from app.payments import (
     paid_ratio_sql,
     pay_invoice_remaining,
     payments_join_sql,
+    normalize_payment_method,
     refresh_invoice_settlement,
     remaining_due,
 )
@@ -1167,7 +1168,11 @@ def update_invoice_status(id):
             return redirect(redirect_to)
 
         if target_status == "Paid":
-            pay_invoice_remaining(cursor, invoice)
+            pay_invoice_remaining(
+                cursor,
+                invoice,
+                payment_method=request.form.get("payment_method") or "Cash",
+            )
             flash(f"Invoice #{id} marked as Paid.", "success")
         else:
             clear_invoice_payments(cursor, invoice)
@@ -1198,6 +1203,7 @@ def invoice_payments(id):
         "payment_date": date.today().isoformat(),
         "amount": "",
         "notes": "",
+        "payment_method": "Cash",
     }
 
     try:
@@ -1232,6 +1238,7 @@ def invoice_payments(id):
                 max_len=255,
                 label="Notes",
             )
+            payment_method = request.form.get("payment_method") or "Cash"
 
             if not errors.valid:
                 flash(errors.first(), "danger")
@@ -1240,10 +1247,12 @@ def invoice_payments(id):
                     datetime.strptime(payment_date_value, "%Y-%m-%d").date(),
                     datetime.now().time(),
                 )
-                result = add_invoice_payment(cursor, invoice, amount, payment_datetime, notes)
+                result = add_invoice_payment(
+                    cursor, invoice, amount, payment_datetime, notes, payment_method
+                )
                 db.commit()
                 flash(
-                    f"Received Rs {amount:,.2f}. Invoice #{id} is now {result['status']}.",
+                    f"Received Rs {amount:,.2f} in {normalize_payment_method(payment_method)}. Invoice #{id} is now {result['status']}.",
                     "success",
                 )
                 return redirect(url_for("invoices.invoice_payments", id=id))

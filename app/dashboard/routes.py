@@ -7,6 +7,7 @@ from flask_login import login_required
 from app import app
 
 from app.db import get_db_connection
+from app.payments import ensure_cash_accounts, ensure_invoice_payments_table, get_cash_openings
 
 
 
@@ -41,7 +42,10 @@ def dashboard():
         'out_of_stock_items': [],
 
         'recent_customers': [],
-
+        'today_cash': 0,
+        'today_bank': 0,
+        'cash_in_hand': 0,
+        'bank_balance': 0,
     }
 
 
@@ -156,7 +160,37 @@ def dashboard():
 
         recent_customers = cursor.fetchall()
 
-
+        from datetime import date as _date
+        ensure_invoice_payments_table(db, cursor)
+        ensure_cash_accounts(db, cursor)
+        cash_opening, bank_opening = get_cash_openings(cursor)
+        today = _date.today()
+        cursor.execute(
+            """
+            SELECT
+                ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Bank' THEN Amount ELSE 0 END), 0) AS BankAmount,
+                ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') <> 'Bank' THEN Amount ELSE 0 END), 0) AS CashAmount
+            FROM InvoicePayments
+            WHERE CAST(PaymentDate AS DATE) = ?
+            """,
+            (today,),
+        )
+        today_row = cursor.fetchone()
+        today_cash = float(today_row.CashAmount or 0) if today_row else 0
+        today_bank = float(today_row.BankAmount or 0) if today_row else 0
+        cursor.execute(
+            """
+            SELECT
+                ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Bank' THEN Amount ELSE 0 END), 0) AS BankAmount,
+                ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') <> 'Bank' THEN Amount ELSE 0 END), 0) AS CashAmount
+            FROM InvoicePayments
+            WHERE CAST(PaymentDate AS DATE) <= ?
+            """,
+            (today,),
+        )
+        all_row = cursor.fetchone()
+        cash_in_hand = cash_opening + (float(all_row.CashAmount or 0) if all_row else 0)
+        bank_balance = bank_opening + (float(all_row.BankAmount or 0) if all_row else 0)
 
         cursor.close()
 
@@ -181,7 +215,10 @@ def dashboard():
             out_of_stock_items=out_of_stock_items,
 
             recent_customers=recent_customers,
-
+            today_cash=today_cash,
+            today_bank=today_bank,
+            cash_in_hand=cash_in_hand,
+            bank_balance=bank_balance,
         )
 
 

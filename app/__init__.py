@@ -92,6 +92,7 @@ from app.invoices.routes import invoices_bp
 from app.reports.routes import reports_bp
 from app.ledger.routes import ledger_bp
 from app.profit.routes import profit_bp
+from app.cash.routes import cash_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(dashboard_bp)
@@ -104,6 +105,7 @@ app.register_blueprint(invoices_bp)
 app.register_blueprint(reports_bp)
 app.register_blueprint(ledger_bp)
 app.register_blueprint(profit_bp)
+app.register_blueprint(cash_bp)
 
 
 @app.route("/")

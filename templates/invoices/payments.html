@@ -95,6 +95,13 @@
                     {{ field_error(errors, 'amount') }}
                 </div>
                 <div class="form-group">
+                    <label for="payment_method">Received in</label>
+                    <select id="payment_method" name="payment_method">
+                        <option value="Cash" {% if fd.get('payment_method', 'Cash') == 'Cash' %}selected{% endif %}>Cash in hand</option>
+                        <option value="Bank" {% if fd.get('payment_method') == 'Bank' %}selected{% endif %}>Bank account</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label for="notes">Notes (optional)</label>
                     <input type="text" id="notes" name="notes" maxlength="255"
                            value="{{ fd.get('notes', '') }}"
@@ -118,6 +125,7 @@
                     <tr>
                         <th>Date</th>
                         <th>Amount</th>
+                        <th>Received in</th>
                         <th>Notes</th>
                         <th>Actions</th>
                     </tr>
@@ -127,6 +135,7 @@
                     <tr>
                         <td>{{ payment.PaymentDate|date_dmy }}</td>
                         <td>Rs {{ "{:,.2f}".format(payment.Amount|default(0)) }}</td>
+                        <td>{{ payment.PaymentMethod or 'Cash' }}</td>
                         <td>{{ payment.Notes or '—' }}</td>
                         <td>
                             <form method="POST" action="{{ url_for('invoices.remove_invoice_payment', id=invoice.InvoiceID, payment_id=payment.PaymentID) }}" style="display:inline;">
@@ -136,7 +145,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="4">No payments recorded yet.</td>
+                        <td colspan="5">No payments recorded yet.</td>
                     </tr>
                     {% endfor %}
                 </tbody>

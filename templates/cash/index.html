@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% from 'macros/form.html' import field_error %}
+
+{% block title %}Cash / Bank - Hardware Stock Management{% endblock %}
+{% block page_title %}Cash in Hand / Bank{% endblock %}
+{% block page_subtitle %}
+<p>Cash and bank received from sales, and the balance after that day or month</p>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/reports.css') }}">
+<style>
+    .cash-tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+    .cash-tabs a {
+        padding: 0.55rem 1.1rem;
+        border-radius: 999px;
+        text-decoration: none;
+        font-weight: 700;
+        background: #e2e8f0;
+        color: #334155;
+    }
+    .cash-tabs a.active { background: #2563eb; color: #fff; }
+    .opening-form { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; }
+    .opening-form .form-group { margin: 0; min-width: 180px; }
+    .cash-after { color: #166534; }
+    .bank-after { color: #1d4ed8; }
+    .panel-header h2 { margin: 0 0 1rem; font-size: 1.05rem; }
+    .report-summary-grid.cash-grid { grid-template-columns: repeat(4, 1fr); }
+    @media (max-width: 900px) {
+        .report-summary-grid.cash-grid { grid-template-columns: 1fr 1fr; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="cash-tabs">
+        <a href="{{ url_for('cash.cash_book', view='daily', date=selected_date) }}" class="{% if view == 'daily' %}active{% endif %}">Daily sale</a>
+        <a href="{{ url_for('cash.cash_book', view='monthly', year=selected_year, month=selected_month) }}" class="{% if view == 'monthly' %}active{% endif %}">Monthly sale</a>
+    </div>
+
+    <div class="report-toolbar">
+        <form method="GET" class="report-filter">
+            <input type="hidden" name="view" value="{{ view }}">
+            {% if view == 'daily' %}
+            <div>
+                <label for="date">Date</label>
+                <input type="date" id="date" name="date" value="{{ selected_date }}">
+            </div>
+            {% else %}
+            <div>
+                <label for="month">Month</label>
+                <select id="month" name="month">
+                    {% for month_name in months %}
+                    <option value="{{ loop.index }}" {% if loop.index == selected_month %}selected{% endif %}>{{ month_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="year">Year</label>
+                <select id="year" name="year">
+                    {% for year in years %}
+                    <option value="{{ year }}" {% if year == selected_year %}selected{% endif %}>{{ year }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            <button type="submit" class="btn btn-primary">View</button>
+            <a href="{{ url_for('cash.cash_book_pdf', view=view, date=selected_date, year=selected_year, month=selected_month) }}" class="btn btn-secondary">Download PDF</a>
+        </form>
+    </div>
+
+    <div class="report-summary-grid cash-grid">
+        <div class="report-card">
+            <div class="report-card-label">Cash received — {{ period_label }}</div>
+            <div class="report-card-value">Rs {{ "{:,.2f}".format(period_cash|default(0)) }}</div>
+        </div>
+        <div class="report-card">
+            <div class="report-card-label">Bank received — {{ period_label }}</div>
+            <div class="report-card-value">Rs {{ "{:,.2f}".format(period_bank|default(0)) }}</div>
+        </div>
+        <div class="report-card">
+            <div class="report-card-label">Cash in hand after this {{ 'month' if view == 'monthly' else 'day' }}</div>
+            <div class="report-card-value cash-after">Rs {{ "{:,.2f}".format(cash_in_hand|default(0)) }}</div>
+        </div>
+        <div class="report-card">
+            <div class="report-card-label">Bank account after this {{ 'month' if view == 'monthly' else 'day' }}</div>
+            <div class="report-card-value bank-after">Rs {{ "{:,.2f}".format(bank_balance|default(0)) }}</div>
+        </div>
+    </div>
+
+    <div class="report-toolbar">
+        <h3 style="margin:0 0 0.85rem;">Opening balances</h3>
+        <p class="text-muted" style="margin:0 0 1rem;">Set what was already in the till and bank before these receipts. Cash in hand = opening cash + cash received. Bank = opening bank + bank received.</p>
+        <form method="POST" class="opening-form">
+            <input type="hidden" name="action" value="save_openings">
+            <div class="form-group">
+                <label for="cash_opening">Opening cash in hand</label>
+                <input type="number" id="cash_opening" name="cash_opening" min="0" step="0.01"
+                       value="{{ '{:.2f}'.format(cash_opening|default(0)) }}">
+            </div>
+            <div class="form-group">
+                <label for="bank_opening">Opening bank balance</label>
+                <input type="number" id="bank_opening" name="bank_opening" min="0" step="0.01"
+                       value="{{ '{:.2f}'.format(bank_opening|default(0)) }}">
+            </div>
+            <button type="submit" class="btn btn-secondary">Save openings</button>
+        </form>
+    </div>
+
+    {% if view == 'daily' %}
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Receipts on {{ period_label }}</h2>
+        </div>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Invoice</th>
+                    <th>Customer</th>
+                    <th>Method</th>
+                    <th>Amount</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in receipts %}
+                <tr>
+                    <td><a href="{{ url_for('invoices.invoice_payments', id=row.InvoiceID) }}">#{{ row.InvoiceID }}</a></td>
+                    <td>{{ row.CustomerName }}</td>
+                    <td>{{ row.PaymentMethod or 'Cash' }}</td>
+                    <td>Rs {{ "{:,.2f}".format(row.Amount|default(0)) }}</td>
+                    <td>{{ row.Notes or '—' }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5">No cash or bank received on this date. Record a payment on an invoice and choose Cash or Bank.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <th colspan="3">Total received</th>
+                    <th>Rs {{ "{:,.2f}".format(period_total|default(0)) }}</th>
+                    <th></th>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+    {% else %}
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Daily cash / bank — {{ period_label }}</h2>
+        </div>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Cash received</th>
+                    <th>Bank received</th>
+                    <th>Total received</th>
+                    <th>Cash in hand after day</th>
+                    <th>Bank after day</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in day_rows %}
+                <tr>
+                    <td>
+                        <a href="{{ url_for('cash.cash_book', view='daily', date=row.sale_date.isoformat()) }}">
+                            {{ row.sale_date.strftime('%d/%m/%Y') }}
+                        </a>
+                    </td>
+                    <td>Rs {{ "{:,.2f}".format(row.cash_amount) }}</td>
+                    <td>Rs {{ "{:,.2f}".format(row.bank_amount) }}</td>
+                    <td>Rs {{ "{:,.2f}".format(row.total_amount) }}</td>
+                    <td class="cash-after">Rs {{ "{:,.2f}".format(row.cash_in_hand) }}</td>
+                    <td class="bank-after">Rs {{ "{:,.2f}".format(row.bank_balance) }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6">No days in this month.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <th>Month total</th>
+                    <th>Rs {{ "{:,.2f}".format(period_cash|default(0)) }}</th>
+                    <th>Rs {{ "{:,.2f}".format(period_bank|default(0)) }}</th>
+                    <th>Rs {{ "{:,.2f}".format(period_total|default(0)) }}</th>
+                    <th>Rs {{ "{:,.2f}".format(cash_in_hand|default(0)) }}</th>
+                    <th>Rs {{ "{:,.2f}".format(bank_balance|default(0)) }}</th>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

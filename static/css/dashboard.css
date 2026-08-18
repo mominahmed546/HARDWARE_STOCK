@@ -95,6 +95,19 @@
     margin-bottom: 1.5rem;
 }
 
+.pos-totals-bar.cash-bar {
+    margin-bottom: 1.5rem;
+}
+
+a.pos-total-cell.cash-link {
+    text-decoration: none;
+    color: inherit;
+}
+
+a.pos-total-cell.cash-link:hover {
+    border-color: var(--primary);
+}
+
 .pos-total-cell {
     display: flex;
     flex-direction: column;
