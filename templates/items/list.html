@@ -42,7 +42,7 @@
         <tbody>
             {% for item in items %}
             <tr>
-                <td>{{ item.ItemID }}</td>
+                <td>{{ item.ItemNo or item.ItemID }}</td>
                 <td>{{ item.ItemName }}</td>
                 <td>{{ item.CategoryName or 'N/A' }}</td>
                 <td>{{ item.PurchaseRate }}</td>

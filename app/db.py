@@ -29,6 +29,7 @@ _COLUMN_REPLACEMENTS = {
     "CategoryID": "category_id",
     "CategoryName": "category_name",
     "ItemID": "item_id",
+    "ItemNo": "item_no",
     "ItemName": "item_name",
     "PurchaseID": "purchase_id",
     "PurchaseDate": "purchase_date",

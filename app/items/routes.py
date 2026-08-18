@@ -4,7 +4,7 @@ from flask_login import login_required
 
 from app import app
 from app.db import execute_query, execute_query_one, execute_update, get_db_connection
-from app.tenancy import next_table_id, owner_sql, request_user_id
+from app.tenancy import next_owner_no, next_table_id, owner_sql, request_user_id
 from app.items.import_utils import build_items_template_xlsx, import_items, parse_items_xlsx
 from app.validators import (
     ValidationErrors,
@@ -36,16 +36,13 @@ def list_items():
 
         query = f"""
             SELECT
-                COALESCE(
-                    MIN(CASE WHEN i.Qty > 0 THEN i.ItemID END),
-                    MIN(CASE WHEN i.PurchaseRate > 0 OR i.SaleRate > 0 THEN i.ItemID END),
-                    MIN(i.ItemID)
-                ) AS ItemID,
-                MIN(i.ItemName) AS ItemName,
+                i.ItemID,
+                COALESCE(i.ItemNo, i.ItemID) AS ItemNo,
+                i.ItemName,
                 i.CategoryID,
-                MAX(i.PurchaseRate) AS PurchaseRate,
-                MAX(i.SaleRate) AS SaleRate,
-                SUM(i.Qty) AS Qty,
+                i.PurchaseRate,
+                i.SaleRate,
+                i.Qty,
                 c.CategoryName
             FROM Item i
             LEFT JOIN Category c ON i.CategoryID = c.CategoryID
@@ -63,10 +60,7 @@ def list_items():
             query += " AND i.CategoryID = ?"
             params.append(int(category_id))
 
-        query += """
-            GROUP BY LOWER(LTRIM(RTRIM(i.ItemName))), i.CategoryID, c.CategoryName
-            ORDER BY MIN(i.ItemName), c.CategoryName
-        """
+        query += " ORDER BY COALESCE(i.ItemNo, i.ItemID), i.ItemID"
 
         items = execute_query(app, query, tuple(params) if params else None)
         categories = execute_query(app, f"SELECT CategoryID, CategoryName FROM Category WHERE {owner_sql()} ORDER BY CategoryName")
@@ -167,13 +161,15 @@ def create_item():
             db = get_db_connection(app)
             cursor = db.cursor()
             next_id = next_table_id(cursor, "Item", "ItemID")
+            next_no = next_owner_no(cursor, "Item", "ItemNo")
             cursor.execute(
                 """
-                INSERT INTO Item (ItemID, ItemName, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO Item (ItemID, ItemNo, ItemName, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     next_id,
+                    next_no,
                     data["item_name"],
                     data["category_id"],
                     data["purchase_rate"],
