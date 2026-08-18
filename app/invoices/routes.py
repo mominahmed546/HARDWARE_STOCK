@@ -498,6 +498,13 @@ def create_invoice():
                 datetime.now().time(),
             )
 
+            # Persist manually entered previous balance so future invoices
+            # start from the same user-confirmed opening balance.
+            cursor.execute(
+                "UPDATE Customers SET PreviousBalance = ? WHERE CustomerID = ?",
+                (data["previous_balance"], data["customer_id"]),
+            )
+
             # Assign invoice number as MAX(invoice_id)+1 so deleted numbers are reused
             cursor.execute("SELECT COALESCE(MAX(InvoiceID), 0) + 1 AS NextID FROM Invoices")
             next_id = int(cursor.fetchone()[0])
