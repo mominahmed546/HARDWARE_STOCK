@@ -7,7 +7,7 @@ from flask_login import login_required
 from app import app
 
 from app.db import get_db_connection
-from app.tenancy import next_table_id, owner_sql, request_user_id
+from app.tenancy import next_owner_no, next_table_id, owner_sql, request_user_id
 
 from app.validators import (
 
@@ -212,13 +212,15 @@ def create_purchase():
                     )
                 else:
                     next_item_id = next_table_id(cursor, "Item", "ItemID")
+                    next_item_no = next_owner_no(cursor, "Item", "ItemNo")
                     cursor.execute(
                         """
-                        INSERT INTO Item (ItemID, ItemName, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO Item (ItemID, ItemNo, ItemName, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             next_item_id,
+                            next_item_no,
                             item_name,
                             data["category_id"],
                             data["purchase_rate"],

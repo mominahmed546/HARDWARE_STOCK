@@ -156,7 +156,7 @@ def import_items(app, items):
 
     try:
         from app.db import get_db_connection
-        from app.tenancy import next_table_id, owner_sql, request_user_id
+        from app.tenancy import next_owner_no, next_table_id, owner_sql, request_user_id
 
         db = get_db_connection(app)
         cursor = db.cursor()
@@ -223,13 +223,15 @@ def import_items(app, items):
                 updated += 1
             else:
                 next_item_id = next_table_id(cursor, "Item", "ItemID")
+                next_item_no = next_owner_no(cursor, "Item", "ItemNo")
                 cursor.execute(
                     """
-                    INSERT INTO Item (ItemID, ItemName, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO Item (ItemID, ItemNo, ItemName, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         next_item_id,
+                        next_item_no,
                         item["item_name"],
                         category.CategoryID,
                         item["purchase_rate"],

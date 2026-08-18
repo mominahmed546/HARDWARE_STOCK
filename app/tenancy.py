@@ -42,6 +42,14 @@ def next_table_id(cursor, table, column):
     return int(cursor.fetchone()[0])
 
 
+def next_owner_no(cursor, table, column):
+    """Next 1, 2, 3... number for the current account only."""
+    cursor.execute(
+        f"SELECT COALESCE(MAX({column}), 0) + 1 AS NextNo FROM {table} WHERE {owner_sql()}"
+    )
+    return int(cursor.fetchone()[0])
+
+
 def request_user_id():
     try:
         if current_user.is_authenticated:
@@ -134,6 +142,7 @@ def _ensure_isolation(cursor):
         """,
     )
     _fix_quotation_numbers(cursor)
+    _ensure_item_numbers(cursor)
     _ensure_cash_account_row(cursor, request_user_id() or owner_id)
 
 
@@ -206,6 +215,35 @@ def _fix_quotation_numbers(cursor):
         )
     except Exception:
         pass
+
+
+def _ensure_item_numbers(cursor):
+    _try_run(cursor, "ALTER TABLE Item ADD COLUMN IF NOT EXISTS ItemNo INTEGER")
+    _try_run(
+        cursor,
+        """
+        UPDATE Item
+        SET ItemNo = numbered.ItemNo
+        FROM (
+            SELECT
+                ItemID,
+                ROW_NUMBER() OVER (
+                    PARTITION BY COALESCE(UserID, 0)
+                    ORDER BY ItemID
+                ) AS ItemNo
+            FROM Item
+        ) numbered
+        WHERE Item.ItemID = numbered.ItemID
+          AND Item.ItemNo IS NULL
+        """,
+    )
+    _try_run(
+        cursor,
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_item_user_no
+        ON Item (UserID, ItemNo)
+        """,
+    )
 
 
 def _ensure_cash_account_row(cursor, user_id):
