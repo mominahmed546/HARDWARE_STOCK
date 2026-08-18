@@ -423,6 +423,83 @@ a {
     margin-left: 0.4rem;
 }
 
+.container.invoices-page,
+.invoices-table-wrap {
+    max-width: none;
+}
+
+.invoices-table-wrap {
+    overflow-x: auto;
+}
+
+.invoice-actions-cell {
+    width: 1%;
+    white-space: nowrap;
+    vertical-align: top;
+}
+
+.invoice-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    min-width: 16.5rem;
+}
+
+.invoice-actions-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.4rem;
+}
+
+.invoice-actions .btn,
+.invoice-actions .pay-method-select,
+.invoice-status-form,
+.invoice-delete-form {
+    margin: 0;
+    width: 100%;
+}
+
+.invoice-actions .btn {
+    white-space: nowrap;
+}
+
+.invoice-action-wide {
+    width: 100%;
+}
+
+.invoice-status-form,
+.invoice-delete-form {
+    display: flex;
+    align-items: stretch;
+    gap: 0.35rem;
+    min-width: 0;
+}
+
+.invoice-status-form .btn,
+.invoice-delete-form .btn {
+    flex: 1 1 auto;
+}
+
+.invoice-status-form:has(.pay-method-select) {
+    grid-column: 1 / -1;
+}
+
+.invoice-actions-row:has(.invoice-status-form:has(.pay-method-select)) {
+    grid-template-columns: 1fr;
+}
+
+.invoice-status-form .pay-method-select {
+    flex: 0 0 5.5rem;
+    margin-right: 0;
+}
+
+.data-table .invoice-actions-cell .btn + .btn,
+.data-table .invoice-actions-cell form + .btn,
+.data-table .invoice-actions-cell .btn + form,
+.data-table .invoice-actions-cell form + form {
+    margin-left: 0;
+}
+
 .paid-due-sub {
     color: var(--text-muted);
     font-size: 0.8rem;
