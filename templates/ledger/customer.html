@@ -67,7 +67,7 @@
                         <td><span class="vch-type">{{ entry.vch_type or '—' }}</span></td>
                         <td>
                             {% if entry.invoice_id %}
-                            <a href="{{ url_for('invoices.invoice_pdf', id=entry.invoice_id) }}">{{ entry.vch_no }}</a>
+                            <a href="{{ url_for('invoices.invoice_pdf', id=entry.invoice_id) }}" target="_blank" rel="noopener noreferrer">{{ entry.vch_no }}</a>
                             {% else %}
                             {{ entry.vch_no or '—' }}
                             {% endif %}
