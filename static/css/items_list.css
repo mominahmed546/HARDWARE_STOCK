@@ -120,16 +120,30 @@
 
 }
 
+.items-table thead th {
+    background: #0f172a;
+    color: #f8fafc;
+    padding: 0.85rem 1.1rem;
+    text-align: left;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border-bottom: none;
+    white-space: nowrap;
+}
 
+.items-table thead th:first-child {
+    border-top-left-radius: 12px;
+}
 
-.items-table th {
+.items-table thead th:last-child {
+    border-top-right-radius: 12px;
+}
 
-    background:#f1f5f9;
-    padding:14px;
-    text-align:left;
-    color:#334155;
-    font-weight:700;
-
+[data-theme="dark"] .items-table thead th {
+    background: #020617;
+    color: #e2e8f0;
 }
 
 

@@ -35,7 +35,8 @@
         <a href="{{ url_for('items.create_item') }}" class="btn btn-success">+ New Item</a>
     </div>
 
-    <table class="data-table">
+    <div class="table-wrap">
+    <table class="data-table items-table">
         <thead>
             <tr>
                 <th>ID</th>
@@ -66,5 +67,6 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 {% endblock %}
