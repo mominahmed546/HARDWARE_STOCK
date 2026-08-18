@@ -6,7 +6,6 @@ from flask_login import login_required
 from app import app
 from app.db import get_db_connection
 from app.quotations.excel import MAX_LINE_ROWS, build_quotation_xlsx, line_amount, sqft_for_line
-from app.quotations.pdf import build_quotation_pdf
 from app.tenancy import owner_sql, request_user_id
 from app.validators import (
     ValidationErrors,
@@ -264,18 +263,6 @@ def _send_quotation_excel(quotation, details):
     )
 
 
-def _send_quotation_pdf(quotation, details):
-    header, lines = _quotation_header_payload(quotation, details)
-    pdf = build_quotation_pdf(header, lines)
-    number = header.get("quotation_no") or quotation.QuotationID
-    return send_file(
-        pdf,
-        mimetype="application/pdf",
-        as_attachment=False,
-        download_name=f"quotation_{number}.pdf",
-    )
-
-
 @quotations_bp.route("/create", methods=["GET", "POST"])
 @login_required
 def create_quotation():
@@ -426,29 +413,6 @@ def list_quotations():
     except Exception as e:
         flash(f"Error loading quotations: {str(e)}", "danger")
         return redirect(url_for("dashboard.dashboard"))
-
-    finally:
-        cursor.close()
-
-
-@quotations_bp.route("/<int:id>/pdf")
-@login_required
-def quotation_pdf(id):
-    db = get_db_connection(app)
-    cursor = db.cursor()
-
-    try:
-        ensure_quotations_schema(db, cursor)
-        quotation = _load_quotation(cursor, id)
-        if not quotation:
-            flash("Quotation not found.", "danger")
-            return redirect(url_for("quotations.list_quotations"))
-        details = _load_quotation_details(cursor, id)
-        return _send_quotation_pdf(quotation, details)
-
-    except Exception as e:
-        flash(f"Error generating quotation PDF: {str(e)}", "danger")
-        return redirect(url_for("quotations.list_quotations"))
 
     finally:
         cursor.close()
