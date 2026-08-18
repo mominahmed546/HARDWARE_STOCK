@@ -5,6 +5,7 @@ from flask import Blueprint, flash, redirect, render_template, request, send_fil
 from flask_login import login_required
 
 from app import app
+from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
 from app.db import get_db_connection
 
 profit_bp = Blueprint("profit", __name__, url_prefix="/profit")
@@ -31,17 +32,20 @@ def _monthly_profit_data(cursor, selected_year):
     if selected_year not in years and years:
         selected_year = years[0]
 
-    # Profit per invoice line = (sale_rate - purchase_rate) * qty, grouped by invoice month
+    # Revenue = qty * sale rate. Cost uses per-piece purchase cost, and
+    # does not multiply again when Purchase Rate was saved as a line total.
+    line_cost = sold_line_cost_sql("id")
     cursor.execute(
-        """
+        f"""
         SELECT
             MONTH(i.[Date]) AS SalesMonth,
-            ISNULL(SUM(id.Qty * id.Rate), 0)                          AS Revenue,
-            ISNULL(SUM(id.Qty * COALESCE(it.PurchaseRate, 0)), 0)     AS Cost,
-            ISNULL(SUM(id.Qty * (id.Rate - COALESCE(it.PurchaseRate, 0))), 0) AS Profit
+            ISNULL(SUM(id.Qty * id.Rate), 0) AS Revenue,
+            ISNULL(SUM({line_cost}), 0) AS Cost,
+            ISNULL(SUM(id.Qty * id.Rate), 0) - ISNULL(SUM({line_cost}), 0) AS Profit
         FROM Invoices i
         JOIN InvoiceDetails id ON id.InvoiceID = i.InvoiceID
         LEFT JOIN Item it ON it.ItemID = id.ItemID
+        {purchase_unit_cost_join("id")}
         WHERE YEAR(i.[Date]) = ?
         GROUP BY MONTH(i.[Date])
         ORDER BY SalesMonth

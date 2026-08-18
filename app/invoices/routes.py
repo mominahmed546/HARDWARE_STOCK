@@ -5,6 +5,7 @@ from flask import Blueprint, flash, redirect, render_template, request, send_fil
 from flask_login import login_required
 
 from app import app
+from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
 from app.db import get_db_connection
 from app.validators import ValidationErrors, clean_date, clean_positive_decimal, clean_positive_int, clean_select_id
 
@@ -723,19 +724,21 @@ def list_invoices():
     try:
         _ensure_invoice_payment_status_column(db, cursor)
         search = request.args.get("search", "")
+        line_cost = sold_line_cost_sql("d")
 
-        query = """
+        query = f"""
             SELECT
                 i.InvoiceID,
                 i.[Date] AS InvoiceDate,
                 i.TotalAmount,
                 COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus,
                 c.CustomerName,
-                ISNULL(SUM((d.Rate - ISNULL(it.PurchaseRate, 0)) * d.Qty), 0) AS Profit
+                ISNULL(SUM(COALESCE(d.Qty, 0) * COALESCE(d.Rate, 0) - ({line_cost})), 0) AS Profit
             FROM Invoices i
             JOIN Customers c ON i.CustomerID = c.CustomerID
             LEFT JOIN InvoiceDetails d ON i.InvoiceID = d.InvoiceID
             LEFT JOIN Item it ON d.ItemID = it.ItemID
+            {purchase_unit_cost_join("d")}
             WHERE 1=1
         """
         params = []
