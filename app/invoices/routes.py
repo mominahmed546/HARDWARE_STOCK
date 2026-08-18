@@ -1,12 +1,18 @@
 from datetime import date, datetime
 from io import BytesIO
 
-from flask import Blueprint, flash, redirect, render_template, request, send_file, url_for
+from flask import Blueprint, abort, flash, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
 
 from app import app
 from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
 from app.db import get_db_connection
+from app.invoices.whatsapp import (
+    build_invoice_message,
+    invoice_pdf_token,
+    invoice_pdf_token_valid,
+)
+from app.whatsapp import whatsapp_url
 from app.tenancy import next_table_id, owner_sql, request_user_id
 from app.payments import (
     add_invoice_payment,
@@ -29,6 +35,7 @@ from app.validators import (
     clean_positive_decimal,
     clean_positive_int,
     clean_select_id,
+    clean_phone,
 )
 
 invoices_bp = Blueprint("invoices", __name__, url_prefix="/invoices")
@@ -108,7 +115,8 @@ def _invoice_settlement(previous_balance, total_amount, paid_amount=0):
     return cash_received, net_balance
 
 
-def _load_invoice_record(cursor, invoice_id):
+def _load_invoice_record(cursor, invoice_id, owned_only=True):
+    owner_filter = f"AND {owner_sql('i')}" if owned_only else ""
     cursor.execute(
         f"""
         SELECT
@@ -132,7 +140,7 @@ def _load_invoice_record(cursor, invoice_id):
         FROM Invoices i
         JOIN Customers c ON c.CustomerID = i.CustomerID
         {payments_join_sql("i")}
-        WHERE i.InvoiceID = ? AND {owner_sql("i")}
+        WHERE i.InvoiceID = ? {owner_filter}
         """,
         (invoice_id,),
     )
@@ -398,6 +406,37 @@ def _format_date_dmy(value):
             continue
 
     return value
+
+
+def _load_invoice_pdf_details(cursor, invoice_id):
+    cursor.execute(
+        """
+        SELECT Particulars, Qty, Rate, (Qty * Rate) AS TotalAmount
+        FROM InvoiceDetails
+        WHERE InvoiceID = ?
+        """,
+        (invoice_id,),
+    )
+    return cursor.fetchall()
+
+
+def _send_invoice_pdf(invoice, details, invoice_id):
+    pdf = _build_invoice_pdf(invoice, details)
+    return send_file(
+        pdf,
+        mimetype="application/pdf",
+        as_attachment=False,
+        download_name=f"invoice_{invoice_id}.pdf",
+    )
+
+
+def _invoice_pdf_share_url(invoice_id):
+    token = invoice_pdf_token(invoice_id)
+    root = request.url_root.rstrip("/")
+    forwarded = (request.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip()
+    if forwarded == "https" and root.startswith("http://"):
+        root = "https://" + root[len("http://") :]
+    return f"{root}/invoices/{invoice_id}/pdf/share/{token}"
 
 
 def _format_datetime_for_invoice(value):
@@ -849,26 +888,77 @@ def invoice_pdf(id):
             flash("Invoice not found.", "danger")
             return redirect(url_for("invoices.list_invoices"))
 
-        cursor.execute(
-            """
-            SELECT Particulars, Qty, Rate, (Qty * Rate) AS TotalAmount
-            FROM InvoiceDetails
-            WHERE InvoiceID = ?
-            """,
-            (id,),
-        )
-        details = cursor.fetchall()
-
-        pdf = _build_invoice_pdf(invoice, details)
-        return send_file(
-            pdf,
-            mimetype="application/pdf",
-            as_attachment=False,
-            download_name=f"invoice_{id}.pdf",
-        )
+        details = _load_invoice_pdf_details(cursor, id)
+        return _send_invoice_pdf(invoice, details, id)
 
     except Exception as e:
         flash(f"Error generating invoice PDF: {str(e)}", "danger")
+        return redirect(url_for("invoices.list_invoices"))
+
+    finally:
+        cursor.close()
+
+
+@invoices_bp.route("/<int:id>/pdf/share/<token>")
+def invoice_pdf_share(id, token):
+    if not invoice_pdf_token_valid(id, token):
+        abort(404)
+
+    db = get_db_connection(app)
+    cursor = db.cursor()
+    try:
+        _ensure_invoice_schema(db, cursor)
+        invoice = _load_invoice_record(cursor, id, owned_only=False)
+        if not invoice:
+            abort(404)
+        details = _load_invoice_pdf_details(cursor, id)
+        return _send_invoice_pdf(invoice, details, id)
+    finally:
+        cursor.close()
+
+
+@invoices_bp.route("/<int:id>/whatsapp", methods=["GET", "POST"])
+@login_required
+def invoice_whatsapp(id):
+    db = get_db_connection(app)
+    cursor = db.cursor()
+    errors = ValidationErrors()
+
+    try:
+        _ensure_invoice_schema(db, cursor)
+        invoice = _load_invoice_record(cursor, id)
+        if not invoice:
+            flash("Invoice not found.", "danger")
+            return redirect(url_for("invoices.list_invoices"))
+
+        details = _load_invoice_pdf_details(cursor, id)
+        pdf_url = _invoice_pdf_share_url(id)
+        message = build_invoice_message(invoice, details, pdf_url)
+        entered_number = (
+            request.form.get("whatsapp_number") if request.method == "POST" else (invoice.ContactNo or "")
+        )
+
+        if request.method == "POST":
+            phone = clean_phone(entered_number, "whatsapp_number", errors, required=True, max_len=20)
+            link = whatsapp_url(phone, message) if errors.valid else None
+            if errors.valid and not link:
+                errors.add("whatsapp_number", "Enter a valid WhatsApp mobile number.")
+            if not errors.valid:
+                flash(errors.first(), "danger")
+            else:
+                return redirect(link)
+
+        return render_template(
+            "invoices/whatsapp.html",
+            invoice=invoice,
+            message=message,
+            pdf_url=url_for("invoices.invoice_pdf", id=id),
+            form_data={"whatsapp_number": entered_number or ""},
+            errors=errors.errors,
+        )
+
+    except Exception as e:
+        flash(f"Error opening WhatsApp invoice: {str(e)}", "danger")
         return redirect(url_for("invoices.list_invoices"))
 
     finally:

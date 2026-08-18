@@ -1,33 +1,13 @@
 """Build a WhatsApp click-to-chat link for a saved quotation."""
 
-import re
 from datetime import date, datetime
-from urllib.parse import quote
 
 from app.quotations.excel import line_amount, sqft_for_line
+from app.whatsapp import whatsapp_digits, whatsapp_url
 
 MAX_MESSAGE_CHARS = 1800
 
-
-def whatsapp_digits(raw):
-    """Return international digits for wa.me, or None if the number is unusable."""
-    digits = re.sub(r"\D", "", str(raw or ""))
-    if digits.startswith("00"):
-        digits = digits[2:]
-    if digits.startswith("0") and len(digits) >= 10:
-        digits = "92" + digits[1:]
-    elif len(digits) == 10 and digits.startswith("3"):
-        digits = "92" + digits
-    if 10 <= len(digits) <= 15:
-        return digits
-    return None
-
-
-def whatsapp_url(raw_number, message):
-    digits = whatsapp_digits(raw_number)
-    if not digits:
-        return None
-    return f"https://wa.me/{digits}?text={quote(message)}"
+__all__ = ["build_quotation_message", "whatsapp_digits", "whatsapp_url"]
 
 
 def _format_date(value):
