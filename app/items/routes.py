@@ -16,6 +16,13 @@ from app.validators import (
 
 items_bp = Blueprint("items", __name__, url_prefix="/items")
 
+QTY_FILTERS = {
+    "lt10": ("Qty less than 10", " AND COALESCE(i.Qty, 0) < 10"),
+    "lt5": ("Qty less than 5", " AND COALESCE(i.Qty, 0) < 5"),
+    "eq0": ("Qty equal to 0", " AND COALESCE(i.Qty, 0) = 0"),
+    "gt10": ("Qty greater than 10", " AND COALESCE(i.Qty, 0) > 10"),
+}
+
 
 def _validate_item_form(form, errors):
     return {
@@ -33,6 +40,9 @@ def list_items():
     try:
         search = request.args.get("search", "", type=str)
         category_id = request.args.get("category_id", "", type=str)
+        qty_filter = request.args.get("qty_filter", "", type=str)
+        if qty_filter not in QTY_FILTERS:
+            qty_filter = ""
 
         query = f"""
             SELECT
@@ -60,6 +70,9 @@ def list_items():
             query += " AND i.CategoryID = ?"
             params.append(int(category_id))
 
+        if qty_filter:
+            query += QTY_FILTERS[qty_filter][1]
+
         query += " ORDER BY COALESCE(i.ItemNo, i.ItemID), i.ItemID"
 
         items = execute_query(app, query, tuple(params) if params else None)
@@ -71,12 +84,22 @@ def list_items():
             categories=categories,
             search=search,
             category_id=category_id,
+            qty_filter=qty_filter,
+            qty_filters=QTY_FILTERS,
         )
 
     except Exception as e:
         app.logger.exception("Error loading items")
         flash(f"Error loading items: {str(e)}", "danger")
-        return render_template("items/list.html", items=[], categories=[], search="", category_id="")
+        return render_template(
+            "items/list.html",
+            items=[],
+            categories=[],
+            search="",
+            category_id="",
+            qty_filter="",
+            qty_filters=QTY_FILTERS,
+        )
 
 
 ALLOWED_UPLOAD_REDIRECTS = {

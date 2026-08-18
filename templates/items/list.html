@@ -21,6 +21,14 @@
                     </option>
                     {% endfor %}
                 </select>
+                <select name="qty_filter" onchange="this.form.submit()">
+                    <option value="">All quantities</option>
+                    {% for value, option in qty_filters.items() %}
+                    <option value="{{ value }}" {% if qty_filter == value %}selected{% endif %}>
+                        {{ option[0] }}
+                    </option>
+                    {% endfor %}
+                </select>
                 <button type="submit" class="btn btn-primary">Search</button>
             </form>
         </div>
