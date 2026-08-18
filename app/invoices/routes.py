@@ -736,7 +736,15 @@ def update_invoice_status(id):
             return redirect(url_for("invoices.list_invoices"))
 
         cursor.execute(
-            "SELECT InvoiceID FROM Invoices WHERE InvoiceID = ?",
+            """
+            SELECT
+                i.InvoiceID,
+                i.CustomerID,
+                COALESCE(i.TotalAmount, 0) AS TotalAmount,
+                COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus
+            FROM Invoices i
+            WHERE i.InvoiceID = ?
+            """,
             (id,),
         )
         invoice = cursor.fetchone()
@@ -745,10 +753,42 @@ def update_invoice_status(id):
             flash("Invoice not found.", "danger")
             return redirect(url_for("invoices.list_invoices"))
 
+        current_status = (invoice.PaymentStatus or "Unpaid").strip()
+        if current_status == target_status:
+            flash(f"Invoice #{id} is already marked as {target_status}.", "info")
+            return redirect(url_for("invoices.list_invoices"))
+
         cursor.execute(
             "UPDATE Invoices SET PaymentStatus = ? WHERE InvoiceID = ?",
             (target_status, id),
         )
+
+        # Keep the saved customer previous balance in sync with payment actions
+        # so the value shown on the next invoice reflects this status change.
+        invoice_total = float(invoice.TotalAmount or 0)
+        customer_id = int(invoice.CustomerID)
+        if current_status == "Unpaid" and target_status == "Paid":
+            cursor.execute(
+                """
+                UPDATE Customers
+                SET PreviousBalance = CASE
+                    WHEN COALESCE(PreviousBalance, 0) - ? < 0 THEN 0
+                    ELSE COALESCE(PreviousBalance, 0) - ?
+                END
+                WHERE CustomerID = ?
+                """,
+                (invoice_total, invoice_total, customer_id),
+            )
+        elif current_status == "Paid" and target_status == "Unpaid":
+            cursor.execute(
+                """
+                UPDATE Customers
+                SET PreviousBalance = COALESCE(PreviousBalance, 0) + ?
+                WHERE CustomerID = ?
+                """,
+                (invoice_total, customer_id),
+            )
+
         db.commit()
         flash(f"Invoice #{id} marked as {target_status}.", "success")
 
