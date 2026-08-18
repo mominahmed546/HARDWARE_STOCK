@@ -441,14 +441,14 @@ a {
 .invoice-actions {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
-    min-width: 16.5rem;
+    gap: 0.3rem;
+    min-width: 14.5rem;
 }
 
 .invoice-actions-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 0.4rem;
+    gap: 0.3rem;
 }
 
 .invoice-actions .btn,
@@ -461,6 +461,9 @@ a {
 
 .invoice-actions .btn {
     white-space: nowrap;
+    padding: 0.28rem 0.55rem;
+    font-size: 0.74rem;
+    border-radius: 6px;
 }
 
 .invoice-action-wide {
@@ -471,7 +474,7 @@ a {
 .invoice-delete-form {
     display: flex;
     align-items: stretch;
-    gap: 0.35rem;
+    gap: 0.3rem;
     min-width: 0;
 }
 
@@ -489,8 +492,11 @@ a {
 }
 
 .invoice-status-form .pay-method-select {
-    flex: 0 0 5.5rem;
+    flex: 0 0 4.75rem;
     margin-right: 0;
+    padding: 0.28rem 0.4rem;
+    font-size: 0.74rem;
+    border-radius: 6px;
 }
 
 .data-table .invoice-actions-cell .btn + .btn,
