@@ -29,8 +29,8 @@ def whatsapp_url(raw_number, message=""):
     if not digits:
         return None
     if message:
-        return f"https://wa.me/{digits}?text={quote(str(message))}"
-    return f"https://wa.me/{digits}"
+        return f"https://api.whatsapp.com/send/?phone={digits}&text={quote(str(message))}&type=phone_number&app_absent=0"
+    return f"https://api.whatsapp.com/send/?phone={digits}&text&type=phone_number&app_absent=0"
 
 
 # ---- signed share tokens (login-free download links) ----

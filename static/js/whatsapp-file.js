@@ -95,7 +95,10 @@
 
                 setStatus(btn, "File saved — opening WhatsApp. Attach it with the paperclip.");
                 setTimeout(function () {
-                    window.open("https://wa.me/" + digits, "_blank", "noopener,noreferrer");
+                    window.open(
+                        "https://api.whatsapp.com/send/?phone=" + digits + "&text&type=phone_number&app_absent=0",
+                        "_blank", "noopener,noreferrer"
+                    );
                 }, 500);
 
             } catch (err) {
