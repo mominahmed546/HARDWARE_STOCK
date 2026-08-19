@@ -31,6 +31,32 @@ from app.validators import (
 purchases_bp = Blueprint("purchases", __name__, url_prefix="/purchases")
 
 
+def normalize_purchase_payment_method(value):
+    method = str(value or "").strip().lower()
+    if method == "bank":
+        return "Bank"
+    if method == "credit":
+        return "Credit"
+    return "Cash"
+
+
+def _ensure_purchase_payment_method_column(db, cursor):
+    cursor.execute(
+        """
+        ALTER TABLE Purchases
+        ADD COLUMN IF NOT EXISTS PaymentMethod VARCHAR(20) DEFAULT 'Cash'
+        """
+    )
+    cursor.execute(
+        """
+        UPDATE Purchases
+        SET PaymentMethod = 'Cash'
+        WHERE PaymentMethod IS NULL OR BTRIM(PaymentMethod) = ''
+        """
+    )
+    db.commit()
+
+
 
 
 
@@ -47,6 +73,7 @@ def _validate_purchase_form(form, errors):
         "quantity": clean_positive_int(form.get("quantity"), "quantity", errors, min_val=1, label="Quantity"),
         "purchase_rate": clean_positive_decimal(form.get("purchase_rate"), "purchase_rate", errors, label="Purchase rate"),
         "sale_rate": clean_positive_decimal(form.get("sale_rate"), "sale_rate", errors, label="Sale rate"),
+        "payment_method": normalize_purchase_payment_method(form.get("payment_method")),
     }
 
     if item_mode == "existing":
@@ -117,6 +144,7 @@ def create_purchase():
 
 
     try:
+        _ensure_purchase_payment_method_column(db, cursor)
 
         suppliers, items, categories = _load_purchase_form_data(cursor)
 
@@ -238,11 +266,18 @@ def create_purchase():
 
             cursor.execute(
                 """
-                INSERT INTO Purchases (PurchaseID, PurchaseDate, SupplierID, TotalAmount, UserID)
+                INSERT INTO Purchases (PurchaseID, PurchaseDate, SupplierID, TotalAmount, PaymentMethod, UserID)
                 OUTPUT INSERTED.PurchaseID
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (next_purchase_id, data["purchase_date"], data["supplier_id"], total, request_user_id()),
+                (
+                    next_purchase_id,
+                    data["purchase_date"],
+                    data["supplier_id"],
+                    total,
+                    data["payment_method"],
+                    request_user_id(),
+                ),
             )
 
 
@@ -353,6 +388,7 @@ def list_purchases():
     try:
         ensure_invoice_payments_table(db, cursor)
         ensure_cash_accounts(db, cursor)
+        _ensure_purchase_payment_method_column(db, cursor)
 
         search = request.args.get("search", "")
 
@@ -442,13 +478,22 @@ def list_purchases():
             f"""
             SELECT ISNULL(SUM(COALESCE(TotalAmount, 0)), 0) AS TotalPurchases
             FROM Purchases
-            WHERE {owner_sql()}
+            WHERE {owner_sql()} AND COALESCE(PaymentMethod, 'Cash') = 'Cash'
             """
         )
-        purchase_totals = cursor.fetchone()
-        total_purchases_amount = float(purchase_totals.TotalPurchases or 0) if purchase_totals else 0.0
-        cash_in_hand = cash_opening + cash_received - total_purchases_amount
-        bank_balance = bank_opening + bank_received
+        cash_purchase_row = cursor.fetchone()
+        total_cash_purchases = float(cash_purchase_row.TotalPurchases or 0) if cash_purchase_row else 0.0
+        cursor.execute(
+            f"""
+            SELECT ISNULL(SUM(COALESCE(TotalAmount, 0)), 0) AS TotalPurchases
+            FROM Purchases
+            WHERE {owner_sql()} AND COALESCE(PaymentMethod, 'Cash') = 'Bank'
+            """
+        )
+        bank_purchase_row = cursor.fetchone()
+        total_bank_purchases = float(bank_purchase_row.TotalPurchases or 0) if bank_purchase_row else 0.0
+        cash_in_hand = cash_opening + cash_received - total_cash_purchases
+        bank_balance = bank_opening + bank_received - total_bank_purchases
 
 
 
@@ -461,7 +506,8 @@ def list_purchases():
             search=search,
             cash_in_hand=cash_in_hand,
             bank_balance=bank_balance,
-            total_purchases_amount=total_purchases_amount,
+            total_cash_purchases=total_cash_purchases,
+            total_bank_purchases=total_bank_purchases,
 
         )
 
@@ -811,10 +857,11 @@ def edit_purchase_items(id):
 
 
     try:
+        _ensure_purchase_payment_method_column(db, cursor)
 
         cursor.execute(
             f"""
-            SELECT PurchaseID, PurchaseDate, SupplierID, TotalAmount
+            SELECT PurchaseID, PurchaseDate, SupplierID, TotalAmount, COALESCE(PaymentMethod, 'Cash') AS PaymentMethod
             FROM Purchases
             WHERE PurchaseID = ? AND {owner_sql()}
             """,
@@ -899,6 +946,7 @@ def edit_purchase_items(id):
             form_data = request.form.to_dict()
 
             supplier_id = clean_select_id(request.form.get("supplier_id"), "supplier_id", errors, label="Supplier")
+            payment_method = normalize_purchase_payment_method(request.form.get("payment_method"))
 
             item_ids = request.form.getlist("item_id[]")
 
@@ -1068,13 +1116,13 @@ def edit_purchase_items(id):
 
                 UPDATE Purchases
 
-                SET SupplierID = ?, TotalAmount = ?
+                SET SupplierID = ?, TotalAmount = ?, PaymentMethod = ?
 
                 WHERE PurchaseID = ? AND {owner_sql()}
 
             """,
 
-                (supplier_id, total_amount, id),
+                (supplier_id, total_amount, payment_method, id),
 
             )
 
