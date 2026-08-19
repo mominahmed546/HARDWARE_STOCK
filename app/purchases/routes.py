@@ -20,6 +20,7 @@ from app.payments import (
     purchase_paid_total,
     purchase_remaining_due,
     refresh_purchase_settlement,
+    save_cash_openings,
 )
 from app.tenancy import next_owner_no, next_table_id, owner_sql, request_user_id
 
@@ -434,8 +435,50 @@ def list_purchases():
         ensure_cash_accounts(db, cursor)
         _ensure_purchase_payment_method_column(db, cursor)
         ensure_purchase_payments_table(db, cursor)
+        cash_adjust_errors = ValidationErrors()
 
         search = request.args.get("search", "")
+
+        if request.method == "POST" and request.form.get("action") == "set_current_cash":
+            target_cash = clean_positive_decimal(
+                request.form.get("current_cash_in_hand"),
+                "current_cash_in_hand",
+                cash_adjust_errors,
+                min_val=0,
+                label="Current cash in hand",
+            )
+            if cash_adjust_errors.valid:
+                cash_opening, bank_opening = get_cash_openings(cursor)
+                cursor.execute(
+                    f"""
+                    SELECT
+                        ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Cash' THEN Amount ELSE 0 END), 0) AS CashAmount
+                    FROM InvoicePayments
+                    WHERE InvoiceID IN (SELECT InvoiceID FROM Invoices WHERE {owner_sql()})
+                    """
+                )
+                receipts_row = cursor.fetchone()
+                cash_received = float(receipts_row.CashAmount or 0) if receipts_row else 0.0
+                cursor.execute(
+                    f"""
+                    SELECT
+                        ISNULL(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Cash' THEN pp.Amount ELSE 0 END), 0) AS CashPaid
+                    FROM PurchasePayments pp
+                    JOIN Purchases p ON p.PurchaseID = pp.PurchaseID
+                    WHERE {owner_sql("p")}
+                    """
+                )
+                purchase_row = cursor.fetchone()
+                total_cash_purchases = float(purchase_row.CashPaid or 0) if purchase_row else 0.0
+                # opening + receipts - cash purchases = target
+                new_cash_opening = float(target_cash) - cash_received + total_cash_purchases
+                if new_cash_opening < 0:
+                    new_cash_opening = 0.0
+                save_cash_openings(cursor, new_cash_opening, bank_opening)
+                db.commit()
+                flash("Current cash in hand updated.", "success")
+                return redirect(url_for("purchases.list_purchases", search=search))
+            flash(cash_adjust_errors.first(), "danger")
 
 
 
@@ -545,6 +588,7 @@ def list_purchases():
             bank_balance=bank_balance,
             total_cash_purchases=total_cash_purchases,
             total_bank_purchases=total_bank_purchases,
+            cash_adjust_errors=cash_adjust_errors.errors,
 
         )
 
