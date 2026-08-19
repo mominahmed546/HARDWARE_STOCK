@@ -95,8 +95,11 @@ def payment_status(total_amount, paid_amount, epsilon=0.005):
 
 
 def normalize_payment_method(value):
-    if str(value or "").strip().lower() == "bank":
+    method = str(value or "").strip().lower()
+    if method == "bank":
         return "Bank"
+    if method in {"in-kind", "inkind", "items", "item"}:
+        return "In-Kind"
     return "Cash"
 
 

@@ -49,7 +49,7 @@ def _payment_split(cursor, where_sql="", params=()):
         f"""
         SELECT
             ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Bank' THEN Amount ELSE 0 END), 0) AS BankAmount,
-            ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') <> 'Bank' THEN Amount ELSE 0 END), 0) AS CashAmount,
+            ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Cash' THEN Amount ELSE 0 END), 0) AS CashAmount,
             ISNULL(SUM(Amount), 0) AS TotalAmount
         FROM InvoicePayments
         {where_sql}
@@ -101,7 +101,7 @@ def _month_day_rows(cursor, year, month, cash_opening, bank_opening):
         SELECT
             CAST(PaymentDate AS DATE) AS SaleDate,
             ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Bank' THEN Amount ELSE 0 END), 0) AS BankAmount,
-            ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') <> 'Bank' THEN Amount ELSE 0 END), 0) AS CashAmount,
+            ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Cash' THEN Amount ELSE 0 END), 0) AS CashAmount,
             ISNULL(SUM(Amount), 0) AS TotalAmount
         FROM InvoicePayments
         WHERE YEAR(PaymentDate) = ? AND MONTH(PaymentDate) = ?
@@ -381,7 +381,7 @@ def cash_book_pdf():
             lines = [
                 {
                     "date": (row.PaymentDate.strftime("%d/%m/%Y") if hasattr(row.PaymentDate, "strftime") else str(row.PaymentDate)[:10]),
-                    "cash": float(row.Amount or 0) if str(row.PaymentMethod) != "Bank" else 0.0,
+                    "cash": float(row.Amount or 0) if str(row.PaymentMethod) == "Cash" else 0.0,
                     "bank": float(row.Amount or 0) if str(row.PaymentMethod) == "Bank" else 0.0,
                     "total": float(row.Amount or 0),
                 }

@@ -1387,7 +1387,9 @@ def invoice_payments(id):
                 max_len=255,
                 label="Notes",
             )
-            payment_method = request.form.get("payment_method") or "Cash"
+            payment_method = normalize_payment_method(request.form.get("payment_method"))
+            if payment_method == "In-Kind" and not (notes or "").strip():
+                errors.add("notes", "Notes are required for in-kind adjustment (items received).")
 
             if not errors.valid:
                 flash(errors.first(), "danger")
@@ -1401,7 +1403,7 @@ def invoice_payments(id):
                 )
                 db.commit()
                 flash(
-                    f"Received Rs {amount:,.2f} in {normalize_payment_method(payment_method)}. Invoice #{id} is now {result['status']}.",
+                    f"Recorded Rs {amount:,.2f} via {payment_method}. Invoice #{id} is now {result['status']}.",
                     "success",
                 )
                 return redirect(url_for("invoices.invoice_payments", id=id))
