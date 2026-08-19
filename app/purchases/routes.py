@@ -7,6 +7,7 @@ from flask_login import login_required
 from app import app
 
 from app.db import get_db_connection
+from app.payments import ensure_cash_accounts, ensure_invoice_payments_table, get_cash_openings
 from app.tenancy import next_owner_no, next_table_id, owner_sql, request_user_id
 
 from app.validators import (
@@ -350,6 +351,8 @@ def list_purchases():
 
 
     try:
+        ensure_invoice_payments_table(db, cursor)
+        ensure_cash_accounts(db, cursor)
 
         search = request.args.get("search", "")
 
@@ -421,6 +424,32 @@ def list_purchases():
 
         purchases = cursor.fetchall()
 
+        cash_opening, bank_opening = get_cash_openings(cursor)
+        cursor.execute(
+            f"""
+            SELECT
+                ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Cash' THEN Amount ELSE 0 END), 0) AS CashAmount,
+                ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Bank' THEN Amount ELSE 0 END), 0) AS BankAmount
+            FROM InvoicePayments
+            WHERE InvoiceID IN (SELECT InvoiceID FROM Invoices WHERE {owner_sql()})
+            """
+        )
+        receipts = cursor.fetchone()
+        cash_received = float(receipts.CashAmount or 0) if receipts else 0.0
+        bank_received = float(receipts.BankAmount or 0) if receipts else 0.0
+
+        cursor.execute(
+            f"""
+            SELECT ISNULL(SUM(COALESCE(TotalAmount, 0)), 0) AS TotalPurchases
+            FROM Purchases
+            WHERE {owner_sql()}
+            """
+        )
+        purchase_totals = cursor.fetchone()
+        total_purchases_amount = float(purchase_totals.TotalPurchases or 0) if purchase_totals else 0.0
+        cash_in_hand = cash_opening + cash_received - total_purchases_amount
+        bank_balance = bank_opening + bank_received
+
 
 
         return render_template(
@@ -430,6 +459,9 @@ def list_purchases():
             purchases=purchases,
 
             search=search,
+            cash_in_hand=cash_in_hand,
+            bank_balance=bank_balance,
+            total_purchases_amount=total_purchases_amount,
 
         )
 
