@@ -487,6 +487,14 @@ def _build_invoice_pdf(invoice, details):
     def rect(x, y, width, height):
         commands.append(f"0.6 w {x} {y} {width} {height} re S")
 
+    def filled_rect(x, y, width, height, r, g, b):
+        commands.append(
+            f"{r:.3f} {g:.3f} {b:.3f} rg "
+            f"{x} {y} {width} {height} re f "
+            f"0 0 0 rg"
+        )
+        commands.append(f"0.6 w {x} {y} {width} {height} re S")
+
     def money(value):
         return f"{float(value or 0):,.2f}"
 
@@ -541,16 +549,20 @@ def _build_invoice_pdf(invoice, details):
 
     header_y = y
     row_h = 18
-    rect(table_x, header_y - row_h + 4, table_w, row_h)
+    # Dark navy header background, white text
+    filled_rect(table_x, header_y - row_h + 4, table_w, row_h, 0.102, 0.157, 0.259)
     line(col_sr_right,      header_y - row_h + 4, col_sr_right,      header_y + 4)
     line(col_product_right, header_y - row_h + 4, col_product_right, header_y + 4)
     line(col_qty_right,     header_y - row_h + 4, col_qty_right,     header_y + 4)
     line(col_rate_right,    header_y - row_h + 4, col_rate_right,    header_y + 4)
-    text_center(table_x + col_sr_w / 2,               header_y - 8, "SR",           8, "F2")
+    # White text on dark header
+    commands.append("1 1 1 rg")
+    text_center(table_x + col_sr_w / 2,               header_y - 8, "#",            8, "F2")
     text(col_sr_right + 4,                            header_y - 8, "PRODUCT NAME", 9, "F2")
     text(col_product_right + 4,                       header_y - 8, "QTY",          9, "F2")
     text(col_qty_right + 4,                           header_y - 8, "RATE",         9, "F2")
     text(col_rate_right + 4,                          header_y - 8, "TOTAL",        9, "F2")
+    commands.append("0 0 0 rg")
     y = header_y - row_h - 2
 
     if not details:
