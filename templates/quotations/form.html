@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% from 'macros/form.html' import field_error %}
 
-{% block title %}Create Quotation - Hardware Stock Management{% endblock %}
-{% block page_title %}Create Quotation{% endblock %}
+{% block title %}{% if is_edit %}Edit Quotation{% else %}Create Quotation{% endif %} - Hardware Stock Management{% endblock %}
+{% block page_title %}{% if is_edit %}Edit Quotation #{{ quotation_no }}{% else %}Create Quotation{% endif %}{% endblock %}
 {% block page_subtitle %}
-<p>Fill the quotation form and download <strong>QUOTATION.xlsx</strong></p>
+<p>{% if is_edit %}Update the quotation details and save.{% else %}Fill the quotation form and download <strong>QUOTATION.xlsx</strong>{% endif %}</p>
 {% endblock %}
 
 {% block extra_css %}
@@ -185,7 +185,11 @@
             </div>
 
             <div class="form-actions">
+                {% if is_edit %}
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+                {% else %}
                 <button type="submit" class="btn btn-primary">Generate QUOTATION.xlsx</button>
+                {% endif %}
                 <a href="{{ url_for('quotations.list_quotations') }}" class="btn btn-secondary">View Quotations</a>
                 <a href="{{ url_for('dashboard.dashboard') }}" class="btn btn-secondary">&#8592; Home</a>
             </div>

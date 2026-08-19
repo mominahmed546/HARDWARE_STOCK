@@ -43,8 +43,9 @@
                 <td>Rs {{ "{:,.2f}".format(quotation.Advance|default(0)) }}</td>
                 <td class="list-actions-cell">
                     <div class="list-actions">
-                        <a href="{{ url_for('quotations.quotation_excel', id=quotation.QuotationID) }}" class="btn btn-sm btn-info">Excel</a>
-                        <a href="{{ url_for('quotations.quotation_whatsapp', id=quotation.QuotationID) }}" class="btn btn-sm btn-whatsapp">WhatsApp Excel</a>
+                        <a href="{{ url_for('quotations.edit_quotation', id=quotation.QuotationID) }}" class="btn btn-sm btn-info">Edit</a>
+                        <a href="{{ url_for('quotations.quotation_excel', id=quotation.QuotationID) }}" class="btn btn-sm btn-secondary">Excel</a>
+                        <a href="{{ url_for('quotations.quotation_whatsapp', id=quotation.QuotationID) }}" class="btn btn-sm btn-whatsapp">WhatsApp</a>
                         <form method="POST" action="{{ url_for('quotations.delete_quotation', id=quotation.QuotationID) }}">
                             <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this quotation?')">Delete</button>
                         </form>

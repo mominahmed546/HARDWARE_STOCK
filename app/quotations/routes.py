@@ -383,6 +383,161 @@ def create_quotation():
         cursor.close()
 
 
+@quotations_bp.route("/<int:id>/edit", methods=["GET", "POST"])
+@login_required
+def edit_quotation(id):
+    db = get_db_connection(app)
+    cursor = db.cursor()
+    errors = ValidationErrors()
+    form_data = {}
+    quotation_lines = _default_quotation_lines()
+
+    try:
+        ensure_quotations_schema(db, cursor)
+        customers = _load_form_lookups(cursor)
+
+        quotation = _load_quotation(cursor, id)
+        if not quotation:
+            flash("Quotation not found.", "danger")
+            return redirect(url_for("quotations.list_quotations"))
+
+        if request.method == "GET":
+            details = _load_quotation_details(cursor, id)
+            form_data = {
+                "quotation_date": quotation.QuotationDate.isoformat()
+                    if hasattr(quotation.QuotationDate, "isoformat")
+                    else str(quotation.QuotationDate)[:10],
+                "customer_id": str(quotation.CustomerID or ""),
+                "customer_name": quotation.CustomerName or "",
+                "address": quotation.Address or "",
+                "project": quotation.Project or "",
+                "work_type": quotation.WorkType or "",
+                "engineer": quotation.Engineer or "",
+                "contact_no": quotation.ContactNo or "",
+                "notes": quotation.Notes or "",
+                "advance": str(float(quotation.Advance or 0)),
+            }
+            quotation_lines = [
+                {
+                    "description": row.Description or "",
+                    "width": str(float(row.Width or 0)) if float(row.Width or 0) else "",
+                    "height": str(float(row.Height or 0)) if float(row.Height or 0) else "",
+                    "quantity": str(row.Qty or 1),
+                    "rate": str(float(row.Rate or 0)),
+                    "sqft": str(float(getattr(row, "SqFt", None) or 0)) if float(getattr(row, "SqFt", None) or 0) else "",
+                }
+                for row in details
+            ] or _default_quotation_lines()
+
+        if request.method == "POST":
+            form_data = request.form.to_dict()
+            quotation_lines = _quotation_lines_from_form(request.form)
+            header = _validate_quotation_header(request.form, errors)
+            quotation_lines, valid_lines = _validate_quotation_lines(request.form, errors)
+
+            if not errors.valid:
+                flash(errors.first(), "danger")
+                return render_template(
+                    "quotations/form.html",
+                    customers=customers,
+                    errors=errors.errors,
+                    form_data=form_data,
+                    quotation_lines=quotation_lines,
+                    max_lines=MAX_LINE_ROWS,
+                    is_edit=True,
+                    quotation_id=id,
+                )
+
+            total = sum(line["total"] for line in valid_lines)
+            quotation_date = datetime.strptime(header["quotation_date"], "%Y-%m-%d").date()
+
+            cursor.execute(
+                f"""
+                UPDATE Quotations SET
+                    QuotationDate = ?,
+                    CustomerID = ?,
+                    CustomerName = ?,
+                    Address = ?,
+                    Project = ?,
+                    WorkType = ?,
+                    Engineer = ?,
+                    ContactNo = ?,
+                    Notes = ?,
+                    Advance = ?,
+                    TotalAmount = ?
+                WHERE QuotationID = ? AND {owner_sql()}
+                """,
+                (
+                    quotation_date,
+                    header["customer_id"],
+                    header["customer_name"],
+                    header["address"],
+                    header["project"],
+                    header["work_type"],
+                    header["engineer"],
+                    header["contact_no"],
+                    header["notes"],
+                    header["advance"] or 0,
+                    total,
+                    id,
+                ),
+            )
+
+            cursor.execute("DELETE FROM QuotationDetails WHERE QuotationID = ?", (id,))
+            for line in valid_lines:
+                cursor.execute(
+                    """
+                    INSERT INTO QuotationDetails (
+                        QuotationID, ItemID, Description, Width, Height, Qty, Rate, SqFt
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        id,
+                        line["item_id"],
+                        line["description"],
+                        line["width"],
+                        line["height"],
+                        line["quantity"],
+                        line["rate"],
+                        line["sqft"],
+                    ),
+                )
+
+            db.commit()
+            flash("Quotation updated.", "success")
+            return redirect(url_for("quotations.list_quotations"))
+
+        return render_template(
+            "quotations/form.html",
+            customers=customers,
+            errors=errors.errors,
+            form_data=form_data,
+            quotation_lines=quotation_lines,
+            max_lines=MAX_LINE_ROWS,
+            is_edit=True,
+            quotation_id=id,
+            quotation_no=quotation.QuotationNo,
+        )
+
+    except Exception as e:
+        db.rollback()
+        flash(f"Error updating quotation: {str(e)}", "danger")
+        return render_template(
+            "quotations/form.html",
+            customers=[],
+            errors=errors.errors,
+            form_data=form_data,
+            quotation_lines=quotation_lines,
+            max_lines=MAX_LINE_ROWS,
+            is_edit=True,
+            quotation_id=id,
+        )
+
+    finally:
+        cursor.close()
+
+
 @quotations_bp.route("/list")
 @login_required
 def list_quotations():
