@@ -534,6 +534,7 @@ def list_purchases():
         total_bank_purchases = float(purchase_payments.BankPaid or 0) if purchase_payments else 0.0
         cash_in_hand = cash_opening + cash_received - total_cash_purchases
         bank_balance = bank_opening + bank_received - total_bank_purchases
+        cash_in_drawer = cash_opening
 
 
 
@@ -544,6 +545,7 @@ def list_purchases():
             purchases=purchases,
 
             search=search,
+            cash_in_drawer=cash_in_drawer,
             cash_in_hand=cash_in_hand,
             bank_balance=bank_balance,
             total_cash_purchases=total_cash_purchases,
