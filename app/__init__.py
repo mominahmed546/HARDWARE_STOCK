@@ -49,7 +49,11 @@ def bind_account_data():
     from flask import request as flask_request
 
     endpoint = flask_request.endpoint or ""
-    if endpoint.startswith("static") or endpoint in {"index"}:
+    if (
+        endpoint.startswith("static")
+        or endpoint.startswith("auth.")
+        or endpoint in {"index"}
+    ):
         return
     from app.tenancy import bind_current_account
 
