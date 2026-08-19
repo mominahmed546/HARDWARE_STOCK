@@ -64,6 +64,36 @@ a {
     color: inherit;
 }
 
+/* ---- Global route loader ---- */
+.route-loader {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.2);
+    backdrop-filter: blur(1px);
+    z-index: 9999;
+}
+
+.route-loader.visible {
+    display: flex;
+}
+
+.route-loader-spinner {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: 5px solid rgba(148, 163, 184, 0.35);
+    border-top-color: var(--primary);
+    animation: route-loader-spin 0.85s linear infinite;
+    background: transparent;
+}
+
+@keyframes route-loader-spin {
+    to { transform: rotate(360deg); }
+}
+
 /* ---- App shell ---- */
 
 .app-shell {
