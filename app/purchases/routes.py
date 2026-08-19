@@ -534,9 +534,6 @@ def list_purchases():
         total_bank_purchases = float(purchase_payments.BankPaid or 0) if purchase_payments else 0.0
         cash_in_hand = cash_opening + cash_received - total_cash_purchases
         bank_balance = bank_opening + bank_received - total_bank_purchases
-
-
-
         return render_template(
 
             "purchases/list.html",
