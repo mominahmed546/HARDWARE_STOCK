@@ -275,6 +275,7 @@ def cash_book():
     cursor = db.cursor()
     view, selected_date, date_value, selected_year, selected_month, years = _period_from_request()
 
+    adjust_errors = ValidationErrors()
     try:
         _ensure_cash_schema(db, cursor)
 
@@ -285,7 +286,7 @@ def cash_book():
                 "cash_opening",
                 errors,
                 min_val=0,
-                label="Opening cash in hand",
+                label="Opening cash in drawer",
             )
             bank_opening = clean_positive_decimal(
                 request.form.get("bank_opening"),
@@ -310,6 +311,35 @@ def cash_book():
                 )
             )
 
+        if request.method == "POST" and request.form.get("action") == "set_current_cash":
+            target_cash = clean_positive_decimal(
+                request.form.get("current_cash_in_drawer"),
+                "current_cash_in_drawer",
+                adjust_errors,
+                min_val=0,
+                label="Current cash in drawer",
+            )
+            if not adjust_errors.valid:
+                flash(adjust_errors.first(), "danger")
+            else:
+                data = _report_context(cursor, view, selected_date, selected_year, selected_month)
+                cash_opening, bank_opening = get_cash_openings(cursor)
+                # Shift opening by the delta so displayed drawer cash matches target.
+                delta = float(target_cash) - float(data["cash_in_hand"] or 0)
+                new_cash_opening = max(cash_opening + delta, 0.0)
+                save_cash_openings(cursor, new_cash_opening, bank_opening)
+                db.commit()
+                flash("Current cash in drawer updated.", "success")
+                return redirect(
+                    url_for(
+                        "cash.cash_book",
+                        view=view,
+                        date=date_value,
+                        year=selected_year,
+                        month=selected_month,
+                    )
+                )
+
         data = _report_context(cursor, view, selected_date, selected_year, selected_month)
         return render_template(
             "cash/index.html",
@@ -319,6 +349,7 @@ def cash_book():
             selected_month=selected_month,
             years=years,
             months=MONTHS,
+            adjust_errors=adjust_errors.errors,
             **data,
         )
 
@@ -363,7 +394,7 @@ def cash_book_pdf():
             ("Cash received", data["period_cash"]),
             ("Bank received", data["period_bank"]),
             ("Total received", data["period_total"]),
-            ("Cash in hand", data["cash_in_hand"]),
+            ("Cash in drawer", data["cash_in_hand"]),
             ("Bank account", data["bank_balance"]),
         ]
         if view == "monthly":

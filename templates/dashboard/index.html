@@ -74,7 +74,7 @@
             <span class="pos-total-value">Rs {{ "{:,.2f}".format(today_bank|default(0)) }}</span>
         </a>
         <a class="pos-total-cell cash-link" href="{{ url_for('cash.cash_book', view='daily') }}">
-            <span class="pos-total-label">Cash in hand</span>
+            <span class="pos-total-label">Cash in drawer</span>
             <span class="pos-total-value sales">Rs {{ "{:,.2f}".format(cash_in_hand|default(0)) }}</span>
         </a>
         <a class="pos-total-cell cash-link" href="{{ url_for('cash.cash_book', view='monthly') }}">

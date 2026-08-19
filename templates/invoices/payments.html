@@ -110,7 +110,7 @@
                 <div class="form-group">
                     <label for="payment_method">Received in</label>
                     <select id="payment_method" name="payment_method">
-                        <option value="Cash" {% if fd.get('payment_method', 'Cash') == 'Cash' %}selected{% endif %}>Cash in hand</option>
+                        <option value="Cash" {% if fd.get('payment_method', 'Cash') == 'Cash' %}selected{% endif %}>Cash in drawer</option>
                         <option value="Bank" {% if fd.get('payment_method') == 'Bank' %}selected{% endif %}>Bank account</option>
                         <option value="In-Kind" {% if fd.get('payment_method') == 'In-Kind' %}selected{% endif %}>Items received (in-kind)</option>
                     </select>
