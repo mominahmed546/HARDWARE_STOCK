@@ -15,35 +15,81 @@
 {% set fd = form_data or {} %}
 <div class="form-container">
     <div class="form-card quotation-whatsapp-card">
-        <form method="POST" class="form" data-validate novalidate>
-            <div class="form-group">
-                <label for="whatsapp_number">WhatsApp number</label>
-                <input type="tel" id="whatsapp_number" name="whatsapp_number"
-                       value="{{ fd.get('whatsapp_number', '') }}"
-                       maxlength="20" required
-                       placeholder="e.g. 0300-1234567"
-                       class="{% if errors and errors.get('whatsapp_number') %}is-invalid{% endif %}">
-                {{ field_error(errors, 'whatsapp_number') }}
-                <p class="quotation-help">Pakistan numbers like 0300-1234567 are converted automatically.</p>
-            </div>
 
-            <div class="wa-step-box" style="margin-bottom:1.25rem;">
-                <div class="wa-step-num" style="background:#128c7e;">✉</div>
-                <div>
-                    <strong>How this works</strong>
-                    <p class="quotation-help" style="margin-top:0.4rem;">
-                        WhatsApp opens with a message that contains a <strong>direct download link</strong> for the quotation Excel file.
-                        The customer taps the link to download and open it — no internet required after that.
+        {# JS path — file sharing via share sheet (phone + WhatsApp desktop app on PC) #}
+        <div id="wa-js-ui">
+            <form class="form" data-whatsapp-file onsubmit="return false;"
+                  data-file-url="{{ url_for('quotations.quotation_excel', id=quotation.QuotationID) }}"
+                  data-file-name="QUOTATION.xlsx"
+                  data-file-type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+                <div class="form-group">
+                    <label for="whatsapp_number">WhatsApp number</label>
+                    <input type="tel" id="whatsapp_number" name="whatsapp_number"
+                           value="{{ fd.get('whatsapp_number', '') }}"
+                           maxlength="20" required
+                           placeholder="e.g. 0300-1234567">
+                    <p class="quotation-help">Pakistan numbers like 0300-1234567 are converted automatically.</p>
+                </div>
+
+                <p class="quotation-help" data-wa-error hidden style="color:#b91c1c;font-weight:600;"></p>
+
+                <div data-step="1">
+                    <div class="form-actions" style="margin-bottom:.75rem;">
+                        <button type="button" class="btn btn-whatsapp" data-wa-download
+                                data-label="Send Excel on WhatsApp">Send Excel on WhatsApp</button>
+                        <a href="{{ url_for('quotations.quotation_excel', id=quotation.QuotationID) }}" class="btn btn-info">Download Excel</a>
+                        <a href="{{ url_for('quotations.list_quotations') }}" class="btn btn-secondary">Back</a>
+                    </div>
+                    <p class="quotation-help">
+                        On <strong>phone or WhatsApp desktop app</strong>: the Excel file is sent directly via the share sheet.<br>
+                        On <strong>PC without WhatsApp app</strong>: the file downloads and WhatsApp Web opens — attach it with the paperclip.
                     </p>
                 </div>
-            </div>
 
+                <div data-step="2" hidden>
+                    <div class="wa-step-box wa-step-box-done">
+                        <div class="wa-step-num wa-step-done">✓</div>
+                        <div><strong>QUOTATION.xlsx saved to Downloads.</strong></div>
+                    </div>
+                    <div class="wa-step-box">
+                        <div class="wa-step-num">2</div>
+                        <div>
+                            <strong>Attach the file in WhatsApp</strong>
+                            <p class="quotation-help">Tap the <strong>paperclip / + icon</strong> → <strong>Document</strong> → select <strong>QUOTATION.xlsx</strong> from Downloads.</p>
+                            <div class="form-actions">
+                                <button type="button" class="btn btn-whatsapp" data-wa-open>Open WhatsApp chat</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div data-step="done" hidden>
+                    <div class="wa-step-box wa-step-box-done">
+                        <div class="wa-step-num wa-step-done">✓</div>
+                        <div><strong>Excel file sent via WhatsApp.</strong></div>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        {# Fallback for no-JS: server sends signed link as text message #}
+        <noscript>
+        <form method="POST" class="form" style="margin-top:1rem;">
+            <div class="form-group">
+                <label for="whatsapp_number_noscript">WhatsApp number</label>
+                <input type="tel" id="whatsapp_number_noscript" name="whatsapp_number"
+                       value="{{ fd.get('whatsapp_number', '') }}" maxlength="20" required
+                       placeholder="e.g. 0300-1234567">
+            </div>
             <div class="form-actions">
-                <button type="submit" class="btn btn-whatsapp">Send on WhatsApp</button>
-                <a href="{{ url_for('quotations.quotation_excel', id=quotation.QuotationID) }}" class="btn btn-info">Download Excel</a>
-                <a href="{{ url_for('quotations.list_quotations') }}" class="btn btn-secondary">Back</a>
+                <button type="submit" class="btn btn-whatsapp">Send Excel link on WhatsApp</button>
             </div>
         </form>
+        </noscript>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/whatsapp-file.js') }}"></script>
 {% endblock %}
