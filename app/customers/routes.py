@@ -14,6 +14,15 @@ from app.validators import ValidationErrors, clean_string, clean_phone, clean_po
 
 
 customers_bp = Blueprint('customers', __name__, url_prefix='/customers')
+_CUSTOMERS_SCHEMA_READY = False
+
+
+def _ensure_customers_schema(db, cursor):
+    global _CUSTOMERS_SCHEMA_READY
+    if _CUSTOMERS_SCHEMA_READY:
+        return
+    _ensure_previous_balance_column(db, cursor)
+    _CUSTOMERS_SCHEMA_READY = True
 
 
 
@@ -76,13 +85,26 @@ def list_customers():
 
         cursor = db.cursor()
 
-        _ensure_previous_balance_column(db, cursor)
-
-
+        _ensure_customers_schema(db, cursor)
+        from app.perf import count_query, paginate_request, pagination_meta
 
         search = request.args.get('search', '')
+        page, per_page, offset = paginate_request(default_per_page=50)
+        base_where = f"WHERE {owner_sql()}"
+        params = []
 
+        if search:
+            base_where += " AND CustomerName LIKE ?"
+            params.append(f"%{search}%")
 
+        total_count = count_query(
+            cursor,
+            f"SELECT COUNT(*) FROM Customers {base_where}",
+            params or (),
+        )
+        pagination = pagination_meta(page, per_page, total_count)
+        page = pagination["page"]
+        offset = (page - 1) * per_page
 
         query = f"""
             SELECT
@@ -91,24 +113,10 @@ def list_customers():
                 ContactNo,
                 COALESCE(PreviousBalance, 0) AS PreviousBalance
             FROM Customers
-            WHERE {owner_sql()}
+            {base_where}
+            ORDER BY CustomerName
+            LIMIT {per_page} OFFSET {offset}
         """
-
-        params = []
-
-
-
-        if search:
-
-            query += " AND CustomerName LIKE ?"
-
-            params.append(f"%{search}%")
-
-
-
-        query += " ORDER BY CustomerName"
-
-
 
         cursor.execute(query, params or ())
 
@@ -116,16 +124,11 @@ def list_customers():
 
         cursor.close()
 
-
-
         return render_template(
-
             'customers/list.html',
-
             customers=customers,
-
-            search=search
-
+            search=search,
+            pagination=pagination,
         )
 
 
@@ -184,7 +187,7 @@ def create_customer():
 
             cursor = db.cursor()
 
-            _ensure_previous_balance_column(db, cursor)
+            _ensure_customers_schema(db, cursor)
 
             previous_balance = clean_positive_decimal(
                 request.form.get("previous_balance"),
@@ -272,7 +275,7 @@ def edit_customer(id):
 
         cursor = db.cursor()
 
-        _ensure_previous_balance_column(db, cursor)
+        _ensure_customers_schema(db, cursor)
 
 
 

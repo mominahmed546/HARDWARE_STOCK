@@ -71,23 +71,31 @@ def ensure_invoice_payments_table(db, cursor):
 
 
 def payments_join_sql(invoice_alias="i"):
+    from app.tenancy import owner_sql
+
     return f"""
         LEFT JOIN (
-            SELECT InvoiceID, SUM(Amount) AS PaidAmount
-            FROM InvoicePayments
-            GROUP BY InvoiceID
+            SELECT p.InvoiceID, SUM(p.Amount) AS PaidAmount
+            FROM InvoicePayments p
+            JOIN Invoices inv ON inv.InvoiceID = p.InvoiceID
+            WHERE {owner_sql("inv")}
+            GROUP BY p.InvoiceID
         ) pay ON pay.InvoiceID = {invoice_alias}.InvoiceID
     """
 
 
 def paid_ratio_sql(invoice_alias="i", paid_alias="pay"):
     """Share of the invoice that has been paid, capped at 100%."""
+    if paid_alias:
+        paid_amount_expr = f"COALESCE({paid_alias}.PaidAmount, 0)"
+    else:
+        paid_amount_expr = f"COALESCE({invoice_alias}.CashReceived, 0)"
     return f"""
         CASE
             WHEN COALESCE({invoice_alias}.TotalAmount, 0) <= 0 THEN 0
             ELSE LEAST(
                 1.0,
-                COALESCE({paid_alias}.PaidAmount, 0) / {invoice_alias}.TotalAmount
+                {paid_amount_expr} / {invoice_alias}.TotalAmount
             )
         END
     """
@@ -130,10 +138,11 @@ def ensure_cash_accounts(db, cursor):
         schema_changed = True
         _SCHEMA_READY["cash_accounts_schema"] = True
     from app.tenancy import request_user_id
+    from app.perf import cash_account_exists, mark_cash_account_exists
 
     user_id = request_user_id()
     inserted = 0
-    if user_id:
+    if user_id and not cash_account_exists(cursor, user_id):
         cursor.execute(
             """
             INSERT INTO CashAccounts (AccountID, UserID, CashOpening, BankOpening)
@@ -143,6 +152,8 @@ def ensure_cash_accounts(db, cursor):
             (user_id, user_id, user_id),
         )
         inserted = int(cursor.rowcount or 0)
+        if inserted:
+            mark_cash_account_exists(user_id, True)
     if schema_changed or inserted:
         db.commit()
 

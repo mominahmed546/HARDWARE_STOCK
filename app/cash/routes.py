@@ -50,12 +50,13 @@ def _payment_split(cursor, where_sql="", params=()):
     cursor.execute(
         f"""
         SELECT
-            ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Bank' THEN Amount ELSE 0 END), 0) AS BankAmount,
-            ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Cash' THEN Amount ELSE 0 END), 0) AS CashAmount,
-            ISNULL(SUM(Amount), 0) AS TotalAmount
-        FROM InvoicePayments
+            ISNULL(SUM(CASE WHEN COALESCE(p.PaymentMethod, 'Cash') = 'Bank' THEN p.Amount ELSE 0 END), 0) AS BankAmount,
+            ISNULL(SUM(CASE WHEN COALESCE(p.PaymentMethod, 'Cash') = 'Cash' THEN p.Amount ELSE 0 END), 0) AS CashAmount,
+            ISNULL(SUM(p.Amount), 0) AS TotalAmount
+        FROM InvoicePayments p
+        JOIN Invoices i ON i.InvoiceID = p.InvoiceID
         {where_sql}
-        {"AND" if where_sql else "WHERE"} InvoiceID IN (SELECT InvoiceID FROM Invoices WHERE {owner_sql()})
+        {"AND" if where_sql else "WHERE"} {owner_sql("i")}
         """,
         params,
     )
@@ -123,14 +124,15 @@ def _month_day_rows(cursor, year, month, cash_opening, bank_opening):
     cursor.execute(
         f"""
         SELECT
-            CAST(PaymentDate AS DATE) AS SaleDate,
-            ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Bank' THEN Amount ELSE 0 END), 0) AS BankAmount,
-            ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Cash' THEN Amount ELSE 0 END), 0) AS CashAmount,
-            ISNULL(SUM(Amount), 0) AS TotalAmount
-        FROM InvoicePayments
-        WHERE YEAR(PaymentDate) = ? AND MONTH(PaymentDate) = ?
-          AND InvoiceID IN (SELECT InvoiceID FROM Invoices WHERE {owner_sql()})
-        GROUP BY CAST(PaymentDate AS DATE)
+            CAST(p.PaymentDate AS DATE) AS SaleDate,
+            ISNULL(SUM(CASE WHEN COALESCE(p.PaymentMethod, 'Cash') = 'Bank' THEN p.Amount ELSE 0 END), 0) AS BankAmount,
+            ISNULL(SUM(CASE WHEN COALESCE(p.PaymentMethod, 'Cash') = 'Cash' THEN p.Amount ELSE 0 END), 0) AS CashAmount,
+            ISNULL(SUM(p.Amount), 0) AS TotalAmount
+        FROM InvoicePayments p
+        JOIN Invoices i ON i.InvoiceID = p.InvoiceID
+        WHERE YEAR(p.PaymentDate) = ? AND MONTH(p.PaymentDate) = ?
+          AND {owner_sql("i")}
+        GROUP BY CAST(p.PaymentDate AS DATE)
         ORDER BY SaleDate
         """,
         (year, month),

@@ -49,29 +49,33 @@ def list_suppliers():
 
         cursor = db.cursor()
 
-
+        from app.perf import count_query, paginate_request, pagination_meta
 
         search = request.args.get("search", "")
-
-
-
-        query = f"SELECT * FROM Supplier WHERE {owner_sql()}"
-
+        page, per_page, offset = paginate_request(default_per_page=50)
+        base_where = f"WHERE {owner_sql()}"
         params = []
 
-
-
         if search:
-
-            query += " AND SupplierName LIKE ?"
-
+            base_where += " AND SupplierName LIKE ?"
             params.append(f"%{search}%")
 
+        total_count = count_query(
+            cursor,
+            f"SELECT COUNT(*) FROM Supplier {base_where}",
+            params or (),
+        )
+        pagination = pagination_meta(page, per_page, total_count)
+        page = pagination["page"]
+        offset = (page - 1) * per_page
 
-
-        query += " ORDER BY SupplierName"
-
-
+        query = f"""
+            SELECT *
+            FROM Supplier
+            {base_where}
+            ORDER BY SupplierName
+            LIMIT {per_page} OFFSET {offset}
+        """
 
         cursor.execute(query, params or ())
 
@@ -88,6 +92,8 @@ def list_suppliers():
             suppliers=suppliers,
 
             search=search,
+
+            pagination=pagination,
 
         )
 

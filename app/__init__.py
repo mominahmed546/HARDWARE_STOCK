@@ -20,6 +20,10 @@ app.config.from_object(config_map["development"])
 
 app.teardown_appcontext(close_db_connection)
 
+from app.perf import register_request_timing
+
+register_request_timing(app)
+
 
 @app.template_filter("date_dmy")
 def date_dmy(value):

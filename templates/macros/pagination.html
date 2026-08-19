@@ -1,0 +1,20 @@
+{% macro render_pagination(pagination, extra_params={}) %}
+{% if pagination and pagination.pages > 1 %}
+<div class="pagination-bar">
+    <div class="pagination-info">
+        Page {{ pagination.page }} of {{ pagination.pages }}
+        {% if pagination.total is defined %}
+        ({{ pagination.total }} records)
+        {% endif %}
+    </div>
+    <div class="pagination-links">
+        {% if pagination.has_prev %}
+        <a class="btn btn-sm btn-secondary" href="?page={{ pagination.prev_page }}{% for key, value in extra_params.items() %}{% if value %}&{{ key }}={{ value|urlencode }}{% endif %}{% endfor %}">Previous</a>
+        {% endif %}
+        {% if pagination.has_next %}
+        <a class="btn btn-sm btn-secondary" href="?page={{ pagination.next_page }}{% for key, value in extra_params.items() %}{% if value %}&{{ key }}={{ value|urlencode }}{% endif %}{% endfor %}">Next</a>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+{% endmacro %}

@@ -142,14 +142,41 @@
             var loader = document.getElementById('routeLoader');
             if (!loader) return;
 
+            var showTimer = null;
+
             function showLoader() {
-                loader.classList.add('visible');
-                loader.setAttribute('aria-hidden', 'false');
+                if (showTimer) return;
+                showTimer = window.setTimeout(function () {
+                    loader.classList.add('visible');
+                    loader.setAttribute('aria-hidden', 'false');
+                }, 200);
             }
 
             function hideLoader() {
+                if (showTimer) {
+                    window.clearTimeout(showTimer);
+                    showTimer = null;
+                }
                 loader.classList.remove('visible');
                 loader.setAttribute('aria-hidden', 'true');
+            }
+
+            function shouldShowLoaderForLink(link) {
+                if (link.hasAttribute('data-no-loader')) return false;
+                var href = link.getAttribute('href') || '';
+                if (!href || href.startsWith('#') || href.startsWith('javascript:')) return false;
+                if (link.hasAttribute('download')) return false;
+
+                try {
+                    var target = new URL(href, window.location.href);
+                    if (target.origin !== window.location.origin) return false;
+                    if (target.pathname === window.location.pathname && target.search === window.location.search) {
+                        return false;
+                    }
+                } catch (e) {
+                    return false;
+                }
+                return true;
             }
 
             document.addEventListener('click', function (event) {
@@ -158,19 +185,19 @@
                 if (event.defaultPrevented) return;
                 if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
                 if (link.target && link.target !== '_self') return;
-
-                var href = link.getAttribute('href') || '';
-                if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
-                if (link.hasAttribute('download')) return;
+                if (!shouldShowLoaderForLink(link)) return;
 
                 showLoader();
             });
 
             document.addEventListener('submit', function (event) {
                 if (event.defaultPrevented) return;
+                var form = event.target;
+                if (form && form.hasAttribute('data-no-loader')) return;
                 showLoader();
             });
 
+            document.addEventListener('DOMContentLoaded', hideLoader);
             window.addEventListener('pageshow', hideLoader);
             window.addEventListener('load', hideLoader);
         })();

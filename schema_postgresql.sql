@@ -103,6 +103,78 @@ CREATE TABLE IF NOT EXISTS cash_accounts (
 CREATE INDEX IF NOT EXISTS idx_invoice_payments_invoice_id
     ON invoice_payments (invoice_id);
 
+CREATE INDEX IF NOT EXISTS idx_invoice_payments_payment_date
+    ON invoice_payments (payment_date);
+
+CREATE INDEX IF NOT EXISTS idx_invoice_payments_invoice_date
+    ON invoice_payments (invoice_id, payment_date);
+
+CREATE INDEX IF NOT EXISTS idx_invoices_user_id
+    ON invoices (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_invoices_user_invoice_id
+    ON invoices (user_id, invoice_id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_invoices_customer_id
+    ON invoices (customer_id);
+
+CREATE INDEX IF NOT EXISTS idx_invoice_details_invoice_id
+    ON invoice_details (invoice_id);
+
+CREATE INDEX IF NOT EXISTS idx_invoice_details_item_id
+    ON invoice_details (item_id);
+
+CREATE INDEX IF NOT EXISTS idx_item_user_id
+    ON item (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_item_user_item_no
+    ON item (user_id, item_no);
+
+CREATE INDEX IF NOT EXISTS idx_item_category_id
+    ON item (category_id);
+
+CREATE INDEX IF NOT EXISTS idx_customers_user_id
+    ON customers (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_customers_user_name
+    ON customers (user_id, customer_name);
+
+CREATE INDEX IF NOT EXISTS idx_purchases_user_id
+    ON purchases (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_purchases_supplier_id
+    ON purchases (supplier_id);
+
+CREATE INDEX IF NOT EXISTS idx_purchases_user_date
+    ON purchases (user_id, purchase_date DESC);
+
+CREATE INDEX IF NOT EXISTS idx_purchase_details_purchase_id
+    ON purchase_details (purchase_id);
+
+CREATE INDEX IF NOT EXISTS idx_purchase_details_item_id
+    ON purchase_details (item_id);
+
+CREATE INDEX IF NOT EXISTS idx_purchase_payments_purchase_id
+    ON purchase_payments (purchase_id);
+
+CREATE INDEX IF NOT EXISTS idx_purchase_payments_payment_date
+    ON purchase_payments (payment_date);
+
+CREATE INDEX IF NOT EXISTS idx_supplier_user_id
+    ON supplier (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_category_user_id
+    ON category (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_quotations_user_id
+    ON quotations (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_stock_history_user_id
+    ON stock_history (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_stock_history_item_id
+    ON stock_history (item_id);
+
 CREATE TABLE IF NOT EXISTS quotations (
     quotation_id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(user_id),

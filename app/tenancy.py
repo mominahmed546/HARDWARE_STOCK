@@ -66,7 +66,10 @@ def bind_current_account(db):
     try:
         if not _ready:
             try:
+                from app.perf import ensure_performance_indexes
+
                 _ensure_isolation(cursor)
+                ensure_performance_indexes(db, cursor)
                 db.commit()
                 _ready = True
             except Exception:

@@ -982,9 +982,32 @@ def list_invoices():
 
     try:
         _ensure_invoice_schema(db, cursor)
+        from app.perf import count_query, paginate_request, pagination_meta
+
         search = request.args.get("search", "")
+        page, per_page, offset = paginate_request(default_per_page=50)
         line_cost = sold_line_cost_sql("d")
-        paid_ratio = paid_ratio_sql("i", "pay")
+        paid_ratio = paid_ratio_sql("i", None)
+
+        base_where = f"WHERE {owner_sql('i')}"
+        params = []
+        if search:
+            base_where += " AND (CAST(i.InvoiceID AS VARCHAR(20)) LIKE ? OR c.CustomerName LIKE ?)"
+            params.extend([f"%{search}%", f"%{search}%"])
+
+        total_count = count_query(
+            cursor,
+            f"""
+            SELECT COUNT(*)
+            FROM Invoices i
+            JOIN Customers c ON i.CustomerID = c.CustomerID
+            {base_where}
+            """,
+            params,
+        )
+        pagination = pagination_meta(page, per_page, total_count)
+        page = pagination["page"]
+        offset = (page - 1) * per_page
 
         query = f"""
             SELECT
@@ -992,8 +1015,8 @@ def list_invoices():
                 i.[Date] AS InvoiceDate,
                 i.TotalAmount,
                 COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus,
-                COALESCE(pay.PaidAmount, 0) AS PaidAmount,
-                GREATEST(COALESCE(i.TotalAmount, 0) - COALESCE(pay.PaidAmount, 0), 0) AS RemainingAmount,
+                COALESCE(i.CashReceived, 0) AS PaidAmount,
+                GREATEST(COALESCE(i.TotalAmount, 0) - COALESCE(i.CashReceived, 0), 0) AS RemainingAmount,
                 c.CustomerName,
                 ISNULL(
                     SUM(
@@ -1001,8 +1024,7 @@ def list_invoices():
                         * ({paid_ratio})
                     ),
                     0
-                ) AS Profit
-                ,
+                ) AS Profit,
                 COALESCE(sr.ReturnCount, 0) AS ReturnCount,
                 COALESCE(sr.ReturnTotal, 0) AS ReturnTotal
             FROM Invoices i
@@ -1015,26 +1037,23 @@ def list_invoices():
                 GROUP BY InvoiceID
             ) sr ON sr.InvoiceID = i.InvoiceID
             {purchase_unit_cost_join("d")}
-            {payments_join_sql("i")}
-            WHERE {owner_sql("i")}
-        """
-        params = []
-
-        if search:
-            query += " AND (CAST(i.InvoiceID AS VARCHAR(20)) LIKE ? OR c.CustomerName LIKE ?)"
-            params.extend([f"%{search}%", f"%{search}%"])
-
-        query += """
+            {base_where}
             GROUP BY
-                i.InvoiceID, i.[Date], i.TotalAmount, i.PaymentStatus,
-                pay.PaidAmount, c.CustomerName, sr.ReturnCount, sr.ReturnTotal
+                i.InvoiceID, i.[Date], i.TotalAmount, i.PaymentStatus, i.CashReceived,
+                c.CustomerName, sr.ReturnCount, sr.ReturnTotal
             ORDER BY i.InvoiceID DESC
+            LIMIT {per_page} OFFSET {offset}
         """
 
         cursor.execute(query, params or ())
         invoices = cursor.fetchall()
 
-        return render_template("invoices/list.html", invoices=invoices, search=search)
+        return render_template(
+            "invoices/list.html",
+            invoices=invoices,
+            search=search,
+            pagination=pagination,
+        )
 
     except Exception as e:
         flash(f"Error loading invoices: {str(e)}", "danger")

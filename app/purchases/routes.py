@@ -444,7 +444,10 @@ def list_purchases():
         ensure_purchase_payments_table(db, cursor)
         cash_adjust_errors = ValidationErrors()
 
+        from app.perf import count_query, fetch_drawer_balances, paginate_request, pagination_meta
+
         search = request.args.get("search", "")
+        page, per_page, offset = paginate_request(default_per_page=50)
 
         if request.method == "POST" and request.form.get("action") == "set_current_cash":
             target_cash = clean_positive_decimal(
@@ -456,29 +459,8 @@ def list_purchases():
             )
             if cash_adjust_errors.valid:
                 cash_opening, bank_opening = get_cash_openings(cursor)
-                cursor.execute(
-                    f"""
-                    SELECT
-                        ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Cash' THEN Amount ELSE 0 END), 0) AS CashAmount
-                    FROM InvoicePayments
-                    WHERE InvoiceID IN (SELECT InvoiceID FROM Invoices WHERE {owner_sql()})
-                    """
-                )
-                receipts_row = cursor.fetchone()
-                cash_received = float(receipts_row.CashAmount or 0) if receipts_row else 0.0
-                cursor.execute(
-                    f"""
-                    SELECT
-                        ISNULL(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Cash' THEN pp.Amount ELSE 0 END), 0) AS CashPaid
-                    FROM PurchasePayments pp
-                    JOIN Purchases p ON p.PurchaseID = pp.PurchaseID
-                    WHERE {owner_sql("p")}
-                    """
-                )
-                purchase_row = cursor.fetchone()
-                total_cash_purchases = float(purchase_row.CashPaid or 0) if purchase_row else 0.0
-                # opening + receipts - cash purchases = target
-                new_cash_opening = float(target_cash) - cash_received + total_cash_purchases
+                balances = fetch_drawer_balances(cursor, cash_opening, bank_opening)
+                new_cash_opening = float(target_cash) - balances["cash_received"] + balances["cash_paid"]
                 if new_cash_opening < 0:
                     new_cash_opening = 0.0
                 save_cash_openings(cursor, new_cash_opening, bank_opening)
@@ -487,46 +469,11 @@ def list_purchases():
                 return redirect(url_for("purchases.list_purchases", search=search))
             flash(cash_adjust_errors.first(), "danger")
 
-
-
-        query = f"""
-
-            SELECT
-                COALESCE(p.SupplierID, 0) AS SupplierID,
-                COALESCE(s.SupplierName, 'N/A') AS SupplierName,
-                MIN(p.PurchaseDate) AS FirstPurchaseDate,
-                MAX(p.PurchaseDate) AS LastPurchaseDate,
-                COUNT(DISTINCT p.PurchaseID) AS PurchaseCount,
-                SUM(ISNULL(p.TotalAmount, 0)) AS TotalAmount,
-                SUM(ISNULL(details.ItemLineCount, 0)) AS ItemLineCount,
-                SUM(ISNULL(details.TotalQty, 0)) AS TotalQty
-
-            FROM Purchases p
-
-            LEFT JOIN Supplier s ON p.SupplierID = s.SupplierID
-
-            LEFT JOIN (
-                SELECT
-                    pd.PurchaseID,
-                    COUNT(*) AS ItemLineCount,
-                    SUM(ISNULL(pd.Qty, 0)) AS TotalQty
-                FROM PurchaseDetails pd
-                GROUP BY pd.PurchaseID
-            ) details ON details.PurchaseID = p.PurchaseID
-
-            WHERE {owner_sql("p")}
-
-        """
-
-
-
+        base_where = f"WHERE {owner_sql('p')}"
         params = []
 
-
-
         if search:
-
-            query += """
+            base_where += """
                 AND (
                     CAST(p.PurchaseID AS VARCHAR(20)) LIKE ?
                     OR s.SupplierName LIKE ?
@@ -539,64 +486,71 @@ def list_purchases():
                     OR CONVERT(VARCHAR(10), p.PurchaseDate, 103) LIKE ?
                 )
             """
-
             params.extend([f"%{search}%", f"%{search}%", f"%{search}%", f"%{search}%"])
 
+        total_count = count_query(
+            cursor,
+            f"""
+            SELECT COUNT(*) FROM (
+                SELECT 1
+                FROM Purchases p
+                LEFT JOIN Supplier s ON p.SupplierID = s.SupplierID
+                {base_where}
+                GROUP BY COALESCE(p.SupplierID, 0), COALESCE(s.SupplierName, 'N/A')
+            ) grouped_suppliers
+            """,
+            params or (),
+        )
+        pagination = pagination_meta(page, per_page, total_count)
+        page = pagination["page"]
+        offset = (page - 1) * per_page
 
-
-        query += """
+        query = f"""
+            SELECT
+                COALESCE(p.SupplierID, 0) AS SupplierID,
+                COALESCE(s.SupplierName, 'N/A') AS SupplierName,
+                MIN(p.PurchaseDate) AS FirstPurchaseDate,
+                MAX(p.PurchaseDate) AS LastPurchaseDate,
+                COUNT(DISTINCT p.PurchaseID) AS PurchaseCount,
+                SUM(ISNULL(p.TotalAmount, 0)) AS TotalAmount,
+                SUM(ISNULL(details.ItemLineCount, 0)) AS ItemLineCount,
+                SUM(ISNULL(details.TotalQty, 0)) AS TotalQty
+            FROM Purchases p
+            LEFT JOIN Supplier s ON p.SupplierID = s.SupplierID
+            LEFT JOIN (
+                SELECT
+                    pd.PurchaseID,
+                    COUNT(*) AS ItemLineCount,
+                    SUM(ISNULL(pd.Qty, 0)) AS TotalQty
+                FROM PurchaseDetails pd
+                GROUP BY pd.PurchaseID
+            ) details ON details.PurchaseID = p.PurchaseID
+            {base_where}
             GROUP BY COALESCE(p.SupplierID, 0), COALESCE(s.SupplierName, 'N/A')
             ORDER BY MAX(p.PurchaseDate) DESC, COALESCE(s.SupplierName, 'N/A')
+            LIMIT {per_page} OFFSET {offset}
         """
-
-
 
         cursor.execute(query, params or ())
 
         purchases = cursor.fetchall()
 
         cash_opening, bank_opening = get_cash_openings(cursor)
-        cursor.execute(
-            f"""
-            SELECT
-                ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Cash' THEN Amount ELSE 0 END), 0) AS CashAmount,
-                ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Bank' THEN Amount ELSE 0 END), 0) AS BankAmount
-            FROM InvoicePayments
-            WHERE InvoiceID IN (SELECT InvoiceID FROM Invoices WHERE {owner_sql()})
-            """
-        )
-        receipts = cursor.fetchone()
-        cash_received = float(receipts.CashAmount or 0) if receipts else 0.0
-        bank_received = float(receipts.BankAmount or 0) if receipts else 0.0
-
-        cursor.execute(
-            f"""
-            SELECT
-                ISNULL(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Cash' THEN pp.Amount ELSE 0 END), 0) AS CashPaid,
-                ISNULL(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Bank' THEN pp.Amount ELSE 0 END), 0) AS BankPaid
-            FROM PurchasePayments pp
-            JOIN Purchases p ON p.PurchaseID = pp.PurchaseID
-            WHERE {owner_sql("p")}
-            """
-        )
-        purchase_payments = cursor.fetchone()
-        total_cash_purchases = float(purchase_payments.CashPaid or 0) if purchase_payments else 0.0
-        total_bank_purchases = float(purchase_payments.BankPaid or 0) if purchase_payments else 0.0
-        cash_in_hand = cash_opening + cash_received - total_cash_purchases
-        bank_balance = bank_opening + bank_received - total_bank_purchases
+        balances = fetch_drawer_balances(cursor, cash_opening, bank_opening)
+        cash_in_hand = balances["cash_in_hand"]
+        bank_balance = balances["bank_balance"]
+        total_cash_purchases = balances["cash_paid"]
+        total_bank_purchases = balances["bank_paid"]
         return render_template(
-
             "purchases/list.html",
-
             purchases=purchases,
-
             search=search,
             cash_in_hand=cash_in_hand,
             bank_balance=bank_balance,
             total_cash_purchases=total_cash_purchases,
             total_bank_purchases=total_bank_purchases,
             cash_adjust_errors=cash_adjust_errors.errors,
-
+            pagination=pagination,
         )
 
 

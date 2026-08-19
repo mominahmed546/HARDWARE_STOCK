@@ -22,9 +22,13 @@ from app.validators import (
 )
 
 quotations_bp = Blueprint("quotations", __name__, url_prefix="/quotations")
+_QUOTATIONS_SCHEMA_READY = False
 
 
 def ensure_quotations_schema(db, cursor):
+    global _QUOTATIONS_SCHEMA_READY
+    if _QUOTATIONS_SCHEMA_READY:
+        return
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS Quotations (
@@ -66,6 +70,7 @@ def ensure_quotations_schema(db, cursor):
         """
     )
     db.commit()
+    _QUOTATIONS_SCHEMA_READY = True
 
 
 def _default_quotation_lines():
@@ -546,17 +551,14 @@ def list_quotations():
 
     try:
         ensure_quotations_schema(db, cursor)
+        from app.perf import count_query, paginate_request, pagination_meta
+
         search = request.args.get("search", "")
-        query = f"""
-            SELECT
-                QuotationID, QuotationNo, QuotationDate, CustomerName, Project,
-                WorkType, Advance, TotalAmount
-            FROM Quotations
-            WHERE {owner_sql()}
-        """
+        page, per_page, offset = paginate_request(default_per_page=50)
+        base_where = f"WHERE {owner_sql()}"
         params = []
         if search:
-            query += """
+            base_where += """
                 AND (
                     CAST(QuotationNo AS VARCHAR(20)) LIKE ?
                     OR CustomerName LIKE ?
@@ -564,10 +566,33 @@ def list_quotations():
                 )
             """
             params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
-        query += " ORDER BY QuotationNo DESC"
+
+        total_count = count_query(
+            cursor,
+            f"SELECT COUNT(*) FROM Quotations {base_where}",
+            params or (),
+        )
+        pagination = pagination_meta(page, per_page, total_count)
+        page = pagination["page"]
+        offset = (page - 1) * per_page
+
+        query = f"""
+            SELECT
+                QuotationID, QuotationNo, QuotationDate, CustomerName, Project,
+                WorkType, Advance, TotalAmount
+            FROM Quotations
+            {base_where}
+            ORDER BY QuotationNo DESC
+            LIMIT {per_page} OFFSET {offset}
+        """
         cursor.execute(query, params or ())
         quotations = cursor.fetchall()
-        return render_template("quotations/list.html", quotations=quotations, search=search)
+        return render_template(
+            "quotations/list.html",
+            quotations=quotations,
+            search=search,
+            pagination=pagination,
+        )
 
     except Exception as e:
         flash(f"Error loading quotations: {str(e)}", "danger")

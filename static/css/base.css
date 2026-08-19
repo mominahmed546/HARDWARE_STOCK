@@ -94,6 +94,27 @@ a {
     to { transform: rotate(360deg); }
 }
 
+.pagination-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
+}
+
+.pagination-info {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.pagination-links {
+    display: flex;
+    gap: 0.5rem;
+}
+
 /* ---- App shell ---- */
 
 .app-shell {

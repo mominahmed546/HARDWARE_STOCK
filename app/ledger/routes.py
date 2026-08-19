@@ -7,9 +7,20 @@ from flask_login import login_required
 from app import app
 from app.db import get_db_connection
 from app.tenancy import owner_sql
-from app.payments import ensure_invoice_payments_table, payments_join_sql
+from app.payments import ensure_invoice_payments_table
 
 ledger_bp = Blueprint("ledger", __name__, url_prefix="/ledger")
+_LEDGER_SCHEMA_READY = False
+
+
+def _ensure_ledger_schema(db, cursor):
+    global _LEDGER_SCHEMA_READY
+    if _LEDGER_SCHEMA_READY:
+        return
+    _ensure_previous_balance_column(db, cursor)
+    _ensure_invoice_payment_status_column(db, cursor)
+    ensure_invoice_payments_table(db, cursor)
+    _LEDGER_SCHEMA_READY = True
 
 
 def _ensure_previous_balance_column(db, cursor):
@@ -408,11 +419,26 @@ def list_ledger():
     cursor = db.cursor()
 
     try:
-        _ensure_previous_balance_column(db, cursor)
-        _ensure_invoice_payment_status_column(db, cursor)
-        ensure_invoice_payments_table(db, cursor)
+        _ensure_ledger_schema(db, cursor)
+        from app.perf import count_query, paginate_request, pagination_meta
 
         search = request.args.get("search", "")
+        page, per_page, offset = paginate_request(default_per_page=50)
+        base_where = f"WHERE {owner_sql('c')}"
+        params = []
+        if search:
+            base_where += " AND c.CustomerName LIKE ?"
+            params.append(f"%{search}%")
+
+        total_count = count_query(
+            cursor,
+            f"SELECT COUNT(*) FROM Customers c {base_where}",
+            params,
+        )
+        pagination = pagination_meta(page, per_page, total_count)
+        page = pagination["page"]
+        offset = (page - 1) * per_page
+
         query = f"""
             SELECT
                 c.CustomerID,
@@ -430,31 +456,47 @@ def list_ledger():
                     i.CustomerID,
                     COUNT(*) AS InvoiceCount,
                     SUM(i.TotalAmount) AS TotalInvoiced,
-                    SUM(COALESCE(pay.PaidAmount, 0)) AS TotalPaid
+                    SUM(COALESCE(i.CashReceived, 0)) AS TotalPaid
                 FROM Invoices i
-                {payments_join_sql("i")}
                 WHERE {owner_sql("i")}
                 GROUP BY i.CustomerID
             ) inv ON inv.CustomerID = c.CustomerID
-            WHERE {owner_sql("c")}
+            {base_where}
+            ORDER BY c.CustomerName
+            LIMIT {per_page} OFFSET {offset}
         """
-        params = []
-
-        if search:
-            query += " AND c.CustomerName LIKE ?"
-            params.append(f"%{search}%")
-
-        query += " ORDER BY c.CustomerName"
-
         cursor.execute(query, params or ())
         ledgers = cursor.fetchall()
-        total_outstanding = sum(float(row.Outstanding or 0) for row in ledgers)
+
+        cursor.execute(
+            f"""
+            SELECT COALESCE(SUM(
+                COALESCE(c.PreviousBalance, 0)
+                + COALESCE(inv.TotalInvoiced, 0)
+                - COALESCE(inv.TotalPaid, 0)
+            ), 0) AS TotalOutstanding
+            FROM Customers c
+            LEFT JOIN (
+                SELECT
+                    i.CustomerID,
+                    SUM(i.TotalAmount) AS TotalInvoiced,
+                    SUM(COALESCE(i.CashReceived, 0)) AS TotalPaid
+                FROM Invoices i
+                WHERE {owner_sql("i")}
+                GROUP BY i.CustomerID
+            ) inv ON inv.CustomerID = c.CustomerID
+            {base_where}
+            """,
+            params or (),
+        )
+        total_outstanding = float(cursor.fetchone().TotalOutstanding or 0)
 
         return render_template(
             "ledger/list.html",
             ledgers=ledgers,
             search=search,
             total_outstanding=total_outstanding,
+            pagination=pagination,
         )
 
     except Exception as e:
@@ -472,9 +514,7 @@ def customer_ledger(id):
     cursor = db.cursor()
 
     try:
-        _ensure_previous_balance_column(db, cursor)
-        _ensure_invoice_payment_status_column(db, cursor)
-        ensure_invoice_payments_table(db, cursor)
+        _ensure_ledger_schema(db, cursor)
         data = _load_customer_ledger(cursor, id)
 
         if not data:
@@ -503,9 +543,7 @@ def customer_ledger_pdf(id):
     cursor = db.cursor()
 
     try:
-        _ensure_previous_balance_column(db, cursor)
-        _ensure_invoice_payment_status_column(db, cursor)
-        ensure_invoice_payments_table(db, cursor)
+        _ensure_ledger_schema(db, cursor)
         data = _load_customer_ledger(cursor, id)
 
         if not data:

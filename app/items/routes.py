@@ -38,11 +38,40 @@ def _validate_item_form(form, errors):
 @login_required
 def list_items():
     try:
+        from app.perf import count_query, paginate_request, pagination_meta
+
         search = request.args.get("search", "", type=str)
         category_id = request.args.get("category_id", "", type=str)
         qty_filter = request.args.get("qty_filter", "", type=str)
         if qty_filter not in QTY_FILTERS:
             qty_filter = ""
+        page, per_page, offset = paginate_request(default_per_page=100)
+
+        base_where = f"WHERE {owner_sql('i')}"
+        params = []
+
+        if search:
+            base_where += " AND LOWER(i.ItemName) LIKE LOWER(?)"
+            params.append(f"%{search}%")
+
+        if category_id:
+            base_where += " AND i.CategoryID = ?"
+            params.append(int(category_id))
+
+        if qty_filter:
+            base_where += QTY_FILTERS[qty_filter][1]
+
+        db = get_db_connection(app)
+        cursor = db.cursor()
+        total_count = count_query(
+            cursor,
+            f"SELECT COUNT(*) FROM Item i {base_where}",
+            tuple(params) if params else None,
+        )
+        cursor.close()
+        pagination = pagination_meta(page, per_page, total_count)
+        page = pagination["page"]
+        offset = (page - 1) * per_page
 
         query = f"""
             SELECT
@@ -56,24 +85,10 @@ def list_items():
                 c.CategoryName
             FROM Item i
             LEFT JOIN Category c ON i.CategoryID = c.CategoryID
-            WHERE {owner_sql("i")}
+            {base_where}
+            ORDER BY COALESCE(i.ItemNo, i.ItemID), i.ItemID
+            LIMIT {per_page} OFFSET {offset}
         """
-
-        params = []
-
-        if search:
-            # LIKE is case-sensitive on PostgreSQL, unlike SQL Server
-            query += " AND LOWER(i.ItemName) LIKE LOWER(?)"
-            params.append(f"%{search}%")
-
-        if category_id:
-            query += " AND i.CategoryID = ?"
-            params.append(int(category_id))
-
-        if qty_filter:
-            query += QTY_FILTERS[qty_filter][1]
-
-        query += " ORDER BY COALESCE(i.ItemNo, i.ItemID), i.ItemID"
 
         items = execute_query(app, query, tuple(params) if params else None)
         categories = execute_query(app, f"SELECT CategoryID, CategoryName FROM Category WHERE {owner_sql()} ORDER BY CategoryName")
@@ -86,6 +101,7 @@ def list_items():
             category_id=category_id,
             qty_filter=qty_filter,
             qty_filters=QTY_FILTERS,
+            pagination=pagination,
         )
 
     except Exception as e:

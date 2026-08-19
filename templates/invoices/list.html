@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from 'macros/pagination.html' import render_pagination %}
 
 {% block title %}Invoices - Hardware Stock Management{% endblock %}
 {% block page_title %}Invoices{% endblock %}
@@ -91,5 +92,6 @@
         </tbody>
     </table>
     </div>
+    {{ render_pagination(pagination, {'search': search}) }}
 </div>
 {% endblock %}

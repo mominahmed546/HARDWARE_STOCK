@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from 'macros/pagination.html' import render_pagination %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/items_list.css') }}">
@@ -68,5 +69,6 @@
         </tbody>
     </table>
     </div>
+    {{ render_pagination(pagination, {'search': search, 'category_id': category_id, 'qty_filter': qty_filter}) }}
 </div>
 {% endblock %}
