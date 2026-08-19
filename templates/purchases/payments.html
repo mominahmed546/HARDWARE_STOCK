@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% from 'macros/form.html' import field_error %}
+
+{% block title %}Purchase Payment - #{{ purchase.PurchaseID }}{% endblock %}
+{% block page_title %}Purchase Payment{% endblock %}
+{% block page_subtitle %}
+<p>Purchase #{{ purchase.PurchaseID }}</p>
+{% endblock %}
+
+{% block content %}
+{% set fd = form_data or {} %}
+{% set status = purchase.PaymentStatus or 'Unpaid' %}
+<div class="container">
+    <div class="payment-summary" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin-bottom:1rem;">
+        <div class="card">
+            <div style="font-size:.8rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Purchase Total</div>
+            <div style="font-size:1.2rem;font-weight:700;">Rs {{ "{:,.2f}".format(purchase.TotalAmount|default(0)) }}</div>
+        </div>
+        <div class="card">
+            <div style="font-size:.8rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Paid</div>
+            <div style="font-size:1.2rem;font-weight:700;">Rs {{ "{:,.2f}".format(paid_amount|default(0)) }}</div>
+        </div>
+        <div class="card">
+            <div style="font-size:.8rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Remaining Due</div>
+            <div style="font-size:1.2rem;font-weight:700;">Rs {{ "{:,.2f}".format(remaining|default(0)) }}</div>
+        </div>
+        <div class="card">
+            <div style="font-size:.8rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Status</div>
+            <div style="font-size:1.2rem;font-weight:700;">{{ status }}</div>
+        </div>
+    </div>
+    <div class="card">
+        <h3>Add payment</h3>
+        {% if remaining > 0 %}
+        <form method="POST" class="form">
+            <div class="form-group">
+                <label for="payment_date">Payment Date</label>
+                <input type="date" id="payment_date" name="payment_date" value="{{ fd.get('payment_date', '') }}" required class="{% if errors and errors.get('payment_date') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'payment_date') }}
+            </div>
+            <div class="form-group">
+                <label for="amount">Amount Paid</label>
+                <input type="number" id="amount" name="amount" min="0.01" step="0.01" max="{{ remaining }}" value="{{ fd.get('amount', remaining) }}" required class="{% if errors and errors.get('amount') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'amount') }}
+            </div>
+            <div class="form-group">
+                <label for="payment_method">Paid From</label>
+                <select id="payment_method" name="payment_method" class="{% if errors and errors.get('payment_method') %}is-invalid{% endif %}">
+                    <option value="Cash" {% if fd.get('payment_method', 'Cash') == 'Cash' %}selected{% endif %}>Cash in hand</option>
+                    <option value="Bank" {% if fd.get('payment_method') == 'Bank' %}selected{% endif %}>Bank account</option>
+                </select>
+                {{ field_error(errors, 'payment_method') }}
+            </div>
+            <div class="form-group">
+                <label for="notes">Notes (optional)</label>
+                <input type="text" id="notes" name="notes" maxlength="255" value="{{ fd.get('notes', '') }}" class="{% if errors and errors.get('notes') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'notes') }}
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-success">Save Payment</button>
+                <a href="{{ url_for('purchases.list_purchases') }}" class="btn btn-secondary">Back to Purchases</a>
+            </div>
+        </form>
+        {% else %}
+        <p>This purchase is fully paid.</p>
+        <a href="{{ url_for('purchases.list_purchases') }}" class="btn btn-secondary">Back to Purchases</a>
+        {% endif %}
+    </div>
+    <div class="card" style="margin-top:1rem;">
+        <h3>Payment history</h3>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Amount</th>
+                    <th>Method</th>
+                    <th>Notes</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for payment in payments %}
+                <tr>
+                    <td>{{ payment.PaymentDate|date_dmy }}</td>
+                    <td>Rs {{ "{:,.2f}".format(payment.Amount|default(0)) }}</td>
+                    <td>{{ payment.PaymentMethod or 'Cash' }}</td>
+                    <td>{{ payment.Notes or '—' }}</td>
+                    <td>
+                        <form method="POST" action="{{ url_for('purchases.remove_purchase_payment', id=purchase.PurchaseID, payment_id=payment.PaymentID) }}">
+                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove this payment?')">Remove</button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5">No payments recorded yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
