@@ -549,11 +549,11 @@ def _build_invoice_pdf(invoice, details):
     line(col_product_right, header_y - row_h + 4, col_product_right, header_y + 4)
     line(col_qty_right,     header_y - row_h + 4, col_qty_right,     header_y + 4)
     line(col_rate_right,    header_y - row_h + 4, col_rate_right,    header_y + 4)
-    text_center(table_x + col_sr_w / 2,               header_y - 8, "#",            8, "F2")
-    text(col_sr_right + 4,                            header_y - 8, "PRODUCT NAME", 9, "F2")
-    text(col_product_right + 4,                       header_y - 8, "QTY",          9, "F2")
-    text(col_qty_right + 4,                           header_y - 8, "RATE",         9, "F2")
-    text(col_rate_right + 4,                          header_y - 8, "AMOUNT",       9, "F2")
+    text_center(table_x + col_sr_w / 2,                                    header_y - 8, "#",            8, "F2")
+    text_center(col_sr_right + (col_product_right - col_sr_right) / 2,     header_y - 8, "PRODUCT NAME", 9, "F2")
+    text_center(col_product_right + (col_qty_right - col_product_right) / 2, header_y - 8, "QTY",        9, "F2")
+    text_center(col_qty_right + (col_rate_right - col_qty_right) / 2,      header_y - 8, "RATE",         9, "F2")
+    text_center(col_rate_right + (col_total_right - col_rate_right) / 2,   header_y - 8, "AMOUNT",       9, "F2")
     y = header_y - row_h - 2
 
     if not details:
