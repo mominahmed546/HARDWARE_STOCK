@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from 'macros/form.html' import field_error %}
+
+{% block title %}Sales Return - Invoice #{{ invoice.InvoiceID }}{% endblock %}
+{% block page_title %}Sales Return{% endblock %}
+{% block page_subtitle %}
+<p>Invoice #{{ invoice.InvoiceID }} — {{ invoice.CustomerName }}</p>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="card">
+        <h3>Return sold items</h3>
+        <p class="text-muted">Enter return quantity for the items customer returned. This will restore stock and reduce invoice total/due.</p>
+        <form method="POST" class="form">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Item</th>
+                        <th>Sold Qty</th>
+                        <th>Rate</th>
+                        <th>Return Qty</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for line in lines %}
+                    {% set field_name = 'return_qty_' ~ line.DetailID %}
+                    <tr>
+                        <td>{{ line.Particulars or 'Item' }}</td>
+                        <td>{{ line.Qty }}</td>
+                        <td>Rs {{ "{:,.2f}".format(line.Rate|default(0)) }}</td>
+                        <td>
+                            <input type="number" name="{{ field_name }}" min="0" step="1" max="{{ line.Qty }}"
+                                   value="{{ request.form.get(field_name, '') }}"
+                                   class="{% if errors and errors.get(field_name) %}is-invalid{% endif %}">
+                            {{ field_error(errors, field_name) }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {{ field_error(errors, 'return') }}
+            <div class="form-group">
+                <label for="notes">Notes (optional)</label>
+                <input type="text" id="notes" name="notes" maxlength="255"
+                       value="{{ request.form.get('notes', '') }}"
+                       class="{% if errors and errors.get('notes') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'notes') }}
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-warning">Save Sales Return</button>
+                <a href="{{ url_for('invoices.list_invoices') }}" class="btn btn-secondary">Back to Invoices</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -383,6 +383,19 @@ def _invoice_lines_from_details(cursor, invoice_id):
     return lines or _default_invoice_lines()
 
 
+def _invoice_returnable_lines(cursor, invoice_id):
+    cursor.execute(
+        """
+        SELECT DetailID, ItemID, Particulars, Qty, Rate
+        FROM InvoiceDetails
+        WHERE InvoiceID = ?
+        ORDER BY DetailID
+        """,
+        (invoice_id,),
+    )
+    return cursor.fetchall()
+
+
 def _pdf_escape(value):
     return str(value).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
@@ -1460,3 +1473,120 @@ def remove_invoice_payment(id, payment_id):
         cursor.close()
 
     return redirect(url_for("invoices.invoice_payments", id=id))
+
+
+@invoices_bp.route("/<int:id>/return", methods=["GET", "POST"])
+@login_required
+def sales_return(id):
+    db = get_db_connection(app)
+    cursor = db.cursor()
+    errors = ValidationErrors()
+
+    try:
+        _ensure_invoice_schema(db, cursor)
+        invoice = _load_invoice_record(cursor, id)
+        if not invoice:
+            flash("Invoice not found.", "danger")
+            return redirect(url_for("invoices.list_invoices"))
+
+        lines = _invoice_returnable_lines(cursor, id)
+        if not lines:
+            flash("No invoice items available for return.", "info")
+            return redirect(url_for("invoices.list_invoices"))
+
+        if request.method == "POST":
+            notes = clean_optional_string(
+                request.form.get("notes"),
+                "notes",
+                errors,
+                max_len=255,
+                label="Notes",
+            )
+            return_rows = []
+            total_return_amount = 0.0
+
+            for line in lines:
+                field_name = f"return_qty_{int(line.DetailID)}"
+                raw_qty = (request.form.get(field_name) or "").strip()
+                if not raw_qty:
+                    continue
+
+                return_qty = clean_positive_int(
+                    raw_qty, field_name, errors, min_val=1, label="Return quantity"
+                )
+                sold_qty = int(line.Qty or 0)
+                if return_qty > sold_qty:
+                    errors.add(field_name, f"Return qty cannot exceed sold qty ({sold_qty}).")
+                    continue
+
+                line_rate = float(line.Rate or 0)
+                row_amount = return_qty * line_rate
+                return_rows.append((line, return_qty, row_amount))
+                total_return_amount += row_amount
+
+            if not return_rows and errors.valid:
+                errors.add("return", "Enter at least one return quantity.")
+
+            if not errors.valid:
+                flash(errors.first(), "danger")
+            else:
+                for line, return_qty, _row_amount in return_rows:
+                    item_id = int(line.ItemID)
+                    remaining_qty = int(line.Qty or 0) - return_qty
+
+                    if remaining_qty > 0:
+                        cursor.execute(
+                            """
+                            UPDATE InvoiceDetails
+                            SET Qty = ?
+                            WHERE DetailID = ? AND InvoiceID = ?
+                            """,
+                            (remaining_qty, int(line.DetailID), id),
+                        )
+                    else:
+                        cursor.execute(
+                            "DELETE FROM InvoiceDetails WHERE DetailID = ? AND InvoiceID = ?",
+                            (int(line.DetailID), id),
+                        )
+
+                    cursor.execute(
+                        f"""
+                        UPDATE Item
+                        SET Qty = Qty + ?
+                        WHERE ItemID = ? AND {owner_sql()}
+                        """,
+                        (return_qty, item_id),
+                    )
+
+                new_total = max(float(invoice.TotalAmount or 0) - total_return_amount, 0.0)
+                cursor.execute(
+                    f"""
+                    UPDATE Invoices
+                    SET TotalAmount = ?
+                    WHERE InvoiceID = ? AND {owner_sql()}
+                    """,
+                    (new_total, id),
+                )
+                refresh_invoice_settlement(cursor, id)
+                db.commit()
+                flash(
+                    f"Sales return saved. Rs {total_return_amount:,.2f} adjusted from invoice."
+                    + (f" Notes: {notes}" if notes else ""),
+                    "success",
+                )
+                return redirect(url_for("invoices.invoice_payments", id=id))
+
+        return render_template(
+            "invoices/return.html",
+            invoice=invoice,
+            lines=lines,
+            errors=errors.errors,
+        )
+
+    except Exception as e:
+        db.rollback()
+        flash(f"Error saving sales return: {str(e)}", "danger")
+        return redirect(url_for("invoices.list_invoices"))
+
+    finally:
+        cursor.close()
