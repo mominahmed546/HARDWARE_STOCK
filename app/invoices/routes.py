@@ -466,16 +466,17 @@ def _build_invoice_pdf(invoice, details):
     commands = []
     details = list(details)
 
-    receipt_width = 310
+    # A5-width (148 mm ≈ 419 pt) — wider than a thermal roll, narrower than A4
+    receipt_width = 420
     line_h = 10
-    max_name_chars = 20
+    max_name_chars = 28
 
     def _row_height(item_name):
         wrapped = _wrap_text(item_name, max_name_chars)
         return max(18, 6 + len(wrapped) * line_h)
 
     extra_h = sum(_row_height(str(d.Particulars or "Item")) for d in details)
-    receipt_height = max(540, 280 + extra_h)
+    receipt_height = max(540, 300 + extra_h)
 
     def text(x, y, value, size=9, font="F1"):
         commands.append(f"BT /{font} {size} Tf {x} {y} Td ({_pdf_escape(value)}) Tj ET")
@@ -515,9 +516,9 @@ def _build_invoice_pdf(invoice, details):
     y -= 12
 
     text(x_left, y, "Invoice", 10, "F2")
-    text(x_left + 58, y, str(invoice.InvoiceID), 10, "F2")
-    text(x_left + 112, y, "DATED", 10, "F2")
-    text(x_left + 158, y, _format_datetime_for_invoice(invoice.InvoiceDate), 8, "F1")
+    text(x_left + 60, y, str(invoice.InvoiceID), 10, "F2")
+    text(x_left + 120, y, "DATED", 10, "F2")
+    text(x_left + 168, y, _format_datetime_for_invoice(invoice.InvoiceDate), 8, "F1")
     y -= 11
     text(x_left, y, f"Customer: {customer_name}", 10, "F2")
     y -= 10
@@ -529,46 +530,55 @@ def _build_invoice_pdf(invoice, details):
 
     table_x = x_left
     table_w = x_right - x_left
-    col_product_right = table_x + 130
-    col_qty_right = col_product_right + 30
-    col_rate_right = col_qty_right + 62
+
+    # Column layout: SR | PRODUCT NAME | QTY | RATE | TOTAL
+    col_sr_w = 22
+    col_sr_right = table_x + col_sr_w
+    col_product_right = col_sr_right + 170
+    col_qty_right = col_product_right + 34
+    col_rate_right = col_qty_right + 72
     col_total_right = table_x + table_w
 
     header_y = y
     row_h = 18
     rect(table_x, header_y - row_h + 4, table_w, row_h)
+    line(col_sr_right,      header_y - row_h + 4, col_sr_right,      header_y + 4)
     line(col_product_right, header_y - row_h + 4, col_product_right, header_y + 4)
-    line(col_qty_right, header_y - row_h + 4, col_qty_right, header_y + 4)
-    line(col_rate_right, header_y - row_h + 4, col_rate_right, header_y + 4)
-    text(table_x + 4, header_y - 8, "PRODUCT NAME", 9, "F2")
-    text(col_product_right + 6, header_y - 8, "QTY", 9, "F2")
-    text(col_qty_right + 6, header_y - 8, "RATE", 9, "F2")
-    text(col_rate_right + 6, header_y - 8, "TOTAL", 9, "F2")
+    line(col_qty_right,     header_y - row_h + 4, col_qty_right,     header_y + 4)
+    line(col_rate_right,    header_y - row_h + 4, col_rate_right,    header_y + 4)
+    text_center(table_x + col_sr_w / 2,               header_y - 8, "SR",           8, "F2")
+    text(col_sr_right + 4,                            header_y - 8, "PRODUCT NAME", 9, "F2")
+    text(col_product_right + 4,                       header_y - 8, "QTY",          9, "F2")
+    text(col_qty_right + 4,                           header_y - 8, "RATE",         9, "F2")
+    text(col_rate_right + 4,                          header_y - 8, "TOTAL",        9, "F2")
     y = header_y - row_h - 2
 
     if not details:
         rect(table_x, y - row_h + 4, table_w, row_h)
-        text(table_x + 4, y - 8, "No items", 8, "F1")
+        text(col_sr_right + 4, y - 8, "No items", 8, "F1")
         y -= row_h
     else:
-        for detail in details:
+        for index, detail in enumerate(details, start=1):
             item_name = str(detail.Particulars or "Item")
             name_lines = _wrap_text(item_name, max_name_chars)
             dyn_row_h = max(18, 6 + len(name_lines) * line_h)
 
             rect(table_x, y - dyn_row_h + 4, table_w, dyn_row_h)
+            line(col_sr_right,      y - dyn_row_h + 4, col_sr_right,      y + 4)
             line(col_product_right, y - dyn_row_h + 4, col_product_right, y + 4)
-            line(col_qty_right, y - dyn_row_h + 4, col_qty_right, y + 4)
-            line(col_rate_right, y - dyn_row_h + 4, col_rate_right, y + 4)
+            line(col_qty_right,     y - dyn_row_h + 4, col_qty_right,     y + 4)
+            line(col_rate_right,    y - dyn_row_h + 4, col_rate_right,    y + 4)
+
+            mid_y = y - (dyn_row_h / 2) + 2
+            text_center(table_x + col_sr_w / 2, mid_y, str(index), 8, "F1")
 
             text_y = y - 8
             for name_line in name_lines:
-                text(table_x + 4, text_y, name_line, 8, "F1")
+                text(col_sr_right + 4, text_y, name_line, 8, "F1")
                 text_y -= line_h
 
-            mid_y = y - (dyn_row_h / 2) + 2
-            text_right(col_qty_right - 4, mid_y, str(detail.Qty), 8, "F1")
-            text_right(col_rate_right - 4, mid_y, money(detail.Rate), 8, "F1")
+            text_right(col_qty_right - 4,  mid_y, str(detail.Qty),          8, "F1")
+            text_right(col_rate_right - 4, mid_y, money(detail.Rate),       8, "F1")
             text_right(col_total_right - 4, mid_y, money(detail.TotalAmount), 8, "F1")
             y -= dyn_row_h
 
