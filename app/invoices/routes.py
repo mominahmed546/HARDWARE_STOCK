@@ -553,7 +553,7 @@ def _build_invoice_pdf(invoice, details):
     text(col_sr_right + 4,                            header_y - 8, "PRODUCT NAME", 9, "F2")
     text(col_product_right + 4,                       header_y - 8, "QTY",          9, "F2")
     text(col_qty_right + 4,                           header_y - 8, "RATE",         9, "F2")
-    text(col_rate_right + 4,                          header_y - 8, "TOTAL",        9, "F2")
+    text(col_rate_right + 4,                          header_y - 8, "AMOUNT",       9, "F2")
     y = header_y - row_h - 2
 
     if not details:
@@ -639,7 +639,7 @@ def _build_invoice_pdf(invoice, details):
     while dash_x < x_right - seg:
         commands.append(f"0.4 w {dash_x:.1f} {y:.1f} m {dash_x + seg:.1f} {y:.1f} l S")
         dash_x += seg + gap
-    text_center(receipt_width / 2, y - 10, "- - - - - cut here - - - - -", 7, "F1")
+    pass  # tear-off dotted line only, no text label
 
     content = "\n".join(commands).encode("latin-1", errors="replace")
 
