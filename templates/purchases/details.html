@@ -46,7 +46,7 @@
                 <td class="list-actions-cell">
                     <div class="list-actions">
                         <a href="{{ url_for('purchases.edit_purchase_items', id=detail.PurchaseID) }}" class="btn btn-sm btn-info">Edit</a>
-                        <a href="{{ url_for('purchases.purchase_payments', id=detail.PurchaseID) }}" class="btn btn-sm btn-primary">Receive Payment</a>
+                        <a href="{{ url_for('purchases.purchase_payments', id=detail.PurchaseID) }}" class="btn btn-sm btn-primary">PAY</a>
                         <form method="POST" action="{{ url_for('purchases.update_purchase_status', id=detail.PurchaseID) }}">
                             {% if (detail.PaymentStatus or 'Unpaid') == 'Paid' %}
                             <input type="hidden" name="status" value="Unpaid">
