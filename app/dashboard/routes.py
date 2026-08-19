@@ -7,7 +7,12 @@ from flask_login import login_required
 from app import app
 
 from app.db import get_db_connection
-from app.payments import ensure_cash_accounts, ensure_invoice_payments_table, get_cash_openings
+from app.payments import (
+    ensure_cash_accounts,
+    ensure_invoice_payments_table,
+    ensure_purchase_payments_table,
+    get_cash_openings,
+)
 from app.tenancy import owner_sql
 
 
@@ -162,6 +167,7 @@ def dashboard():
         from datetime import date as _date
         ensure_invoice_payments_table(db, cursor)
         ensure_cash_accounts(db, cursor)
+        ensure_purchase_payments_table(db, cursor)
         cash_opening, bank_opening = get_cash_openings(cursor)
         today = _date.today()
         cursor.execute(
@@ -190,8 +196,25 @@ def dashboard():
             (today,),
         )
         all_row = cursor.fetchone()
-        cash_in_hand = cash_opening + (float(all_row.CashAmount or 0) if all_row else 0)
-        bank_balance = bank_opening + (float(all_row.BankAmount or 0) if all_row else 0)
+        cash_received_total = float(all_row.CashAmount or 0) if all_row else 0
+        bank_received_total = float(all_row.BankAmount or 0) if all_row else 0
+        cursor.execute(
+            f"""
+            SELECT
+                ISNULL(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Bank' THEN pp.Amount ELSE 0 END), 0) AS BankPaid,
+                ISNULL(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Cash' THEN pp.Amount ELSE 0 END), 0) AS CashPaid
+            FROM PurchasePayments pp
+            JOIN Purchases p ON p.PurchaseID = pp.PurchaseID
+            WHERE CAST(pp.PaymentDate AS DATE) <= ?
+              AND {owner_sql("p")}
+            """,
+            (today,),
+        )
+        purchases_row = cursor.fetchone()
+        cash_paid_total = float(purchases_row.CashPaid or 0) if purchases_row else 0
+        bank_paid_total = float(purchases_row.BankPaid or 0) if purchases_row else 0
+        cash_in_hand = cash_opening + cash_received_total - cash_paid_total
+        bank_balance = bank_opening + bank_received_total - bank_paid_total
 
         cursor.close()
 
