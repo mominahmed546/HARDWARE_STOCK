@@ -1452,9 +1452,14 @@ def update_invoice_status(id):
             return redirect(redirect_to)
 
         if target_status == "Paid":
+            paid_date = datetime.combine(
+                datetime.strptime(_invoice_date_iso(invoice.InvoiceDate), "%Y-%m-%d").date(),
+                datetime.now().time(),
+            )
             pay_invoice_remaining(
                 cursor,
                 invoice,
+                payment_date=paid_date,
                 payment_method=request.form.get("payment_method") or "Cash",
             )
             flash(f"Invoice #{id} marked as Paid.", "success")
