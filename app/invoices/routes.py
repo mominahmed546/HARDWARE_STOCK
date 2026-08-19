@@ -38,6 +38,55 @@ from app.validators import (
 invoices_bp = Blueprint("invoices", __name__, url_prefix="/invoices")
 _INVOICE_SCHEMA_READY = False
 
+MONTHS = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+]
+
+
+def _invoice_list_years(cursor):
+    cursor.execute(
+        f"""
+        SELECT DISTINCT YEAR([Date]) AS InvoiceYear
+        FROM Invoices
+        WHERE {owner_sql()}
+        ORDER BY InvoiceYear DESC
+        """
+    )
+    years = [int(row.InvoiceYear) for row in cursor.fetchall() if row.InvoiceYear]
+    current_year = date.today().year
+    if current_year not in years:
+        years.insert(0, current_year)
+    return years or [current_year]
+
+
+def _invoice_list_period_from_request(years):
+    month_raw = request.args.get("month", "", type=str)
+    selected_month = None
+    if month_raw:
+        try:
+            selected_month = int(month_raw)
+            if selected_month < 1 or selected_month > 12:
+                selected_month = None
+        except (TypeError, ValueError):
+            selected_month = None
+
+    selected_year = request.args.get("year", default=date.today().year, type=int)
+    if years and selected_year not in years:
+        selected_year = years[0]
+
+    return selected_month, selected_year
+
 
 def _ensure_previous_balance_column(db, cursor):
     cursor.execute(
@@ -983,6 +1032,8 @@ def list_invoices():
     try:
         _ensure_invoice_schema(db, cursor)
         search = request.args.get("search", "")
+        years = _invoice_list_years(cursor)
+        selected_month, selected_year = _invoice_list_period_from_request(years)
         line_cost = sold_line_cost_sql("d")
         paid_ratio = paid_ratio_sql("i", "pay")
 
@@ -1024,6 +1075,10 @@ def list_invoices():
             query += " AND (CAST(i.InvoiceID AS VARCHAR(20)) LIKE ? OR c.CustomerName LIKE ?)"
             params.extend([f"%{search}%", f"%{search}%"])
 
+        if selected_month:
+            query += " AND YEAR(i.[Date]) = ? AND MONTH(i.[Date]) = ?"
+            params.extend([selected_year, selected_month])
+
         query += """
             GROUP BY
                 i.InvoiceID, i.[Date], i.TotalAmount, i.PaymentStatus,
@@ -1034,7 +1089,15 @@ def list_invoices():
         cursor.execute(query, params or ())
         invoices = cursor.fetchall()
 
-        return render_template("invoices/list.html", invoices=invoices, search=search)
+        return render_template(
+            "invoices/list.html",
+            invoices=invoices,
+            search=search,
+            months=MONTHS,
+            years=years,
+            selected_month=selected_month,
+            selected_year=selected_year,
+        )
 
     except Exception as e:
         flash(f"Error loading invoices: {str(e)}", "danger")
