@@ -10,7 +10,7 @@ from app.db import get_db_connection
 from app.wa_api import is_configured as wa_api_configured
 from app.wa_api import send_file_bytes as wa_send_file
 from app.whatsapp import public_file_url, whatsapp_url
-from app.tenancy import next_table_id, owner_sql, request_user_id
+from app.tenancy import next_owner_no, next_table_id, owner_sql, request_user_id
 from app.payments import (
     add_invoice_payment,
     clear_invoice_payments,
@@ -430,6 +430,36 @@ def _invoice_returnable_lines(cursor, invoice_id):
         (invoice_id,),
     )
     return cursor.fetchall()
+
+
+def _load_in_kind_form_data(cursor):
+    cursor.execute(
+        f"""
+        SELECT
+            COALESCE(
+                MIN(CASE WHEN i.Qty > 0 THEN i.ItemID END),
+                MIN(CASE WHEN i.PurchaseRate > 0 OR i.SaleRate > 0 THEN i.ItemID END),
+                MIN(i.ItemID)
+            ) AS ItemID,
+            MIN(i.ItemName) AS ItemName,
+            i.CategoryID,
+            c.CategoryName,
+            MAX(i.PurchaseRate) AS PurchaseRate,
+            MAX(i.SaleRate) AS SaleRate,
+            SUM(i.Qty) AS Qty
+        FROM Item i
+        LEFT JOIN Category c ON i.CategoryID = c.CategoryID
+        WHERE {owner_sql("i")}
+        GROUP BY LOWER(LTRIM(RTRIM(i.ItemName))), i.CategoryID, c.CategoryName
+        ORDER BY MIN(i.ItemName), c.CategoryName
+        """
+    )
+    items = cursor.fetchall()
+    cursor.execute(
+        f"SELECT CategoryID, CategoryName FROM Category WHERE {owner_sql()} ORDER BY CategoryName"
+    )
+    categories = cursor.fetchall()
+    return items, categories
 
 
 def _pdf_escape(value):
@@ -1410,6 +1440,7 @@ def invoice_payments(id):
         "amount": "",
         "notes": "",
         "payment_method": "Cash",
+        "item_mode": "existing",
     }
 
     try:
@@ -1418,6 +1449,7 @@ def invoice_payments(id):
         if not invoice:
             flash("Invoice not found.", "danger")
             return redirect(url_for("invoices.list_invoices"))
+        in_kind_items, in_kind_categories = _load_in_kind_form_data(cursor)
 
         paid_amount = invoice_paid_total(cursor, id)
         remaining = remaining_due(invoice.TotalAmount, paid_amount)
@@ -1447,10 +1479,153 @@ def invoice_payments(id):
             payment_method = normalize_payment_method(request.form.get("payment_method"))
             if payment_method == "In-Kind" and not (notes or "").strip():
                 errors.add("notes", "Notes are required for in-kind adjustment (items received).")
+            if payment_method == "In-Kind":
+                item_mode = (request.form.get("item_mode") or "existing").strip()
+                if item_mode not in {"existing", "new"}:
+                    errors.add("item_mode", "Select whether this is an existing or new item.")
+                quantity = clean_positive_int(
+                    request.form.get("quantity"),
+                    "quantity",
+                    errors,
+                    min_val=1,
+                    label="Quantity",
+                )
+                purchase_rate = clean_positive_decimal(
+                    request.form.get("purchase_rate"),
+                    "purchase_rate",
+                    errors,
+                    label="Purchase rate",
+                )
+                sale_rate = clean_positive_decimal(
+                    request.form.get("sale_rate"),
+                    "sale_rate",
+                    errors,
+                    label="Sale rate",
+                )
+            else:
+                item_mode = "existing"
+                quantity = None
+                purchase_rate = None
+                sale_rate = None
 
             if not errors.valid:
                 flash(errors.first(), "danger")
             else:
+                if payment_method == "In-Kind":
+                    expected_amount = round(float(quantity) * float(purchase_rate), 2)
+                    if abs(float(amount) - expected_amount) > 0.005:
+                        errors.add(
+                            "amount",
+                            f"In-kind amount must equal Qty × Purchase Rate (Rs {expected_amount:,.2f}).",
+                        )
+                        flash(errors.first(), "danger")
+                        payments = list_invoice_payments(cursor, id)
+                        return render_template(
+                            "invoices/payments.html",
+                            invoice=invoice,
+                            payments=payments,
+                            paid_amount=paid_amount,
+                            remaining=remaining,
+                            errors=errors.errors,
+                            form_data=form_data,
+                            in_kind_items=in_kind_items,
+                            in_kind_categories=in_kind_categories,
+                        )
+
+                    if item_mode == "existing":
+                        item_id = clean_select_id(
+                            request.form.get("item_id"), "item_id", errors, label="Item"
+                        )
+                        if errors.valid:
+                            cursor.execute(
+                                f"SELECT ItemID FROM Item WHERE ItemID = ? AND {owner_sql()}",
+                                (item_id,),
+                            )
+                            if not cursor.fetchone():
+                                errors.add("item_id", "Selected item was not found.")
+                        if errors.valid:
+                            cursor.execute(
+                                f"""
+                                UPDATE Item
+                                SET Qty = Qty + ?, PurchaseRate = ?, SaleRate = ?
+                                WHERE ItemID = ? AND {owner_sql()}
+                                """,
+                                (quantity, purchase_rate, sale_rate, item_id),
+                            )
+                    else:
+                        item_name = (request.form.get("item_name") or "").strip()
+                        category_id = clean_select_id(
+                            request.form.get("category_id"),
+                            "category_id",
+                            errors,
+                            label="Category",
+                        )
+                        if not item_name:
+                            errors.add("item_name", "Item name is required.")
+                        if errors.valid:
+                            cursor.execute(
+                                f"""
+                                SELECT TOP 1 ItemID
+                                FROM Item
+                                WHERE LOWER(LTRIM(RTRIM(ItemName))) = LOWER(LTRIM(RTRIM(?)))
+                                  AND CategoryID = ?
+                                  AND {owner_sql()}
+                                ORDER BY Qty DESC, ItemID ASC
+                                """,
+                                (item_name, category_id),
+                            )
+                            existing_item = cursor.fetchone()
+                            if existing_item:
+                                cursor.execute(
+                                    f"""
+                                    UPDATE Item
+                                    SET Qty = Qty + ?, PurchaseRate = ?, SaleRate = ?
+                                    WHERE ItemID = ? AND {owner_sql()}
+                                    """,
+                                    (
+                                        quantity,
+                                        purchase_rate,
+                                        sale_rate,
+                                        int(existing_item.ItemID),
+                                    ),
+                                )
+                            else:
+                                next_item_id = next_table_id(cursor, "Item", "ItemID")
+                                next_item_no = next_owner_no(cursor, "Item", "ItemNo")
+                                cursor.execute(
+                                    """
+                                    INSERT INTO Item (
+                                        ItemID, ItemNo, ItemName, CategoryID, PurchaseRate, SaleRate, Qty, UserID
+                                    )
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                    """,
+                                    (
+                                        next_item_id,
+                                        next_item_no,
+                                        item_name,
+                                        category_id,
+                                        purchase_rate,
+                                        sale_rate,
+                                        quantity,
+                                        request_user_id(),
+                                    ),
+                                )
+
+                if not errors.valid:
+                    flash(errors.first(), "danger")
+                    payments = list_invoice_payments(cursor, id)
+                    return render_template(
+                        "invoices/payments.html",
+                        invoice=invoice,
+                        payments=payments,
+                        paid_amount=paid_amount,
+                        remaining=remaining,
+                        errors=errors.errors,
+                        form_data=form_data,
+                        in_kind_items=in_kind_items,
+                        in_kind_categories=in_kind_categories,
+                    )
+
                 payment_datetime = datetime.combine(
                     datetime.strptime(payment_date_value, "%Y-%m-%d").date(),
                     datetime.now().time(),
@@ -1474,6 +1649,8 @@ def invoice_payments(id):
             remaining=remaining,
             errors=errors.errors,
             form_data=form_data,
+            in_kind_items=in_kind_items,
+            in_kind_categories=in_kind_categories,
         )
 
     except ValueError as e:
