@@ -7,6 +7,8 @@ from flask_login import login_required
 from app import app
 from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
 from app.db import get_db_connection
+from app.wa_api import is_configured as wa_api_configured
+from app.wa_api import send_file_bytes as wa_send_file
 from app.whatsapp import (
     INVOICE_PDF_KIND,
     public_file_url,
@@ -938,13 +940,33 @@ def invoice_whatsapp(id):
             if errors.valid and not whatsapp_url(phone):
                 errors.add("whatsapp_number", "Enter a valid WhatsApp mobile number.")
             if errors.valid:
-                pdf_link = public_file_url(share_path)
-                message = (
-                    f"Invoice #{invoice.InvoiceID} — {invoice.CustomerName}\n"
-                    f"Amount: Rs {float(invoice.TotalAmount or 0):,.2f}\n"
-                    f"Download PDF: {pdf_link}"
-                )
-                return redirect(whatsapp_url(phone, message))
+                if wa_api_configured():
+                    # Send actual PDF file via WhatsApp Business API
+                    details_for_pdf = _load_invoice_pdf_details(cursor, id)
+                    pdf_buf = _build_invoice_pdf(invoice, details_for_pdf)
+                    pdf_bytes = pdf_buf.read()
+                    caption = (
+                        f"Invoice #{invoice.InvoiceID} — {invoice.CustomerName}\n"
+                        f"Amount: Rs {float(invoice.TotalAmount or 0):,.2f}"
+                    )
+                    _result, err = wa_send_file(
+                        phone, pdf_bytes, "application/pdf",
+                        f"invoice_{invoice.InvoiceID}.pdf", caption,
+                    )
+                    if err:
+                        flash(f"WhatsApp send failed: {err}", "danger")
+                    else:
+                        flash("Invoice PDF sent to WhatsApp.", "success")
+                        return redirect(url_for("invoices.list_invoices"))
+                else:
+                    # Fallback: open wa.me with a download link in the text
+                    pdf_link = public_file_url(share_path)
+                    message = (
+                        f"Invoice #{invoice.InvoiceID} — {invoice.CustomerName}\n"
+                        f"Amount: Rs {float(invoice.TotalAmount or 0):,.2f}\n"
+                        f"Download PDF: {pdf_link}"
+                    )
+                    return redirect(whatsapp_url(phone, message))
             else:
                 flash(errors.first(), "danger")
 
@@ -952,6 +974,7 @@ def invoice_whatsapp(id):
             "invoices/whatsapp.html",
             invoice=invoice,
             share_path=share_path,
+            wa_api=wa_api_configured(),
             form_data={"whatsapp_number": entered_number or ""},
             errors=errors.errors,
         )

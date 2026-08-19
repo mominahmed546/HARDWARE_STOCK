@@ -28,19 +28,27 @@
             </div>
 
             <div class="wa-step-box" style="margin-bottom:1.25rem;">
-                <div class="wa-step-num" style="background:#128c7e;font-size:1.1rem;">↓</div>
+                <div class="wa-step-num" style="background:#128c7e;">✉</div>
                 <div>
-                    <strong>How it works</strong>
+                    {% if wa_api %}
+                    <strong>The actual Excel file will be sent directly into the WhatsApp chat.</strong>
                     <p class="quotation-help" style="margin-top:.35rem;">
-                        WhatsApp opens with a message containing a <strong>download link for QUOTATION.xlsx</strong>.
-                        The recipient taps the link once to download the Excel file.
-                        After downloading, they can open it anytime — <strong>no internet needed</strong>.
+                        The recipient receives QUOTATION.xlsx in WhatsApp and can open it anytime — no internet needed after receiving.
                     </p>
+                    {% else %}
+                    <strong>WhatsApp opens with a download link for QUOTATION.xlsx.</strong>
+                    <p class="quotation-help" style="margin-top:.35rem;">
+                        The recipient taps the link once to download it. After that they can open it offline.<br>
+                        To send the actual file automatically, add <code>WA_TOKEN</code> and <code>WA_PHONE_ID</code> in Render → Environment.
+                    </p>
+                    {% endif %}
                 </div>
             </div>
 
             <div class="form-actions">
-                <button type="submit" class="btn btn-whatsapp">Send on WhatsApp</button>
+                <button type="submit" class="btn btn-whatsapp">
+                    {% if wa_api %}Send Excel on WhatsApp{% else %}Send Excel link on WhatsApp{% endif %}
+                </button>
                 <a href="{{ url_for('quotations.quotation_excel', id=quotation.QuotationID) }}"
                    class="btn btn-info">Download Excel</a>
                 <a href="{{ url_for('quotations.list_quotations') }}" class="btn btn-secondary">Back</a>

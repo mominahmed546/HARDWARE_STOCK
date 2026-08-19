@@ -7,6 +7,8 @@ from app import app
 from app.db import get_db_connection
 from app.quotations.excel import MAX_LINE_ROWS, build_quotation_xlsx, line_amount, sqft_for_line
 from app.tenancy import owner_sql, request_user_id
+from app.wa_api import is_configured as wa_api_configured
+from app.wa_api import send_file_bytes as wa_send_file
 from app.whatsapp import (
     QUOTATION_EXCEL_KIND,
     public_file_url,
@@ -492,13 +494,35 @@ def quotation_whatsapp(id):
             if errors.valid and not whatsapp_url(phone):
                 errors.add("whatsapp_number", "Enter a valid WhatsApp mobile number.")
             if errors.valid:
-                xl_link = public_file_url(share_path)
-                message = (
-                    f"Quotation #{quotation.QuotationNo} — {quotation.CustomerName}\n"
-                    f"Amount: Rs {float(quotation.TotalAmount or 0):,.2f}\n"
-                    f"Download Excel: {xl_link}"
-                )
-                return redirect(whatsapp_url(phone, message))
+                if wa_api_configured():
+                    # Send actual Excel file via WhatsApp Business API
+                    details = _load_quotation_details(cursor, id)
+                    header, lines = _quotation_header_payload(quotation, details)
+                    xl_buf = build_quotation_xlsx(header, lines)
+                    xl_bytes = xl_buf.read()
+                    caption = (
+                        f"Quotation #{quotation.QuotationNo} — {quotation.CustomerName}\n"
+                        f"Amount: Rs {float(quotation.TotalAmount or 0):,.2f}"
+                    )
+                    _result, err = wa_send_file(
+                        phone, xl_bytes,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "QUOTATION.xlsx", caption,
+                    )
+                    if err:
+                        flash(f"WhatsApp send failed: {err}", "danger")
+                    else:
+                        flash("Quotation Excel sent to WhatsApp.", "success")
+                        return redirect(url_for("quotations.list_quotations"))
+                else:
+                    # Fallback: open wa.me with a download link in the text
+                    xl_link = public_file_url(share_path)
+                    message = (
+                        f"Quotation #{quotation.QuotationNo} — {quotation.CustomerName}\n"
+                        f"Amount: Rs {float(quotation.TotalAmount or 0):,.2f}\n"
+                        f"Download Excel: {xl_link}"
+                    )
+                    return redirect(whatsapp_url(phone, message))
             else:
                 flash(errors.first(), "danger")
 
@@ -506,6 +530,7 @@ def quotation_whatsapp(id):
             "quotations/whatsapp.html",
             quotation=quotation,
             share_path=share_path,
+            wa_api=wa_api_configured(),
             form_data={"whatsapp_number": entered_number or ""},
             errors=errors.errors,
         )
