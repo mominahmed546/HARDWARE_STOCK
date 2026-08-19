@@ -1,13 +1,19 @@
 from datetime import date, datetime
 from io import BytesIO
 
-from flask import Blueprint, flash, redirect, render_template, request, send_file, url_for
+from flask import Blueprint, abort, flash, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
 
 from app import app
 from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
 from app.db import get_db_connection
-from app.whatsapp import whatsapp_url
+from app.whatsapp import (
+    INVOICE_PDF_KIND,
+    public_file_url,
+    share_token,
+    share_token_valid,
+    whatsapp_url,
+)
 from app.tenancy import next_table_id, owner_sql, request_user_id
 from app.payments import (
     add_invoice_payment,
@@ -889,6 +895,24 @@ def invoice_pdf(id):
         cursor.close()
 
 
+@invoices_bp.route("/<int:id>/pdf/share/<token>")
+def invoice_pdf_share(id, token):
+    """Login-free PDF download used in WhatsApp messages."""
+    if not share_token_valid(INVOICE_PDF_KIND, id, token):
+        abort(404)
+    db = get_db_connection(app)
+    cursor = db.cursor()
+    try:
+        _ensure_invoice_schema(db, cursor)
+        invoice = _load_invoice_record(cursor, id)
+        if not invoice:
+            abort(404)
+        details = _load_invoice_pdf_details(cursor, id)
+        return _send_invoice_pdf(invoice, details, id, as_attachment=True)
+    finally:
+        cursor.close()
+
+
 @invoices_bp.route("/<int:id>/whatsapp", methods=["GET", "POST"])
 @login_required
 def invoice_whatsapp(id):
@@ -906,22 +930,28 @@ def invoice_whatsapp(id):
         entered_number = (
             request.form.get("whatsapp_number") if request.method == "POST" else (invoice.ContactNo or "")
         )
+        token = share_token(INVOICE_PDF_KIND, id)
+        share_path = url_for("invoices.invoice_pdf_share", id=id, token=token)
 
         if request.method == "POST":
             phone = clean_phone(entered_number, "whatsapp_number", errors, required=True, max_len=20)
-            link = whatsapp_url(phone) if errors.valid else None
-            if errors.valid and not link:
+            if errors.valid and not whatsapp_url(phone):
                 errors.add("whatsapp_number", "Enter a valid WhatsApp mobile number.")
-            if not errors.valid:
-                flash(errors.first(), "danger")
+            if errors.valid:
+                pdf_link = public_file_url(share_path)
+                message = (
+                    f"Invoice #{invoice.InvoiceID} — {invoice.CustomerName}\n"
+                    f"Amount: Rs {float(invoice.TotalAmount or 0):,.2f}\n"
+                    f"Download PDF: {pdf_link}"
+                )
+                return redirect(whatsapp_url(phone, message))
             else:
-                flash("The PDF must be attached from this device. Download it, then attach that file in WhatsApp.", "info")
-                return redirect(link)
+                flash(errors.first(), "danger")
 
         return render_template(
             "invoices/whatsapp.html",
             invoice=invoice,
-            file_url=url_for("invoices.invoice_pdf", id=id, download=1),
+            share_path=share_path,
             form_data={"whatsapp_number": entered_number or ""},
             errors=errors.errors,
         )

@@ -1,13 +1,19 @@
 from datetime import date, datetime
 
-from flask import Blueprint, flash, redirect, render_template, request, send_file, url_for
+from flask import Blueprint, abort, flash, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
 
 from app import app
 from app.db import get_db_connection
 from app.quotations.excel import MAX_LINE_ROWS, build_quotation_xlsx, line_amount, sqft_for_line
 from app.tenancy import owner_sql, request_user_id
-from app.whatsapp import whatsapp_url
+from app.whatsapp import (
+    QUOTATION_EXCEL_KIND,
+    public_file_url,
+    share_token,
+    share_token_valid,
+    whatsapp_url,
+)
 from app.validators import (
     ValidationErrors,
     clean_date,
@@ -420,6 +426,24 @@ def list_quotations():
         cursor.close()
 
 
+@quotations_bp.route("/<int:id>/excel/share/<token>")
+def quotation_excel_share(id, token):
+    """Login-free Excel download used in WhatsApp messages."""
+    if not share_token_valid(QUOTATION_EXCEL_KIND, id, token):
+        abort(404)
+    db = get_db_connection(app)
+    cursor = db.cursor()
+    try:
+        ensure_quotations_schema(db, cursor)
+        quotation = _load_quotation(cursor, id)
+        if not quotation:
+            abort(404)
+        details = _load_quotation_details(cursor, id)
+        return _send_quotation_excel(quotation, details)
+    finally:
+        cursor.close()
+
+
 @quotations_bp.route("/<int:id>/excel")
 @login_required
 def quotation_excel(id):
@@ -460,22 +484,28 @@ def quotation_whatsapp(id):
         entered_number = (
             request.form.get("whatsapp_number") if request.method == "POST" else (quotation.ContactNo or "")
         )
+        token = share_token(QUOTATION_EXCEL_KIND, id)
+        share_path = url_for("quotations.quotation_excel_share", id=id, token=token)
 
         if request.method == "POST":
             phone = clean_phone(entered_number, "whatsapp_number", errors, required=True, max_len=20)
-            link = whatsapp_url(phone) if errors.valid else None
-            if errors.valid and not link:
+            if errors.valid and not whatsapp_url(phone):
                 errors.add("whatsapp_number", "Enter a valid WhatsApp mobile number.")
-            if not errors.valid:
-                flash(errors.first(), "danger")
+            if errors.valid:
+                xl_link = public_file_url(share_path)
+                message = (
+                    f"Quotation #{quotation.QuotationNo} — {quotation.CustomerName}\n"
+                    f"Amount: Rs {float(quotation.TotalAmount or 0):,.2f}\n"
+                    f"Download Excel: {xl_link}"
+                )
+                return redirect(whatsapp_url(phone, message))
             else:
-                flash("The Excel file must be attached from this device. Download it, then attach that file in WhatsApp.", "info")
-                return redirect(link)
+                flash(errors.first(), "danger")
 
         return render_template(
             "quotations/whatsapp.html",
             quotation=quotation,
-            file_url=url_for("quotations.quotation_excel", id=id),
+            share_path=share_path,
             form_data={"whatsapp_number": entered_number or ""},
             errors=errors.errors,
         )

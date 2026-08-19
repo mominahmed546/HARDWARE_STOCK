@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% from 'macros/form.html' import field_error %}
 
-{% block title %}Send Invoice PDF on WhatsApp - Hardware Stock Management{% endblock %}
-{% block page_title %}Send Invoice PDF on WhatsApp{% endblock %}
+{% block title %}Send Invoice on WhatsApp - Hardware Stock Management{% endblock %}
+{% block page_title %}Send Invoice on WhatsApp{% endblock %}
 {% block page_subtitle %}
 <p>Invoice #{{ invoice.InvoiceID }} for {{ invoice.CustomerName }}</p>
 {% endblock %}
@@ -15,64 +15,35 @@
 {% set fd = form_data or {} %}
 <div class="form-container">
     <div class="form-card quotation-whatsapp-card">
-        <form class="form" data-whatsapp-file onsubmit="return false;"
-              data-file-url="{{ file_url }}"
-              data-file-name="invoice_{{ invoice.InvoiceID }}.pdf"
-              data-file-type="application/pdf">
-
+        <form method="POST" class="form" data-validate novalidate>
             <div class="form-group">
                 <label for="whatsapp_number">WhatsApp number</label>
                 <input type="tel" id="whatsapp_number" name="whatsapp_number"
                        value="{{ fd.get('whatsapp_number', '') }}"
                        maxlength="20" required
-                       placeholder="e.g. 0300-1234567">
+                       placeholder="e.g. 0300-1234567"
+                       class="{% if errors and errors.get('whatsapp_number') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'whatsapp_number') }}
                 <p class="quotation-help">Pakistan numbers like 0300-1234567 are converted automatically.</p>
             </div>
 
-            <p class="wa-error quotation-help" data-wa-error hidden style="color:#b91c1c;font-weight:600;"></p>
-
-            <div data-step="1">
-                <div class="wa-step-box">
-                    <div class="wa-step-num">1</div>
-                    <div>
-                        <strong>Save the PDF to this device</strong>
-                        <p class="quotation-help">The file will be downloaded to your device.</p>
-                        <button type="button" class="btn btn-whatsapp" data-wa-download data-label="Step 1 — Save PDF &amp; open WhatsApp">Step 1 — Save PDF &amp; open WhatsApp</button>
-                    </div>
+            <div class="wa-step-box" style="margin-bottom:1.25rem;">
+                <div class="wa-step-num" style="background:#128c7e;">✉</div>
+                <div>
+                    <strong>How this works</strong>
+                    <p class="quotation-help" style="margin-top:0.4rem;">
+                        WhatsApp opens with a message that contains a <strong>direct download link</strong> for the invoice PDF.
+                        The customer taps the link to download and open the PDF — no internet required after that.
+                    </p>
                 </div>
             </div>
 
-            <div data-step="2" hidden>
-                <div class="wa-step-box wa-step-box-done">
-                    <div class="wa-step-num wa-step-done">✓</div>
-                    <div><strong>PDF saved to your Downloads folder.</strong></div>
-                </div>
-                <div class="wa-step-box">
-                    <div class="wa-step-num">2</div>
-                    <div>
-                        <strong>Open WhatsApp and attach the file</strong>
-                        <p class="quotation-help">In the chat, tap the <strong>paperclip / + icon</strong>, choose <strong>Document</strong>, then select <strong>invoice_{{ invoice.InvoiceID }}.pdf</strong> from your Downloads folder.</p>
-                        <button type="button" class="btn btn-whatsapp" data-wa-open>Step 2 — Open WhatsApp chat</button>
-                    </div>
-                </div>
-            </div>
-
-            <div data-step="done" hidden>
-                <div class="wa-step-box wa-step-box-done">
-                    <div class="wa-step-num wa-step-done">✓</div>
-                    <div><strong>File sent via WhatsApp.</strong></div>
-                </div>
-            </div>
-
-            <div class="form-actions" style="margin-top:1.5rem;">
+            <div class="form-actions">
+                <button type="submit" class="btn btn-whatsapp">Send on WhatsApp</button>
                 <a href="{{ url_for('invoices.invoice_pdf', id=invoice.InvoiceID) }}" class="btn btn-info" target="_blank" rel="noopener noreferrer">Open PDF</a>
-                <a href="{{ url_for('invoices.list_invoices') }}" class="btn btn-secondary">Back to Invoices</a>
+                <a href="{{ url_for('invoices.list_invoices') }}" class="btn btn-secondary">Back</a>
             </div>
         </form>
     </div>
 </div>
-{% endblock %}
-
-{% block extra_js %}
-<script src="{{ url_for('static', filename='js/whatsapp-file.js') }}"></script>
 {% endblock %}
