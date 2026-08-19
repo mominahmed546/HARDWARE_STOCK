@@ -1484,7 +1484,7 @@ def invoice_payments(id):
     cursor = db.cursor()
     errors = ValidationErrors()
     form_data = {
-        "payment_date": date.today().isoformat(),
+        "payment_date": "",
         "amount": "",
         "notes": "",
         "payment_method": "Cash",
@@ -1497,6 +1497,8 @@ def invoice_payments(id):
         if not invoice:
             flash("Invoice not found.", "danger")
             return redirect(url_for("invoices.list_invoices"))
+        invoice_date_default = _invoice_date_iso(invoice.InvoiceDate)
+        form_data["payment_date"] = invoice_date_default
         in_kind_items, in_kind_categories = _load_in_kind_form_data(cursor)
 
         paid_amount = invoice_paid_total(cursor, id)
@@ -1506,7 +1508,7 @@ def invoice_payments(id):
             form_data = request.form.to_dict()
             in_kind_rows = _in_kind_rows_from_form(request.form)
             payment_date_value = clean_date(
-                request.form.get("payment_date") or date.today().isoformat(),
+                request.form.get("payment_date") or invoice_date_default,
                 "payment_date",
                 errors,
                 label="Payment date",
