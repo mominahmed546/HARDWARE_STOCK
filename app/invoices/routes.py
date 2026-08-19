@@ -605,29 +605,28 @@ def _build_invoice_pdf(invoice, details):
     invoice_due = max(total_amount - cash_received, 0)
 
     # ── Footer table ─────────────────────────────────────────────────────────
-    # All 5 rows share the same column grid:
-    #   - full-width border box
-    #   - vertical divider at col_qty_right (left of RATE) and col_rate_right
-    #   - label at col_qty_right + 4 (start of RATE cell)
-    #   - amount right-aligned in TOTAL cell
-    # TOTAL and Net Balance get the dark-navy fill + white text.
+    # Box spans only from col_qty_right to col_total_right (no empty left cells).
+    # One divider at col_rate_right separates label from amount.
+    # TOTAL and Net Balance: dark-navy fill + white bold text.
     row_h_footer = 18
+    footer_w = col_total_right - col_qty_right
 
     def footer_row(label, amount_str, highlight=False):
         nonlocal y
+        bx = col_qty_right           # box starts at RATE column left edge
         if highlight:
-            filled_rect(table_x, y - row_h_footer + 4, table_w, row_h_footer,
+            filled_rect(bx, y - row_h_footer + 4, footer_w, row_h_footer,
                         0.102, 0.157, 0.259)
         else:
-            rect(table_x, y - row_h_footer + 4, table_w, row_h_footer)
-        line(col_qty_right,  y - row_h_footer + 4, col_qty_right,  y + 4)
+            rect(bx, y - row_h_footer + 4, footer_w, row_h_footer)
+        # Divider between RATE label cell and TOTAL amount cell
         line(col_rate_right, y - row_h_footer + 4, col_rate_right, y + 4)
         mid_y = y - (row_h_footer / 2) + 2
         if highlight:
             commands.append("1 1 1 rg")
         font = "F2" if highlight else "F1"
         size = 11 if highlight else 10
-        text(col_qty_right + 4, mid_y - 3, label, size, font)
+        text(bx + 4, mid_y - 3, label, size, font)
         text_right(col_total_right - 4, mid_y - 3, amount_str, size, font)
         if highlight:
             commands.append("0 0 0 rg")
