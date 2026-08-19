@@ -164,22 +164,19 @@ def dashboard():
 
         recent_customers = cursor.fetchall()
 
-        from datetime import date as _date
         ensure_invoice_payments_table(db, cursor)
         ensure_cash_accounts(db, cursor)
         ensure_purchase_payments_table(db, cursor)
         cash_opening, bank_opening = get_cash_openings(cursor)
-        today = _date.today()
         cursor.execute(
             f"""
             SELECT
                 ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Bank' THEN Amount ELSE 0 END), 0) AS BankAmount,
                 ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Cash' THEN Amount ELSE 0 END), 0) AS CashAmount
             FROM InvoicePayments
-            WHERE CAST(PaymentDate AS DATE) = ?
+            WHERE CAST(PaymentDate AS DATE) = CURRENT_DATE
               AND InvoiceID IN (SELECT InvoiceID FROM Invoices WHERE {owner_sql()})
             """,
-            (today,),
         )
         today_row = cursor.fetchone()
         today_cash = float(today_row.CashAmount or 0) if today_row else 0
@@ -190,10 +187,9 @@ def dashboard():
                 ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Bank' THEN Amount ELSE 0 END), 0) AS BankAmount,
                 ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Cash' THEN Amount ELSE 0 END), 0) AS CashAmount
             FROM InvoicePayments
-            WHERE CAST(PaymentDate AS DATE) <= ?
+            WHERE CAST(PaymentDate AS DATE) <= CURRENT_DATE
               AND InvoiceID IN (SELECT InvoiceID FROM Invoices WHERE {owner_sql()})
             """,
-            (today,),
         )
         all_row = cursor.fetchone()
         cash_received_total = float(all_row.CashAmount or 0) if all_row else 0
@@ -205,10 +201,9 @@ def dashboard():
                 ISNULL(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Cash' THEN pp.Amount ELSE 0 END), 0) AS CashPaid
             FROM PurchasePayments pp
             JOIN Purchases p ON p.PurchaseID = pp.PurchaseID
-            WHERE CAST(pp.PaymentDate AS DATE) <= ?
+            WHERE CAST(pp.PaymentDate AS DATE) <= CURRENT_DATE
               AND {owner_sql("p")}
             """,
-            (today,),
         )
         purchases_row = cursor.fetchone()
         cash_paid_total = float(purchases_row.CashPaid or 0) if purchases_row else 0

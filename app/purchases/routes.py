@@ -1,3 +1,5 @@
+from datetime import date
+
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 
 from flask_login import login_required
@@ -725,11 +727,7 @@ def purchase_payments(id):
         if not purchase:
             flash("Purchase not found.", "danger")
             return redirect(url_for("purchases.list_purchases"))
-        form_data["payment_date"] = (
-            purchase.PurchaseDate.isoformat()
-            if hasattr(purchase.PurchaseDate, "isoformat")
-            else str(purchase.PurchaseDate)[:10]
-        )
+        form_data["payment_date"] = date.today().isoformat()
         paid_amount = purchase_paid_total(cursor, id)
         remaining = purchase_remaining_due(purchase.TotalAmount, paid_amount)
         if request.method == "POST":
