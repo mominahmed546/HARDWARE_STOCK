@@ -13,6 +13,17 @@
         <div class="search-bar">
             <form method="GET" class="search-form">
                 <input type="text" name="search" placeholder="Search invoice or customer..." value="{{ search }}">
+                <select name="month" onchange="this.form.submit()">
+                    <option value="">All months</option>
+                    {% for month_name in months %}
+                    <option value="{{ loop.index }}" {% if selected_month == loop.index %}selected{% endif %}>{{ month_name }}</option>
+                    {% endfor %}
+                </select>
+                <select name="year" onchange="this.form.submit()">
+                    {% for year in years %}
+                    <option value="{{ year }}" {% if selected_year == year %}selected{% endif %}>{{ year }}</option>
+                    {% endfor %}
+                </select>
                 <button type="submit" class="btn btn-primary">Search</button>
             </form>
         </div>
