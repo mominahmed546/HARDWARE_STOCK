@@ -41,6 +41,18 @@
         gap: 1.5rem;
         align-items: start;
     }
+    .in-kind-table th,
+    .in-kind-table td {
+        font-size: 0.85rem;
+        vertical-align: top;
+    }
+    .in-kind-table input,
+    .in-kind-table select {
+        min-width: 120px;
+    }
+    .in-kind-actions {
+        margin-top: 0.5rem;
+    }
     @media (max-width: 900px) {
         .payment-summary,
         .payment-layout { grid-template-columns: 1fr; }
@@ -51,6 +63,7 @@
 {% block content %}
 {% set fd = form_data or {} %}
 {% set status = (invoice.PaymentStatus or 'Unpaid') %}
+{% set rows = in_kind_rows or [{'item_mode':'existing','item_id':'','item_name':'','category_id':'','quantity':'1','purchase_rate':'0','sale_rate':'0'}] %}
 <div class="container">
     <div class="payment-summary">
         <div class="payment-card">
@@ -103,69 +116,81 @@
                     </select>
                 </div>
                 <div id="in-kind-fields" style="display:none;">
-                    <div class="form-group">
-                        <label for="item_mode">Item Type</label>
-                        <select id="item_mode" name="item_mode" class="{% if errors and errors.get('item_mode') %}is-invalid{% endif %}">
-                            <option value="existing" {% if fd.get('item_mode', 'existing') == 'existing' %}selected{% endif %}>Existing item</option>
-                            <option value="new" {% if fd.get('item_mode') == 'new' %}selected{% endif %}>New item</option>
-                        </select>
-                        {{ field_error(errors, 'item_mode') }}
-                    </div>
-                    <div class="form-group existing-item-field">
-                        <label for="item_id">Existing Item</label>
-                        <select id="item_id" name="item_id" class="{% if errors and errors.get('item_id') %}is-invalid{% endif %}">
-                            <option value="">Select item</option>
-                            {% for item in in_kind_items %}
-                            <option value="{{ item.ItemID }}"
-                                    data-purchase-rate="{{ item.PurchaseRate }}"
-                                    data-sale-rate="{{ item.SaleRate }}"
-                                    {% if fd.get('item_id')|string == item.ItemID|string %}selected{% endif %}>
-                                {{ item.ItemName }} - {{ item.CategoryName or 'N/A' }} (Current Qty: {{ item.Qty }})
-                            </option>
+                    <label>In-kind items (you can add multiple rows)</label>
+                    <table class="data-table in-kind-table">
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Existing Item</th>
+                                <th>New Item Name</th>
+                                <th>Category</th>
+                                <th>Qty</th>
+                                <th>Purchase Rate</th>
+                                <th>Sale Rate</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="in-kind-rows">
+                            {% for row in rows %}
+                            {% set row_idx = loop.index %}
+                            <tr class="in-kind-row">
+                                <td>
+                                    <select name="item_mode[]" class="item-mode">
+                                        <option value="existing" {% if row.item_mode == 'existing' %}selected{% endif %}>Existing</option>
+                                        <option value="new" {% if row.item_mode == 'new' %}selected{% endif %}>New</option>
+                                    </select>
+                                    {{ field_error(errors, 'item_mode_' ~ row_idx) }}
+                                </td>
+                                <td>
+                                    <select name="item_id[]" class="existing-item">
+                                        <option value="">Select item</option>
+                                        {% for item in in_kind_items %}
+                                        <option value="{{ item.ItemID }}"
+                                                data-purchase-rate="{{ item.PurchaseRate }}"
+                                                data-sale-rate="{{ item.SaleRate }}"
+                                                {% if row.item_id|string == item.ItemID|string %}selected{% endif %}>
+                                            {{ item.ItemName }} - {{ item.CategoryName or 'N/A' }} (Current Qty: {{ item.Qty }})
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    {{ field_error(errors, 'item_id_' ~ row_idx) }}
+                                </td>
+                                <td>
+                                    <input type="text" name="item_name[]" value="{{ row.item_name or '' }}" maxlength="100" class="new-item-name">
+                                    {{ field_error(errors, 'item_name_' ~ row_idx) }}
+                                </td>
+                                <td>
+                                    <select name="category_id[]" class="new-item-category">
+                                        <option value="">Select category</option>
+                                        {% for category in in_kind_categories %}
+                                        <option value="{{ category.CategoryID }}"
+                                                {% if row.category_id|string == category.CategoryID|string %}selected{% endif %}>
+                                            {{ category.CategoryName }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                    {{ field_error(errors, 'category_id_' ~ row_idx) }}
+                                </td>
+                                <td>
+                                    <input type="number" name="quantity[]" min="1" step="1" value="{{ row.quantity or '' }}" class="row-qty">
+                                    {{ field_error(errors, 'quantity_' ~ row_idx) }}
+                                </td>
+                                <td>
+                                    <input type="number" name="purchase_rate[]" min="0.01" step="0.01" value="{{ row.purchase_rate or '' }}" class="row-prate">
+                                    {{ field_error(errors, 'purchase_rate_' ~ row_idx) }}
+                                </td>
+                                <td>
+                                    <input type="number" name="sale_rate[]" min="0.01" step="0.01" value="{{ row.sale_rate or '' }}" class="row-srate">
+                                    {{ field_error(errors, 'sale_rate_' ~ row_idx) }}
+                                </td>
+                                <td><button type="button" class="btn btn-sm btn-danger remove-row">X</button></td>
+                            </tr>
                             {% endfor %}
-                        </select>
-                        {{ field_error(errors, 'item_id') }}
-                    </div>
-                    <div class="form-group new-item-field" style="display:none;">
-                        <label for="item_name">New Item Name</label>
-                        <input type="text" id="item_name" name="item_name" maxlength="100"
-                               value="{{ fd.get('item_name', '') }}"
-                               class="{% if errors and errors.get('item_name') %}is-invalid{% endif %}">
-                        {{ field_error(errors, 'item_name') }}
-                    </div>
-                    <div class="form-group new-item-field" style="display:none;">
-                        <label for="category_id">Category</label>
-                        <select id="category_id" name="category_id" class="{% if errors and errors.get('category_id') %}is-invalid{% endif %}">
-                            <option value="">Select category</option>
-                            {% for category in in_kind_categories %}
-                            <option value="{{ category.CategoryID }}"
-                                    {% if fd.get('category_id')|string == category.CategoryID|string %}selected{% endif %}>
-                                {{ category.CategoryName }}
-                            </option>
-                            {% endfor %}
-                        </select>
-                        {{ field_error(errors, 'category_id') }}
-                    </div>
-                    <div class="form-group">
-                        <label for="quantity">Quantity</label>
-                        <input type="number" id="quantity" name="quantity" min="1" step="1"
-                               value="{{ fd.get('quantity', '1') }}"
-                               class="{% if errors and errors.get('quantity') %}is-invalid{% endif %}">
-                        {{ field_error(errors, 'quantity') }}
-                    </div>
-                    <div class="form-group">
-                        <label for="purchase_rate">Purchase Rate</label>
-                        <input type="number" id="purchase_rate" name="purchase_rate" min="0.01" step="0.01"
-                               value="{{ fd.get('purchase_rate', '0') }}"
-                               class="{% if errors and errors.get('purchase_rate') %}is-invalid{% endif %}">
-                        {{ field_error(errors, 'purchase_rate') }}
-                    </div>
-                    <div class="form-group">
-                        <label for="sale_rate">Sale Rate</label>
-                        <input type="number" id="sale_rate" name="sale_rate" min="0.01" step="0.01"
-                               value="{{ fd.get('sale_rate', '0') }}"
-                               class="{% if errors and errors.get('sale_rate') %}is-invalid{% endif %}">
-                        {{ field_error(errors, 'sale_rate') }}
+                        </tbody>
+                    </table>
+                    {{ field_error(errors, 'in_kind_rows') }}
+                    <div class="in-kind-actions">
+                        <button type="button" id="add-row" class="btn btn-sm btn-secondary">+ Add Item Row</button>
                     </div>
                 </div>
                 <div class="form-group">
@@ -226,69 +251,82 @@
 <script>
     const paymentMethod = document.getElementById('payment_method');
     const inKindFields = document.getElementById('in-kind-fields');
-    const itemMode = document.getElementById('item_mode');
-    const existingItemField = document.querySelector('.existing-item-field');
-    const newItemFields = document.querySelectorAll('.new-item-field');
-    const itemSelect = document.getElementById('item_id');
-    const quantityInput = document.getElementById('quantity');
-    const purchaseRateInput = document.getElementById('purchase_rate');
-    const saleRateInput = document.getElementById('sale_rate');
+    const rowsTbody = document.getElementById('in-kind-rows');
+    const addRowBtn = document.getElementById('add-row');
     const amountInput = document.getElementById('amount');
-    const itemName = document.getElementById('item_name');
-    const categorySelect = document.getElementById('category_id');
 
     function syncPaymentMode() {
         const isInKind = paymentMethod.value === 'In-Kind';
         inKindFields.style.display = isInKind ? 'block' : 'none';
-        quantityInput.required = isInKind;
-        purchaseRateInput.required = isInKind;
-        saleRateInput.required = isInKind;
-        itemMode.required = isInKind;
-        if (!isInKind) {
-            itemSelect.required = false;
-            itemName.required = false;
-            categorySelect.required = false;
-        } else {
-            syncItemMode();
-        }
     }
 
-    function syncItemMode() {
-        const isExisting = itemMode.value === 'existing';
-        existingItemField.style.display = isExisting ? 'block' : 'none';
-        newItemFields.forEach(function (field) {
-            field.style.display = isExisting ? 'none' : 'block';
-        });
-        itemSelect.required = isExisting;
-        itemName.required = !isExisting;
-        categorySelect.required = !isExisting;
+    function syncRowMode(row) {
+        const mode = row.querySelector('.item-mode').value;
+        const existingItem = row.querySelector('.existing-item');
+        const newName = row.querySelector('.new-item-name');
+        const newCategory = row.querySelector('.new-item-category');
+        const isExisting = mode === 'existing';
+        existingItem.disabled = !isExisting;
+        newName.disabled = isExisting;
+        newCategory.disabled = isExisting;
     }
 
-    function fillRatesFromExistingItem() {
+    function fillRatesFromExistingItem(row) {
+        const itemSelect = row.querySelector('.existing-item');
+        const prate = row.querySelector('.row-prate');
+        const srate = row.querySelector('.row-srate');
         const selected = itemSelect.options[itemSelect.selectedIndex];
         if (!selected) return;
         const pRate = selected.getAttribute('data-purchase-rate');
         const sRate = selected.getAttribute('data-sale-rate');
-        if (pRate) purchaseRateInput.value = pRate;
-        if (sRate) saleRateInput.value = sRate;
+        if (pRate) prate.value = pRate;
+        if (sRate) srate.value = sRate;
         syncAmount();
     }
 
     function syncAmount() {
         if (paymentMethod.value !== 'In-Kind') return;
-        const qty = Number(quantityInput.value || 0);
-        const pRate = Number(purchaseRateInput.value || 0);
-        if (qty > 0 && pRate > 0) {
-            amountInput.value = (qty * pRate).toFixed(2);
-        }
+        let total = 0;
+        rowsTbody.querySelectorAll('.in-kind-row').forEach(function (row) {
+            const qty = Number(row.querySelector('.row-qty').value || 0);
+            const pRate = Number(row.querySelector('.row-prate').value || 0);
+            if (qty > 0 && pRate > 0) total += qty * pRate;
+        });
+        if (total > 0) amountInput.value = total.toFixed(2);
+    }
+
+    function bindRow(row) {
+        row.querySelector('.item-mode').addEventListener('change', function () {
+            syncRowMode(row);
+        });
+        row.querySelector('.existing-item').addEventListener('change', function () {
+            fillRatesFromExistingItem(row);
+        });
+        row.querySelector('.row-qty').addEventListener('input', syncAmount);
+        row.querySelector('.row-prate').addEventListener('input', syncAmount);
+        row.querySelector('.remove-row').addEventListener('click', function () {
+            const rows = rowsTbody.querySelectorAll('.in-kind-row');
+            if (rows.length > 1) {
+                row.remove();
+                syncAmount();
+            }
+        });
+        syncRowMode(row);
     }
 
     paymentMethod.addEventListener('change', syncPaymentMode);
-    itemMode.addEventListener('change', syncItemMode);
-    itemSelect.addEventListener('change', fillRatesFromExistingItem);
-    quantityInput.addEventListener('input', syncAmount);
-    purchaseRateInput.addEventListener('input', syncAmount);
+    rowsTbody.querySelectorAll('.in-kind-row').forEach(bindRow);
+    addRowBtn.addEventListener('click', function () {
+        const first = rowsTbody.querySelector('.in-kind-row');
+        const clone = first.cloneNode(true);
+        clone.querySelectorAll('input').forEach(function (el) { el.value = ''; });
+        clone.querySelectorAll('select').forEach(function (el) { el.selectedIndex = 0; });
+        rowsTbody.appendChild(clone);
+        bindRow(clone);
+        syncAmount();
+    });
 
     syncPaymentMode();
+    syncAmount();
 </script>
 {% endblock %}
