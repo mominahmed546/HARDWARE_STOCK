@@ -9,13 +9,7 @@ from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
 from app.db import get_db_connection
 from app.wa_api import is_configured as wa_api_configured
 from app.wa_api import send_file_bytes as wa_send_file
-from app.whatsapp import (
-    INVOICE_PDF_KIND,
-    public_file_url,
-    share_token,
-    share_token_valid,
-    whatsapp_url,
-)
+from app.whatsapp import public_file_url, whatsapp_url
 from app.tenancy import next_table_id, owner_sql, request_user_id
 from app.payments import (
     add_invoice_payment,
@@ -897,11 +891,9 @@ def invoice_pdf(id):
         cursor.close()
 
 
-@invoices_bp.route("/<int:id>/pdf/share/<token>")
-def invoice_pdf_share(id, token):
-    """Login-free PDF download used in WhatsApp messages."""
-    if not share_token_valid(INVOICE_PDF_KIND, id, token):
-        abort(404)
+@invoices_bp.route("/<int:id>/pdf/share")
+def invoice_pdf_share(id):
+    """Login-free PDF download — served to anyone with the direct URL."""
     db = get_db_connection(app)
     cursor = db.cursor()
     try:
@@ -932,8 +924,7 @@ def invoice_whatsapp(id):
         entered_number = (
             request.form.get("whatsapp_number") if request.method == "POST" else (invoice.ContactNo or "")
         )
-        token = share_token(INVOICE_PDF_KIND, id)
-        share_path = url_for("invoices.invoice_pdf_share", id=id, token=token)
+        share_path = url_for("invoices.invoice_pdf_share", id=id)
 
         if request.method == "POST":
             phone = clean_phone(entered_number, "whatsapp_number", errors, required=True, max_len=20)

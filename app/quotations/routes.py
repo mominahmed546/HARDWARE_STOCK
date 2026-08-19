@@ -9,13 +9,7 @@ from app.quotations.excel import MAX_LINE_ROWS, build_quotation_xlsx, line_amoun
 from app.tenancy import owner_sql, request_user_id
 from app.wa_api import is_configured as wa_api_configured
 from app.wa_api import send_file_bytes as wa_send_file
-from app.whatsapp import (
-    QUOTATION_EXCEL_KIND,
-    public_file_url,
-    share_token,
-    share_token_valid,
-    whatsapp_url,
-)
+from app.whatsapp import public_file_url, whatsapp_url
 from app.validators import (
     ValidationErrors,
     clean_date,
@@ -428,11 +422,9 @@ def list_quotations():
         cursor.close()
 
 
-@quotations_bp.route("/<int:id>/excel/share/<token>")
-def quotation_excel_share(id, token):
-    """Login-free Excel download used in WhatsApp messages."""
-    if not share_token_valid(QUOTATION_EXCEL_KIND, id, token):
-        abort(404)
+@quotations_bp.route("/<int:id>/excel/share")
+def quotation_excel_share(id):
+    """Login-free Excel download — served to anyone with the direct URL."""
     db = get_db_connection(app)
     cursor = db.cursor()
     try:
@@ -486,8 +478,7 @@ def quotation_whatsapp(id):
         entered_number = (
             request.form.get("whatsapp_number") if request.method == "POST" else (quotation.ContactNo or "")
         )
-        token = share_token(QUOTATION_EXCEL_KIND, id)
-        share_path = url_for("quotations.quotation_excel_share", id=id, token=token)
+        share_path = url_for("quotations.quotation_excel_share", id=id)
 
         if request.method == "POST":
             phone = clean_phone(entered_number, "whatsapp_number", errors, required=True, max_len=20)
