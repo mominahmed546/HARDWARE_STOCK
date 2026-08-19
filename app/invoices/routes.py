@@ -466,17 +466,11 @@ def _build_invoice_pdf(invoice, details):
     commands = []
     details = list(details)
 
-    # A5-width (148 mm ≈ 419 pt) — wider than a thermal roll, narrower than A4
-    receipt_width = 420
+    # A4 portrait: 595 × 842 pt
+    receipt_width = 595
+    receipt_height = 842
     line_h = 10
-    max_name_chars = 28
-
-    def _row_height(item_name):
-        wrapped = _wrap_text(item_name, max_name_chars)
-        return max(18, 6 + len(wrapped) * line_h)
-
-    extra_h = sum(_row_height(str(d.Particulars or "Item")) for d in details)
-    receipt_height = max(540, 300 + extra_h)
+    max_name_chars = 42
 
     def text(x, y, value, size=9, font="F1"):
         commands.append(f"BT /{font} {size} Tf {x} {y} Td ({_pdf_escape(value)}) Tj ET")
@@ -539,12 +533,12 @@ def _build_invoice_pdf(invoice, details):
     table_x = x_left
     table_w = x_right - x_left
 
-    # Column layout: SR | PRODUCT NAME | QTY | RATE | TOTAL
-    col_sr_w = 22
+    # Column layout: # | PRODUCT NAME | QTY | RATE | TOTAL  (A4 widths)
+    col_sr_w = 24
     col_sr_right = table_x + col_sr_w
-    col_product_right = col_sr_right + 170
-    col_qty_right = col_product_right + 34
-    col_rate_right = col_qty_right + 72
+    col_product_right = col_sr_right + 280
+    col_qty_right = col_product_right + 44
+    col_rate_right = col_qty_right + 90
     col_total_right = table_x + table_w
 
     header_y = y
