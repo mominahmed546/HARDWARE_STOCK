@@ -602,17 +602,53 @@ def _build_invoice_pdf(invoice, details):
             paid_amount,
         )
 
-    text(x_left, y, f"Items    {items_count}", 11, "F2")
-    text_right(x_right, y, f"TOTAL: {money(total_amount)}", 12, "F2")
-    y -= 20
-    text_right(x_right, y, f"Previous Balance: {money(previous_balance)}", 11, "F2")
-    y -= 16
-    text_right(x_right, y, f"Cash Received: {money(cash_received)}", 11, "F2")
-    y -= 16
     invoice_due = max(total_amount - cash_received, 0)
-    text_right(x_right, y, f"Invoice Due: {money(invoice_due)}", 11, "F2")
-    y -= 16
-    text_right(x_right, y, f"Net Balance: {money(net_balance)}", 12, "F2")
+
+    # ── Summary section: label LEFT, amount RIGHT, underline after each row ──
+    y -= 6
+    line(x_left, y, x_right, y)           # line above totals block
+    y -= 15
+
+    def summary_row(label, amount_str, size=10, bold_label=False, bold_amount=False):
+        """Print label at left edge and amount at right edge, then underline."""
+        nonlocal y
+        lf = "F2" if bold_label else "F2"
+        af = "F2" if bold_amount else "F1"
+        text(x_left, y, label, size, lf)
+        text_right(x_right, y, amount_str, size, af)
+        y -= 3
+        line(x_left, y, x_right, y)
+        y -= 14
+
+    summary_row(f"Items: {items_count}   TOTAL",
+                money(total_amount), size=11, bold_label=True, bold_amount=True)
+    summary_row("Previous Balance",   money(previous_balance))
+    summary_row("Cash Received",      money(cash_received))
+    summary_row("Invoice Due",        money(invoice_due))
+
+    # Net balance: double rule above and below
+    y -= 2
+    line(x_left, y, x_right, y)
+    y -= 3
+    line(x_left, y, x_right, y)
+    y -= 14
+    text(x_left, y, "Net Balance", 12, "F2")
+    text_right(x_right, y, money(net_balance), 12, "F2")
+    y -= 3
+    line(x_left, y, x_right, y)
+    y -= 4
+    line(x_left, y, x_right, y)
+
+    # ── Tear-off dotted line (scissors mark at right) ─────────────────────────
+    y -= 22
+    dash_x = x_left
+    seg = 5
+    gap = 4
+    while dash_x < x_right - seg:
+        commands.append(f"0.4 w {dash_x:.1f} {y:.1f} m {dash_x + seg:.1f} {y:.1f} l S")
+        dash_x += seg + gap
+    # ✂ scissors character approximate (use text)
+    text_center(receipt_width / 2, y - 10, "- - - - - cut here - - - - -", 7, "F1")
 
     content = "\n".join(commands).encode("latin-1", errors="replace")
 
