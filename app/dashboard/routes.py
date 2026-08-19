@@ -168,7 +168,7 @@ def dashboard():
             f"""
             SELECT
                 ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Bank' THEN Amount ELSE 0 END), 0) AS BankAmount,
-                ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') <> 'Bank' THEN Amount ELSE 0 END), 0) AS CashAmount
+                ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Cash' THEN Amount ELSE 0 END), 0) AS CashAmount
             FROM InvoicePayments
             WHERE CAST(PaymentDate AS DATE) = ?
               AND InvoiceID IN (SELECT InvoiceID FROM Invoices WHERE {owner_sql()})
@@ -182,7 +182,7 @@ def dashboard():
             f"""
             SELECT
                 ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Bank' THEN Amount ELSE 0 END), 0) AS BankAmount,
-                ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') <> 'Bank' THEN Amount ELSE 0 END), 0) AS CashAmount
+                ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Cash' THEN Amount ELSE 0 END), 0) AS CashAmount
             FROM InvoicePayments
             WHERE CAST(PaymentDate AS DATE) <= ?
               AND InvoiceID IN (SELECT InvoiceID FROM Invoices WHERE {owner_sql()})

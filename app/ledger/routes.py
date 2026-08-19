@@ -149,7 +149,12 @@ def _build_ledger_entries(opening_balance, invoices, details_by_invoice, payment
         amount = float(payment.Amount or 0)
         notes = str(payment.Notes or "").strip()
         method = str(getattr(payment, "PaymentMethod", "Cash") or "Cash")
-        source = "Bank" if method == "Bank" else "Cash"
+        if method == "Bank":
+            source = "Bank"
+        elif method == "In-Kind":
+            source = "In-Kind items"
+        else:
+            source = "Cash"
         particulars = f"By {source} received against Invoice No. {invoice_id}"
         if notes and notes != "Backfilled from Paid status" and notes != "Marked paid":
             particulars += f" — {notes}"

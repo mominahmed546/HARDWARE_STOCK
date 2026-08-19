@@ -51,6 +51,7 @@
                         </div>
                         <a href="{{ url_for('invoices.invoice_whatsapp', id=invoice.InvoiceID) }}" class="btn btn-sm btn-whatsapp invoice-action-wide">WhatsApp PDF</a>
                         <a href="{{ url_for('invoices.invoice_payments', id=invoice.InvoiceID) }}" class="btn btn-sm btn-primary invoice-action-wide">Receive Partial Payment</a>
+                        <a href="{{ url_for('invoices.sales_return', id=invoice.InvoiceID) }}" class="btn btn-sm btn-secondary invoice-action-wide">Sales Return</a>
                         <div class="invoice-actions-row">
                             <form method="POST" action="{{ url_for('invoices.update_invoice_status', id=invoice.InvoiceID) }}" class="invoice-status-form">
                                 {% if status == 'Paid' %}
@@ -58,9 +59,10 @@
                                 <button type="submit" class="btn btn-sm btn-secondary">Mark Unpaid</button>
                                 {% else %}
                                 <input type="hidden" name="status" value="Paid">
-                                <select name="payment_method" class="pay-method-select" title="Cash or bank">
+                                <select name="payment_method" class="pay-method-select" title="Settlement method">
                                     <option value="Cash">Cash</option>
                                     <option value="Bank">Bank</option>
+                                    <option value="In-Kind">In-Kind</option>
                                 </select>
                                 <button type="submit" class="btn btn-sm btn-success">Mark Paid</button>
                                 {% endif %}
