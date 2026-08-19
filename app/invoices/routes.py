@@ -604,50 +604,66 @@ def _build_invoice_pdf(invoice, details):
 
     invoice_due = max(total_amount - cash_received, 0)
 
-    # ── Summary section: label LEFT, amount RIGHT, underline after each row ──
-    y -= 6
-    line(x_left, y, x_right, y)           # line above totals block
-    y -= 15
+    # ── Footer table: same column grid as item rows ───────────────────────────
+    # Label starts at col_sr_right (same x as product names).
+    # Amount sits in the TOTAL column, right-aligned to col_total_right.
+    # Each row has a full-width border box (# col left to total col right).
+    row_h_footer = 18
 
-    def summary_row(label, amount_str, size=10, bold_label=False, bold_amount=False):
-        """Print label at left edge and amount at right edge, then underline."""
+    def footer_row(label, amount_str, bold=False, bg=None):
         nonlocal y
-        lf = "F2" if bold_label else "F2"
-        af = "F2" if bold_amount else "F1"
-        text(x_left, y, label, size, lf)
-        text_right(x_right, y, amount_str, size, af)
-        y -= 3
-        line(x_left, y, x_right, y)
-        y -= 14
+        font = "F2" if bold else "F1"
+        size = 11 if bold else 10
+        # Optional fill
+        if bg:
+            filled_rect(table_x, y - row_h_footer + 4, table_w, row_h_footer, *bg)
+        else:
+            rect(table_x, y - row_h_footer + 4, table_w, row_h_footer)
+        # Vertical divider at the RATE/TOTAL boundary so amount is in its own cell
+        line(col_rate_right, y - row_h_footer + 4, col_rate_right, y + 4)
+        mid_y = y - (row_h_footer / 2) + 2
+        # Label — starts where product names start (after the # column)
+        text(col_sr_right + 4, mid_y - 3, label, size, font)
+        # Amount — right-aligned inside the TOTAL cell
+        text_right(col_total_right - 4, mid_y - 3, amount_str, size, font)
+        y -= row_h_footer
 
-    summary_row(f"Items: {items_count}   TOTAL",
-                money(total_amount), size=11, bold_label=True, bold_amount=True)
-    summary_row("Previous Balance",   money(previous_balance))
-    summary_row("Cash Received",      money(cash_received))
-    summary_row("Invoice Due",        money(invoice_due))
+    # TOTAL row — dark navy like the header
+    footer_row(f"Items: {items_count}     TOTAL",
+               money(total_amount), bold=True, bg=(0.102, 0.157, 0.259))
+    # Recolour text for the dark row (white)
+    # PDF commands were appended inside footer_row — override with white text
+    # Simplest: redo just that row's text in white
+    y += row_h_footer                     # rewind
+    commands.append("1 1 1 rg")
+    mid_y = y - (row_h_footer / 2) + 2
+    text(col_sr_right + 4, mid_y - 3, f"Items: {items_count}     TOTAL", 11, "F2")
+    text_right(col_total_right - 4, mid_y - 3, money(total_amount), 11, "F2")
+    commands.append("0 0 0 rg")
+    y -= row_h_footer
 
-    # Net balance: double rule above and below
-    y -= 2
-    line(x_left, y, x_right, y)
-    y -= 3
-    line(x_left, y, x_right, y)
-    y -= 14
-    text(x_left, y, "Net Balance", 12, "F2")
-    text_right(x_right, y, money(net_balance), 12, "F2")
-    y -= 3
-    line(x_left, y, x_right, y)
-    y -= 4
-    line(x_left, y, x_right, y)
+    footer_row("Previous Balance",   money(previous_balance))
+    footer_row("Cash Received",      money(cash_received))
+    footer_row("Invoice Due",        money(invoice_due))
 
-    # ── Tear-off dotted line (scissors mark at right) ─────────────────────────
-    y -= 22
+    # Net Balance: dark navy again
+    footer_row("Net Balance", money(net_balance), bold=True, bg=(0.102, 0.157, 0.259))
+    y += row_h_footer
+    commands.append("1 1 1 rg")
+    mid_y = y - (row_h_footer / 2) + 2
+    text(col_sr_right + 4, mid_y - 3, "Net Balance", 11, "F2")
+    text_right(col_total_right - 4, mid_y - 3, money(net_balance), 11, "F2")
+    commands.append("0 0 0 rg")
+    y -= row_h_footer
+
+    # ── Tear-off dotted line ─────────────────────────────────────────────────
+    y -= 20
     dash_x = x_left
     seg = 5
     gap = 4
     while dash_x < x_right - seg:
         commands.append(f"0.4 w {dash_x:.1f} {y:.1f} m {dash_x + seg:.1f} {y:.1f} l S")
         dash_x += seg + gap
-    # ✂ scissors character approximate (use text)
     text_center(receipt_width / 2, y - 10, "- - - - - cut here - - - - -", 7, "F1")
 
     content = "\n".join(commands).encode("latin-1", errors="replace")
