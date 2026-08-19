@@ -6,8 +6,16 @@ unpaid = 0%, partial = amount_paid / invoice_total, paid = 100%.
 
 from datetime import datetime
 
+_SCHEMA_READY = {
+    "invoice_payments": False,
+    "cash_accounts_schema": False,
+    "purchase_payments": False,
+}
+
 
 def ensure_invoice_payments_table(db, cursor):
+    if _SCHEMA_READY["invoice_payments"]:
+        return
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS InvoicePayments (
@@ -59,6 +67,7 @@ def ensure_invoice_payments_table(db, cursor):
     if backfilled:
         _sync_invoices_with_payments(cursor)
     db.commit()
+    _SCHEMA_READY["invoice_payments"] = True
 
 
 def payments_join_sql(invoice_alias="i"):
@@ -104,21 +113,26 @@ def normalize_payment_method(value):
 
 
 def ensure_cash_accounts(db, cursor):
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS CashAccounts (
-            AccountID INTEGER PRIMARY KEY,
-            CashOpening NUMERIC(12, 2) DEFAULT 0,
-            BankOpening NUMERIC(12, 2) DEFAULT 0
+    schema_changed = False
+    if not _SCHEMA_READY["cash_accounts_schema"]:
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS CashAccounts (
+                AccountID INTEGER PRIMARY KEY,
+                CashOpening NUMERIC(12, 2) DEFAULT 0,
+                BankOpening NUMERIC(12, 2) DEFAULT 0
+            )
+            """
         )
-        """
-    )
-    cursor.execute(
-        "ALTER TABLE CashAccounts ADD COLUMN IF NOT EXISTS UserID INTEGER"
-    )
+        cursor.execute(
+            "ALTER TABLE CashAccounts ADD COLUMN IF NOT EXISTS UserID INTEGER"
+        )
+        schema_changed = True
+        _SCHEMA_READY["cash_accounts_schema"] = True
     from app.tenancy import request_user_id
 
     user_id = request_user_id()
+    inserted = 0
     if user_id:
         cursor.execute(
             """
@@ -128,10 +142,14 @@ def ensure_cash_accounts(db, cursor):
             """,
             (user_id, user_id, user_id),
         )
-    db.commit()
+        inserted = int(cursor.rowcount or 0)
+    if schema_changed or inserted:
+        db.commit()
 
 
 def ensure_purchase_payments_table(db, cursor):
+    if _SCHEMA_READY["purchase_payments"]:
+        return
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS PurchasePayments (
@@ -182,6 +200,7 @@ def ensure_purchase_payments_table(db, cursor):
     )
     _sync_purchases_with_payments(cursor)
     db.commit()
+    _SCHEMA_READY["purchase_payments"] = True
 
 
 def get_cash_openings(cursor):

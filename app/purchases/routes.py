@@ -45,6 +45,7 @@ from app.validators import (
 
 
 purchases_bp = Blueprint("purchases", __name__, url_prefix="/purchases")
+_PURCHASE_METHOD_SCHEMA_READY = False
 
 
 def normalize_purchase_payment_method(value):
@@ -57,6 +58,9 @@ def normalize_purchase_payment_method(value):
 
 
 def _ensure_purchase_payment_method_column(db, cursor):
+    global _PURCHASE_METHOD_SCHEMA_READY
+    if _PURCHASE_METHOD_SCHEMA_READY:
+        return
     cursor.execute(
         """
         ALTER TABLE Purchases
@@ -71,6 +75,7 @@ def _ensure_purchase_payment_method_column(db, cursor):
         """
     )
     db.commit()
+    _PURCHASE_METHOD_SCHEMA_READY = True
 
 
 def _purchase_record(cursor, purchase_id):

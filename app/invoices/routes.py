@@ -36,6 +36,7 @@ from app.validators import (
 )
 
 invoices_bp = Blueprint("invoices", __name__, url_prefix="/invoices")
+_INVOICE_SCHEMA_READY = False
 
 
 def _ensure_previous_balance_column(db, cursor):
@@ -127,6 +128,9 @@ def _ensure_sales_return_tables(db, cursor):
 
 
 def _ensure_invoice_schema(db, cursor):
+    global _INVOICE_SCHEMA_READY
+    if _INVOICE_SCHEMA_READY:
+        return
     _ensure_previous_balance_column(db, cursor)
     _ensure_invoice_payment_status_column(db, cursor)
     _ensure_invoice_previous_balance_column(db, cursor)
@@ -134,6 +138,7 @@ def _ensure_invoice_schema(db, cursor):
     _ensure_invoice_date_is_timestamp(db, cursor)
     ensure_invoice_payments_table(db, cursor)
     _ensure_sales_return_tables(db, cursor)
+    _INVOICE_SCHEMA_READY = True
 
 
 def _invoice_settlement(previous_balance, total_amount, paid_amount=0):
@@ -1452,9 +1457,14 @@ def update_invoice_status(id):
             return redirect(redirect_to)
 
         if target_status == "Paid":
+            paid_date = datetime.combine(
+                datetime.strptime(_invoice_date_iso(invoice.InvoiceDate), "%Y-%m-%d").date(),
+                datetime.now().time(),
+            )
             pay_invoice_remaining(
                 cursor,
                 invoice,
+                payment_date=paid_date,
                 payment_method=request.form.get("payment_method") or "Cash",
             )
             flash(f"Invoice #{id} marked as Paid.", "success")
