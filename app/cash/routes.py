@@ -10,6 +10,7 @@ from app.db import get_db_connection
 from app.payments import (
     ensure_cash_accounts,
     ensure_invoice_payments_table,
+    ensure_purchase_payments_table,
     get_cash_openings,
     save_cash_openings,
 )
@@ -31,6 +32,7 @@ def _pdf_escape(value):
 def _ensure_cash_schema(db, cursor):
     ensure_invoice_payments_table(db, cursor)
     ensure_cash_accounts(db, cursor)
+    ensure_purchase_payments_table(db, cursor)
 
 
 def _split_row(row):
@@ -60,13 +62,35 @@ def _payment_split(cursor, where_sql="", params=()):
     return _split_row(cursor.fetchone())
 
 
+def _purchase_payment_split(cursor, where_sql="", params=()):
+    cursor.execute(
+        f"""
+        SELECT
+            ISNULL(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Bank' THEN pp.Amount ELSE 0 END), 0) AS BankAmount,
+            ISNULL(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Cash' THEN pp.Amount ELSE 0 END), 0) AS CashAmount,
+            ISNULL(SUM(pp.Amount), 0) AS TotalAmount
+        FROM PurchasePayments pp
+        JOIN Purchases p ON p.PurchaseID = pp.PurchaseID
+        {where_sql}
+        {"AND" if where_sql else "WHERE"} {owner_sql("p")}
+        """,
+        params,
+    )
+    return _split_row(cursor.fetchone())
+
+
 def _balances_through(cursor, through_date, cash_opening, bank_opening):
     cash_received, bank_received, _ = _payment_split(
         cursor,
         "WHERE CAST(PaymentDate AS DATE) <= ?",
         (through_date,),
     )
-    return cash_opening + cash_received, bank_opening + bank_received
+    cash_paid, bank_paid, _ = _purchase_payment_split(
+        cursor,
+        "WHERE CAST(pp.PaymentDate AS DATE) <= ?",
+        (through_date,),
+    )
+    return cash_opening + cash_received - cash_paid, bank_opening + bank_received - bank_paid
 
 
 def _daily_receipts(cursor, selected_date):
@@ -118,15 +142,40 @@ def _month_day_rows(cursor, year, month, cash_opening, bank_opening):
             sale_date = sale_date.date()
         by_date[sale_date] = row
 
+    cursor.execute(
+        f"""
+        SELECT
+            CAST(pp.PaymentDate AS DATE) AS PurchaseDate,
+            ISNULL(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Bank' THEN pp.Amount ELSE 0 END), 0) AS BankAmount,
+            ISNULL(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Cash' THEN pp.Amount ELSE 0 END), 0) AS CashAmount,
+            ISNULL(SUM(pp.Amount), 0) AS TotalAmount
+        FROM PurchasePayments pp
+        JOIN Purchases p ON p.PurchaseID = pp.PurchaseID
+        WHERE YEAR(pp.PaymentDate) = ? AND MONTH(pp.PaymentDate) = ?
+          AND {owner_sql("p")}
+        GROUP BY CAST(pp.PaymentDate AS DATE)
+        ORDER BY PurchaseDate
+        """,
+        (year, month),
+    )
+    purchases_by_date = {}
+    for row in cursor.fetchall():
+        purchase_date = row.PurchaseDate
+        if isinstance(purchase_date, datetime):
+            purchase_date = purchase_date.date()
+        purchases_by_date[purchase_date] = row
+
     last_day = monthrange(year, month)[1]
     rows = []
     for day in range(1, last_day + 1):
         sale_date = date(year, month, day)
         row = by_date.get(sale_date)
         cash_amount, bank_amount, total_amount = _split_row(row)
-        running_cash += cash_amount
-        running_bank += bank_amount
-        if total_amount > 0:
+        purchase_row = purchases_by_date.get(sale_date)
+        purchase_cash_amount, purchase_bank_amount, purchase_total_amount = _split_row(purchase_row)
+        running_cash += cash_amount - purchase_cash_amount
+        running_bank += bank_amount - purchase_bank_amount
+        if total_amount > 0 or purchase_total_amount > 0:
             rows.append(
                 {
                     "sale_date": sale_date,
