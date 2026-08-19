@@ -418,7 +418,7 @@ def create_purchase():
 
 
 
-@purchases_bp.route("/list")
+@purchases_bp.route("/list", methods=["GET", "POST"])
 
 @login_required
 
