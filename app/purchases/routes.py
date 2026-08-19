@@ -7,7 +7,20 @@ from flask_login import login_required
 from app import app
 
 from app.db import get_db_connection
-from app.payments import ensure_cash_accounts, ensure_invoice_payments_table, get_cash_openings
+from app.payments import (
+    add_purchase_payment,
+    clear_purchase_payments,
+    delete_purchase_payment,
+    ensure_cash_accounts,
+    ensure_invoice_payments_table,
+    ensure_purchase_payments_table,
+    get_cash_openings,
+    list_purchase_payments,
+    pay_purchase_remaining,
+    purchase_paid_total,
+    purchase_remaining_due,
+    refresh_purchase_settlement,
+)
 from app.tenancy import next_owner_no, next_table_id, owner_sql, request_user_id
 
 from app.validators import (
@@ -31,6 +44,50 @@ from app.validators import (
 purchases_bp = Blueprint("purchases", __name__, url_prefix="/purchases")
 
 
+def normalize_purchase_payment_method(value):
+    method = str(value or "").strip().lower()
+    if method == "bank":
+        return "Bank"
+    if method == "credit":
+        return "Credit"
+    return "Cash"
+
+
+def _ensure_purchase_payment_method_column(db, cursor):
+    cursor.execute(
+        """
+        ALTER TABLE Purchases
+        ADD COLUMN IF NOT EXISTS PaymentMethod VARCHAR(20) DEFAULT 'Cash'
+        """
+    )
+    cursor.execute(
+        """
+        UPDATE Purchases
+        SET PaymentMethod = 'Cash'
+        WHERE PaymentMethod IS NULL OR BTRIM(PaymentMethod) = ''
+        """
+    )
+    db.commit()
+
+
+def _purchase_record(cursor, purchase_id):
+    cursor.execute(
+        f"""
+        SELECT
+            p.PurchaseID,
+            p.PurchaseDate,
+            p.SupplierID,
+            COALESCE(p.TotalAmount, 0) AS TotalAmount,
+            COALESCE(p.PaymentStatus, 'Unpaid') AS PaymentStatus,
+            COALESCE(p.PaymentMethod, 'Cash') AS PaymentMethod
+        FROM Purchases p
+        WHERE p.PurchaseID = ? AND {owner_sql("p")}
+        """,
+        (purchase_id,),
+    )
+    return cursor.fetchone()
+
+
 
 
 
@@ -47,6 +104,7 @@ def _validate_purchase_form(form, errors):
         "quantity": clean_positive_int(form.get("quantity"), "quantity", errors, min_val=1, label="Quantity"),
         "purchase_rate": clean_positive_decimal(form.get("purchase_rate"), "purchase_rate", errors, label="Purchase rate"),
         "sale_rate": clean_positive_decimal(form.get("sale_rate"), "sale_rate", errors, label="Sale rate"),
+        "payment_method": normalize_purchase_payment_method(form.get("payment_method")),
     }
 
     if item_mode == "existing":
@@ -117,6 +175,8 @@ def create_purchase():
 
 
     try:
+        _ensure_purchase_payment_method_column(db, cursor)
+        ensure_purchase_payments_table(db, cursor)
 
         suppliers, items, categories = _load_purchase_form_data(cursor)
 
@@ -238,11 +298,18 @@ def create_purchase():
 
             cursor.execute(
                 """
-                INSERT INTO Purchases (PurchaseID, PurchaseDate, SupplierID, TotalAmount, UserID)
+                INSERT INTO Purchases (PurchaseID, PurchaseDate, SupplierID, TotalAmount, PaymentMethod, UserID)
                 OUTPUT INSERTED.PurchaseID
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (next_purchase_id, data["purchase_date"], data["supplier_id"], total, request_user_id()),
+                (
+                    next_purchase_id,
+                    data["purchase_date"],
+                    data["supplier_id"],
+                    total,
+                    data["payment_method"],
+                    request_user_id(),
+                ),
             )
 
 
@@ -266,6 +333,18 @@ def create_purchase():
                 (purchase_id, item_id, item_name, data["quantity"], data["purchase_rate"]),
 
             )
+
+            if data["payment_method"] in {"Cash", "Bank"} and float(total or 0) > 0:
+                add_purchase_payment(
+                    cursor,
+                    type("PurchaseObj", (), {"PurchaseID": purchase_id, "TotalAmount": total})(),
+                    total,
+                    data["purchase_date"],
+                    notes="Paid on purchase entry",
+                    payment_method=data["payment_method"],
+                )
+            else:
+                refresh_purchase_settlement(cursor, purchase_id)
 
 
 
@@ -353,6 +432,8 @@ def list_purchases():
     try:
         ensure_invoice_payments_table(db, cursor)
         ensure_cash_accounts(db, cursor)
+        _ensure_purchase_payment_method_column(db, cursor)
+        ensure_purchase_payments_table(db, cursor)
 
         search = request.args.get("search", "")
 
@@ -440,15 +521,19 @@ def list_purchases():
 
         cursor.execute(
             f"""
-            SELECT ISNULL(SUM(COALESCE(TotalAmount, 0)), 0) AS TotalPurchases
-            FROM Purchases
-            WHERE {owner_sql()}
+            SELECT
+                ISNULL(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Cash' THEN pp.Amount ELSE 0 END), 0) AS CashPaid,
+                ISNULL(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Bank' THEN pp.Amount ELSE 0 END), 0) AS BankPaid
+            FROM PurchasePayments pp
+            JOIN Purchases p ON p.PurchaseID = pp.PurchaseID
+            WHERE {owner_sql("p")}
             """
         )
-        purchase_totals = cursor.fetchone()
-        total_purchases_amount = float(purchase_totals.TotalPurchases or 0) if purchase_totals else 0.0
-        cash_in_hand = cash_opening + cash_received - total_purchases_amount
-        bank_balance = bank_opening + bank_received
+        purchase_payments = cursor.fetchone()
+        total_cash_purchases = float(purchase_payments.CashPaid or 0) if purchase_payments else 0.0
+        total_bank_purchases = float(purchase_payments.BankPaid or 0) if purchase_payments else 0.0
+        cash_in_hand = cash_opening + cash_received - total_cash_purchases
+        bank_balance = bank_opening + bank_received - total_bank_purchases
 
 
 
@@ -461,7 +546,8 @@ def list_purchases():
             search=search,
             cash_in_hand=cash_in_hand,
             bank_balance=bank_balance,
-            total_purchases_amount=total_purchases_amount,
+            total_cash_purchases=total_cash_purchases,
+            total_bank_purchases=total_bank_purchases,
 
         )
 
@@ -496,6 +582,7 @@ def purchase_details(supplier_id):
 
 
     try:
+        ensure_purchase_payments_table(db, cursor)
 
         if supplier_id == 0:
 
@@ -518,6 +605,9 @@ def purchase_details(supplier_id):
                 p.PurchaseID,
                 p.PurchaseDate,
                 p.TotalAmount,
+                COALESCE(p.PaymentStatus, 'Unpaid') AS PaymentStatus,
+                COALESCE(pay.PaidAmount, 0) AS PaidAmount,
+                GREATEST(COALESCE(p.TotalAmount, 0) - COALESCE(pay.PaidAmount, 0), 0) AS RemainingAmount,
                 COALESCE(s.SupplierName, 'N/A') AS SupplierName,
                 pd.Particulars,
                 pd.Qty,
@@ -526,6 +616,11 @@ def purchase_details(supplier_id):
             FROM Purchases p
             LEFT JOIN Supplier s ON p.SupplierID = s.SupplierID
             LEFT JOIN PurchaseDetails pd ON p.PurchaseID = pd.PurchaseID
+            LEFT JOIN (
+                SELECT PurchaseID, SUM(Amount) AS PaidAmount
+                FROM PurchasePayments
+                GROUP BY PurchaseID
+            ) pay ON pay.PurchaseID = p.PurchaseID
             WHERE {supplier_filter} AND {owner_sql("p")}
             ORDER BY p.PurchaseDate DESC, p.PurchaseID DESC, pd.DetailID ASC
             """,
@@ -571,6 +666,155 @@ def purchase_details(supplier_id):
         cursor.close()
 
 
+@purchases_bp.route("/<int:id>/payments", methods=["GET", "POST"])
+@login_required
+def purchase_payments(id):
+    db = get_db_connection(app)
+    cursor = db.cursor()
+    errors = ValidationErrors()
+    form_data = {
+        "payment_date": "",
+        "amount": "",
+        "notes": "",
+        "payment_method": "Cash",
+    }
+    try:
+        ensure_purchase_payments_table(db, cursor)
+        purchase = _purchase_record(cursor, id)
+        if not purchase:
+            flash("Purchase not found.", "danger")
+            return redirect(url_for("purchases.list_purchases"))
+        form_data["payment_date"] = (
+            purchase.PurchaseDate.isoformat()
+            if hasattr(purchase.PurchaseDate, "isoformat")
+            else str(purchase.PurchaseDate)[:10]
+        )
+        paid_amount = purchase_paid_total(cursor, id)
+        remaining = purchase_remaining_due(purchase.TotalAmount, paid_amount)
+        if request.method == "POST":
+            form_data = request.form.to_dict()
+            payment_date_value = clean_date(
+                request.form.get("payment_date"),
+                "payment_date",
+                errors,
+                label="Payment date",
+            )
+            amount = clean_positive_decimal(
+                request.form.get("amount"),
+                "amount",
+                errors,
+                min_val=0.01,
+                label="Amount paid",
+            )
+            notes = clean_string(
+                request.form.get("notes") or "",
+                "notes",
+                errors,
+                required=False,
+                max_len=255,
+                label="Notes",
+            )
+            payment_method = normalize_purchase_payment_method(
+                request.form.get("payment_method")
+            )
+            if payment_method == "Credit":
+                errors.add("payment_method", "Credit cannot be used for a payment entry.")
+            if errors.valid:
+                result = add_purchase_payment(
+                    cursor, purchase, amount, payment_date_value, notes, payment_method
+                )
+                db.commit()
+                flash(
+                    f"Recorded Rs {amount:,.2f} in {payment_method}. Purchase #{id} is now {result['status']}.",
+                    "success",
+                )
+                return redirect(url_for("purchases.purchase_payments", id=id))
+            flash(errors.first(), "danger")
+        payments = list_purchase_payments(cursor, id)
+        return render_template(
+            "purchases/payments.html",
+            purchase=purchase,
+            payments=payments,
+            paid_amount=paid_amount,
+            remaining=remaining,
+            errors=errors.errors,
+            form_data=form_data,
+        )
+    except ValueError as e:
+        db.rollback()
+        flash(str(e), "danger")
+        return redirect(url_for("purchases.purchase_payments", id=id))
+    except Exception as e:
+        db.rollback()
+        flash(f"Error loading purchase payments: {str(e)}", "danger")
+        return redirect(url_for("purchases.list_purchases"))
+    finally:
+        cursor.close()
+
+
+@purchases_bp.route("/<int:id>/payments/<int:payment_id>/delete", methods=["POST"])
+@login_required
+def remove_purchase_payment(id, payment_id):
+    db = get_db_connection(app)
+    cursor = db.cursor()
+    try:
+        ensure_purchase_payments_table(db, cursor)
+        purchase = _purchase_record(cursor, id)
+        if not purchase:
+            flash("Purchase not found.", "danger")
+            return redirect(url_for("purchases.list_purchases"))
+        delete_purchase_payment(cursor, purchase, payment_id)
+        db.commit()
+        flash("Purchase payment removed.", "success")
+    except ValueError as e:
+        db.rollback()
+        flash(str(e), "danger")
+    except Exception as e:
+        db.rollback()
+        flash(f"Error removing payment: {str(e)}", "danger")
+    finally:
+        cursor.close()
+    return redirect(url_for("purchases.purchase_payments", id=id))
+
+
+@purchases_bp.route("/<int:id>/status", methods=["POST"])
+@login_required
+def update_purchase_status(id):
+    db = get_db_connection(app)
+    cursor = db.cursor()
+    redirect_to = request.form.get("next") or url_for("purchases.list_purchases")
+    try:
+        ensure_purchase_payments_table(db, cursor)
+        purchase = _purchase_record(cursor, id)
+        if not purchase:
+            flash("Purchase not found.", "danger")
+            return redirect(redirect_to)
+        target_status = (request.form.get("status") or "").strip()
+        if target_status not in {"Paid", "Unpaid"}:
+            flash("Invalid payment status.", "danger")
+            return redirect(redirect_to)
+        if target_status == "Paid":
+            pay_purchase_remaining(
+                cursor,
+                purchase,
+                payment_method=normalize_purchase_payment_method(
+                    request.form.get("payment_method")
+                ),
+            )
+            flash(f"Purchase #{id} marked as Paid.", "success")
+        else:
+            clear_purchase_payments(cursor, purchase)
+            flash(f"Purchase #{id} marked as Unpaid. Payments were cleared.", "success")
+        db.commit()
+    except ValueError as e:
+        db.rollback()
+        flash(str(e), "danger")
+    except Exception as e:
+        db.rollback()
+        flash(f"Error updating purchase status: {str(e)}", "danger")
+    finally:
+        cursor.close()
+    return redirect(redirect_to)
 
 
 @purchases_bp.route("/delete/<int:id>", methods=["POST"])
@@ -811,10 +1055,11 @@ def edit_purchase_items(id):
 
 
     try:
+        _ensure_purchase_payment_method_column(db, cursor)
 
         cursor.execute(
             f"""
-            SELECT PurchaseID, PurchaseDate, SupplierID, TotalAmount
+            SELECT PurchaseID, PurchaseDate, SupplierID, TotalAmount, COALESCE(PaymentMethod, 'Cash') AS PaymentMethod
             FROM Purchases
             WHERE PurchaseID = ? AND {owner_sql()}
             """,
@@ -899,6 +1144,7 @@ def edit_purchase_items(id):
             form_data = request.form.to_dict()
 
             supplier_id = clean_select_id(request.form.get("supplier_id"), "supplier_id", errors, label="Supplier")
+            payment_method = normalize_purchase_payment_method(request.form.get("payment_method"))
 
             item_ids = request.form.getlist("item_id[]")
 
@@ -1068,13 +1314,13 @@ def edit_purchase_items(id):
 
                 UPDATE Purchases
 
-                SET SupplierID = ?, TotalAmount = ?
+                SET SupplierID = ?, TotalAmount = ?, PaymentMethod = ?
 
                 WHERE PurchaseID = ? AND {owner_sql()}
 
             """,
 
-                (supplier_id, total_amount, id),
+                (supplier_id, total_amount, payment_method, id),
 
             )
 

@@ -40,7 +40,9 @@ CREATE TABLE IF NOT EXISTS purchases (
     user_id INTEGER REFERENCES users(user_id),
     purchase_date DATE NOT NULL,
     supplier_id INTEGER REFERENCES supplier(supplier_id),
-    total_amount NUMERIC(12, 2) DEFAULT 0
+    total_amount NUMERIC(12, 2) DEFAULT 0,
+    payment_method VARCHAR(20) DEFAULT 'Cash',
+    payment_status VARCHAR(20) DEFAULT 'Unpaid'
 );
 
 CREATE TABLE IF NOT EXISTS purchase_details (
@@ -50,6 +52,15 @@ CREATE TABLE IF NOT EXISTS purchase_details (
     particulars VARCHAR(255),
     qty INTEGER NOT NULL,
     purchase_rate NUMERIC(10, 2) DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS purchase_payments (
+    payment_id SERIAL PRIMARY KEY,
+    purchase_id INTEGER NOT NULL REFERENCES purchases(purchase_id) ON DELETE CASCADE,
+    amount NUMERIC(12, 2) NOT NULL,
+    payment_date TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    notes VARCHAR(255),
+    payment_method VARCHAR(20) DEFAULT 'Cash'
 );
 
 CREATE TABLE IF NOT EXISTS invoices (

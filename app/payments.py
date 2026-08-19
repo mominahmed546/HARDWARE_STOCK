@@ -131,6 +131,59 @@ def ensure_cash_accounts(db, cursor):
     db.commit()
 
 
+def ensure_purchase_payments_table(db, cursor):
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS PurchasePayments (
+            PaymentID SERIAL PRIMARY KEY,
+            PurchaseID INTEGER NOT NULL REFERENCES Purchases(PurchaseID) ON DELETE CASCADE,
+            Amount NUMERIC(12, 2) NOT NULL,
+            PaymentDate TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            Notes VARCHAR(255),
+            PaymentMethod VARCHAR(20) DEFAULT 'Cash'
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_purchase_payments_purchase_id
+        ON PurchasePayments (PurchaseID)
+        """
+    )
+    cursor.execute(
+        """
+        ALTER TABLE Purchases
+        ADD COLUMN IF NOT EXISTS PaymentStatus VARCHAR(20) DEFAULT 'Unpaid'
+        """
+    )
+    cursor.execute(
+        """
+        UPDATE Purchases
+        SET PaymentStatus = 'Unpaid'
+        WHERE PaymentStatus IS NULL OR BTRIM(PaymentStatus) = ''
+        """
+    )
+    cursor.execute(
+        """
+        INSERT INTO PurchasePayments (PurchaseID, Amount, PaymentDate, Notes, PaymentMethod)
+        SELECT
+            p.PurchaseID,
+            p.TotalAmount,
+            p.PurchaseDate,
+            'Backfilled from purchase payment mode',
+            CASE WHEN COALESCE(p.PaymentMethod, 'Cash') = 'Bank' THEN 'Bank' ELSE 'Cash' END
+        FROM Purchases p
+        WHERE COALESCE(p.TotalAmount, 0) > 0
+          AND COALESCE(p.PaymentMethod, 'Cash') IN ('Cash', 'Bank')
+          AND NOT EXISTS (
+              SELECT 1 FROM PurchasePayments pp WHERE pp.PurchaseID = p.PurchaseID
+          )
+        """
+    )
+    _sync_purchases_with_payments(cursor)
+    db.commit()
+
+
 def get_cash_openings(cursor):
     from app.tenancy import owner_sql
 
@@ -345,5 +398,156 @@ def _sync_invoices_with_payments(cursor):
             GROUP BY InvoiceID
         ) pay
         WHERE Invoices.InvoiceID = pay.InvoiceID
+        """
+    )
+
+
+def purchase_payment_status(total_amount, paid_amount, epsilon=0.005):
+    total_amount = float(total_amount or 0)
+    paid_amount = float(paid_amount or 0)
+    if paid_amount <= epsilon:
+        return "Unpaid"
+    if total_amount <= epsilon or paid_amount + epsilon >= total_amount:
+        return "Paid"
+    return "Partial"
+
+
+def purchase_paid_total(cursor, purchase_id):
+    cursor.execute(
+        """
+        SELECT COALESCE(SUM(Amount), 0) AS PaidAmount
+        FROM PurchasePayments
+        WHERE PurchaseID = ?
+        """,
+        (purchase_id,),
+    )
+    row = cursor.fetchone()
+    return float(row.PaidAmount or 0) if row else 0.0
+
+
+def purchase_remaining_due(total_amount, paid_amount, epsilon=0.005):
+    remaining = float(total_amount or 0) - float(paid_amount or 0)
+    return remaining if remaining > epsilon else 0.0
+
+
+def list_purchase_payments(cursor, purchase_id):
+    cursor.execute(
+        """
+        SELECT PaymentID, PurchaseID, Amount, PaymentDate, Notes,
+               COALESCE(PaymentMethod, 'Cash') AS PaymentMethod
+        FROM PurchasePayments
+        WHERE PurchaseID = ?
+        ORDER BY PaymentDate ASC, PaymentID ASC
+        """,
+        (purchase_id,),
+    )
+    return cursor.fetchall()
+
+
+def refresh_purchase_settlement(cursor, purchase_id):
+    cursor.execute(
+        """
+        SELECT COALESCE(TotalAmount, 0) AS TotalAmount
+        FROM Purchases
+        WHERE PurchaseID = ?
+        """,
+        (purchase_id,),
+    )
+    purchase = cursor.fetchone()
+    if not purchase:
+        return None
+    paid_amount = purchase_paid_total(cursor, purchase_id)
+    status = purchase_payment_status(purchase.TotalAmount, paid_amount)
+    cursor.execute(
+        """
+        UPDATE Purchases
+        SET PaymentStatus = ?
+        WHERE PurchaseID = ?
+        """,
+        (status, purchase_id),
+    )
+    return {
+        "status": status,
+        "paid_amount": paid_amount,
+        "remaining": purchase_remaining_due(purchase.TotalAmount, paid_amount),
+    }
+
+
+def add_purchase_payment(cursor, purchase, amount, payment_date, notes="", payment_method="Cash"):
+    purchase_id = int(purchase.PurchaseID)
+    total_amount = float(purchase.TotalAmount or 0)
+    paid_amount = purchase_paid_total(cursor, purchase_id)
+    remaining = purchase_remaining_due(total_amount, paid_amount)
+    amount = round(float(amount or 0), 2)
+    if amount <= 0:
+        raise ValueError("Payment amount must be greater than zero.")
+    if amount > remaining + 0.005:
+        raise ValueError(f"Payment cannot exceed the remaining due of Rs {remaining:,.2f}.")
+    method = "Bank" if str(payment_method or "").strip().lower() == "bank" else "Cash"
+    cursor.execute(
+        """
+        INSERT INTO PurchasePayments (PurchaseID, Amount, PaymentDate, Notes, PaymentMethod)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (purchase_id, amount, payment_date, notes or None, method),
+    )
+    return refresh_purchase_settlement(cursor, purchase_id)
+
+
+def delete_purchase_payment(cursor, purchase, payment_id):
+    purchase_id = int(purchase.PurchaseID)
+    cursor.execute(
+        """
+        DELETE FROM PurchasePayments
+        WHERE PaymentID = ? AND PurchaseID = ?
+        """,
+        (payment_id, purchase_id),
+    )
+    if int(cursor.rowcount or 0) <= 0:
+        raise ValueError("Payment not found.")
+    return refresh_purchase_settlement(cursor, purchase_id)
+
+
+def clear_purchase_payments(cursor, purchase):
+    purchase_id = int(purchase.PurchaseID)
+    cursor.execute("DELETE FROM PurchasePayments WHERE PurchaseID = ?", (purchase_id,))
+    return refresh_purchase_settlement(cursor, purchase_id)
+
+
+def pay_purchase_remaining(cursor, purchase, payment_date=None, notes="Marked paid", payment_method="Cash"):
+    remaining = purchase_remaining_due(
+        purchase.TotalAmount,
+        purchase_paid_total(cursor, int(purchase.PurchaseID)),
+    )
+    if remaining <= 0:
+        return refresh_purchase_settlement(cursor, int(purchase.PurchaseID))
+    if payment_date is None:
+        payment_date = datetime.now()
+    return add_purchase_payment(cursor, purchase, remaining, payment_date, notes, payment_method)
+
+
+def _sync_purchases_with_payments(cursor):
+    cursor.execute(
+        """
+        UPDATE Purchases
+        SET PaymentStatus = CASE
+                WHEN COALESCE(pay.PaidAmount, 0) <= 0 THEN 'Unpaid'
+                WHEN COALESCE(Purchases.TotalAmount, 0) <= 0 THEN 'Paid'
+                WHEN COALESCE(pay.PaidAmount, 0) >= COALESCE(Purchases.TotalAmount, 0) THEN 'Paid'
+                ELSE 'Partial'
+            END
+        FROM (
+            SELECT PurchaseID, SUM(Amount) AS PaidAmount
+            FROM PurchasePayments
+            GROUP BY PurchaseID
+        ) pay
+        WHERE Purchases.PurchaseID = pay.PurchaseID
+        """
+    )
+    cursor.execute(
+        """
+        UPDATE Purchases
+        SET PaymentStatus = 'Unpaid'
+        WHERE PurchaseID NOT IN (SELECT DISTINCT PurchaseID FROM PurchasePayments)
         """
     )

@@ -52,6 +52,15 @@
                 {{ field_error(errors, 'supplier_id') }}
             </div>
 
+            <div class="form-group">
+                <label for="payment_method">Paid From</label>
+                <select id="payment_method" name="payment_method">
+                    <option value="Cash" {% if fd.get('payment_method', purchase.PaymentMethod)|string == 'Cash' %}selected{% endif %}>Cash in hand</option>
+                    <option value="Bank" {% if fd.get('payment_method', purchase.PaymentMethod)|string == 'Bank' %}selected{% endif %}>Bank account</option>
+                    <option value="Credit" {% if fd.get('payment_method', purchase.PaymentMethod)|string == 'Credit' %}selected{% endif %}>Credit (unpaid)</option>
+                </select>
+            </div>
+
             <h3>Update Items</h3>
             {{ field_error(errors, 'item_id[]') }}
             {{ field_error(errors, 'quantity[]') }}
