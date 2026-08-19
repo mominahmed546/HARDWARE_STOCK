@@ -76,7 +76,6 @@ def bind_current_account(db):
             "SELECT set_config('app.user_id', ?, false)",
             (str(request_user_id()),),
         )
-        db.commit()
     except Exception:
         db.rollback()
         raise
