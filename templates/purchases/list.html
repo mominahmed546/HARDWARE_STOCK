@@ -7,7 +7,7 @@
 <div class="container">
     <div class="payment-summary" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin-bottom:1rem;">
         <div class="card">
-            <div style="font-size:.8rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Cash in Hand / Drawer</div>
+            <div style="font-size:.8rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Cash in Drawer</div>
             <div style="font-size:1.2rem;font-weight:700;">Rs {{ "{:,.2f}".format(cash_in_hand|default(0)) }}</div>
         </div>
         <div class="card">
@@ -27,10 +27,10 @@
         <form method="POST" class="form">
             <input type="hidden" name="action" value="set_current_cash">
             <div class="form-group">
-                <label for="current_cash_in_hand">Set Current Cash in Hand / Drawer</label>
-                <input type="number" step="0.01" min="0" id="current_cash_in_hand" name="current_cash_in_hand" placeholder="e.g. 50000">
-                {% if cash_adjust_errors and cash_adjust_errors.get('current_cash_in_hand') %}
-                <div class="error-message">{{ cash_adjust_errors.get('current_cash_in_hand') }}</div>
+                <label for="current_cash_in_drawer">Set Current Cash in Drawer</label>
+                <input type="number" step="0.01" min="0" id="current_cash_in_drawer" name="current_cash_in_drawer" placeholder="e.g. 50000">
+                {% if cash_adjust_errors and cash_adjust_errors.get('current_cash_in_drawer') %}
+                <div class="error-message">{{ cash_adjust_errors.get('current_cash_in_drawer') }}</div>
                 {% endif %}
             </div>
             <div class="form-actions">

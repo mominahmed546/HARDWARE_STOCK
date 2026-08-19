@@ -2,7 +2,7 @@
 {% from 'macros/form.html' import field_error %}
 
 {% block title %}Cash / Bank - Hardware Stock Management{% endblock %}
-{% block page_title %}Cash in Hand / Bank{% endblock %}
+{% block page_title %}Cash in Drawer / Bank{% endblock %}
 {% block page_subtitle %}
 <p>Cash and bank received from sales, and the balance after that day or month</p>
 {% endblock %}
@@ -80,7 +80,7 @@
             <div class="report-card-value">Rs {{ "{:,.2f}".format(period_bank|default(0)) }}</div>
         </div>
         <div class="report-card">
-            <div class="report-card-label">Cash in hand after this {{ 'month' if view == 'monthly' else 'day' }}</div>
+            <div class="report-card-label">Cash in drawer after this {{ 'month' if view == 'monthly' else 'day' }}</div>
             <div class="report-card-value cash-after">Rs {{ "{:,.2f}".format(cash_in_hand|default(0)) }}</div>
         </div>
         <div class="report-card">
@@ -91,11 +91,11 @@
 
     <div class="report-toolbar">
         <h3 style="margin:0 0 0.85rem;">Opening balances</h3>
-        <p class="text-muted" style="margin:0 0 1rem;">Set what was already in the till and bank before these receipts. Cash in hand = opening cash + cash received. Bank = opening bank + bank received.</p>
+        <p class="text-muted" style="margin:0 0 1rem;">Set what was already in the till and bank before these receipts. Cash in drawer = opening cash + cash received. Bank = opening bank + bank received.</p>
         <form method="POST" class="opening-form">
             <input type="hidden" name="action" value="save_openings">
             <div class="form-group">
-                <label for="cash_opening">Opening cash in hand</label>
+                <label for="cash_opening">Opening cash in drawer</label>
                 <input type="number" id="cash_opening" name="cash_opening" min="0" step="0.01"
                        value="{{ '{:.2f}'.format(cash_opening|default(0)) }}">
             </div>
@@ -105,6 +105,20 @@
                        value="{{ '{:.2f}'.format(bank_opening|default(0)) }}">
             </div>
             <button type="submit" class="btn btn-secondary">Save openings</button>
+        </form>
+    </div>
+    <div class="report-toolbar">
+        <h3 style="margin:0 0 0.85rem;">Adjust current cash</h3>
+        <form method="POST" class="opening-form">
+            <input type="hidden" name="action" value="set_current_cash">
+            <div class="form-group">
+                <label for="current_cash_in_drawer">Set current cash in drawer</label>
+                <input type="number" id="current_cash_in_drawer" name="current_cash_in_drawer" min="0" step="0.01" placeholder="e.g. 50000">
+                {% if adjust_errors and adjust_errors.get('current_cash_in_drawer') %}
+                <div class="error-message">{{ adjust_errors.get('current_cash_in_drawer') }}</div>
+                {% endif %}
+            </div>
+            <button type="submit" class="btn btn-primary">Update cash drawer</button>
         </form>
     </div>
 
@@ -159,7 +173,7 @@
                     <th>Cash received</th>
                     <th>Bank received</th>
                     <th>Total received</th>
-                    <th>Cash in hand after day</th>
+                    <th>Cash in drawer after day</th>
                     <th>Bank after day</th>
                 </tr>
             </thead>

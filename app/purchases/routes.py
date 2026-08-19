@@ -441,11 +441,11 @@ def list_purchases():
 
         if request.method == "POST" and request.form.get("action") == "set_current_cash":
             target_cash = clean_positive_decimal(
-                request.form.get("current_cash_in_hand"),
-                "current_cash_in_hand",
+                request.form.get("current_cash_in_drawer"),
+                "current_cash_in_drawer",
                 cash_adjust_errors,
                 min_val=0,
-                label="Current cash in hand",
+                label="Current cash in drawer",
             )
             if cash_adjust_errors.valid:
                 cash_opening, bank_opening = get_cash_openings(cursor)
@@ -476,7 +476,7 @@ def list_purchases():
                     new_cash_opening = 0.0
                 save_cash_openings(cursor, new_cash_opening, bank_opening)
                 db.commit()
-                flash("Current cash in hand updated.", "success")
+                flash("Current cash in drawer updated.", "success")
                 return redirect(url_for("purchases.list_purchases", search=search))
             flash(cash_adjust_errors.first(), "danger")
 

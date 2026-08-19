@@ -51,7 +51,7 @@
             <div class="form-group">
                 <label for="payment_method">Paid From</label>
                 <select id="payment_method" name="payment_method">
-                    <option value="Cash" {% if fd.get('payment_method', 'Cash') == 'Cash' %}selected{% endif %}>Cash in hand</option>
+                    <option value="Cash" {% if fd.get('payment_method', 'Cash') == 'Cash' %}selected{% endif %}>Cash in drawer</option>
                     <option value="Bank" {% if fd.get('payment_method') == 'Bank' %}selected{% endif %}>Bank account</option>
                     <option value="Credit" {% if fd.get('payment_method') == 'Credit' %}selected{% endif %}>Credit (unpaid)</option>
                 </select>
