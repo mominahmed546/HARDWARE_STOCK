@@ -543,20 +543,17 @@ def _build_invoice_pdf(invoice, details):
 
     header_y = y
     row_h = 18
-    # Dark navy header background, white text
-    filled_rect(table_x, header_y - row_h + 4, table_w, row_h, 0.102, 0.157, 0.259)
+    # Light grey header — black text, prints clearly
+    filled_rect(table_x, header_y - row_h + 4, table_w, row_h, 0.88, 0.88, 0.88)
     line(col_sr_right,      header_y - row_h + 4, col_sr_right,      header_y + 4)
     line(col_product_right, header_y - row_h + 4, col_product_right, header_y + 4)
     line(col_qty_right,     header_y - row_h + 4, col_qty_right,     header_y + 4)
     line(col_rate_right,    header_y - row_h + 4, col_rate_right,    header_y + 4)
-    # White text on dark header
-    commands.append("1 1 1 rg")
     text_center(table_x + col_sr_w / 2,               header_y - 8, "#",            8, "F2")
     text(col_sr_right + 4,                            header_y - 8, "PRODUCT NAME", 9, "F2")
     text(col_product_right + 4,                       header_y - 8, "QTY",          9, "F2")
     text(col_qty_right + 4,                           header_y - 8, "RATE",         9, "F2")
     text(col_rate_right + 4,                          header_y - 8, "TOTAL",        9, "F2")
-    commands.append("0 0 0 rg")
     y = header_y - row_h - 2
 
     if not details:
@@ -616,20 +613,16 @@ def _build_invoice_pdf(invoice, details):
         bx = col_qty_right           # box starts at RATE column left edge
         if highlight:
             filled_rect(bx, y - row_h_footer + 4, footer_w, row_h_footer,
-                        0.102, 0.157, 0.259)
+                        0.88, 0.88, 0.88)
         else:
             rect(bx, y - row_h_footer + 4, footer_w, row_h_footer)
         # Divider between RATE label cell and TOTAL amount cell
         line(col_rate_right, y - row_h_footer + 4, col_rate_right, y + 4)
         mid_y = y - (row_h_footer / 2) + 2
-        if highlight:
-            commands.append("1 1 1 rg")
         font = "F2" if highlight else "F1"
         size = 11 if highlight else 10
         text(bx + 4, mid_y - 3, label, size, font)
         text_right(col_total_right - 4, mid_y - 3, amount_str, size, font)
-        if highlight:
-            commands.append("0 0 0 rg")
         y -= row_h_footer
 
     footer_row("TOTAL",            money(total_amount),    highlight=True)
