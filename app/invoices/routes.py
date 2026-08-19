@@ -605,43 +605,39 @@ def _build_invoice_pdf(invoice, details):
     invoice_due = max(total_amount - cash_received, 0)
 
     # ── Footer table ─────────────────────────────────────────────────────────
-    # Two styles:
-    #   header rows (TOTAL / Net Balance): full-width dark navy, label at
-    #     col_sr_right (product-name column), white text.
-    #   detail rows (Prev Bal / Cash / Due): label starts at col_qty_right
-    #     (left edge of RATE column), amount in TOTAL cell.
+    # All 5 rows share the same column grid:
+    #   - full-width border box
+    #   - vertical divider at col_qty_right (left of RATE) and col_rate_right
+    #   - label at col_qty_right + 4 (start of RATE cell)
+    #   - amount right-aligned in TOTAL cell
+    # TOTAL and Net Balance get the dark-navy fill + white text.
     row_h_footer = 18
 
-    def footer_header_row(label, amount_str):
-        """Dark-navy full-width row with white text; label at product-name col."""
+    def footer_row(label, amount_str, highlight=False):
         nonlocal y
-        filled_rect(table_x, y - row_h_footer + 4, table_w, row_h_footer,
-                    0.102, 0.157, 0.259)
-        line(col_rate_right, y - row_h_footer + 4, col_rate_right, y + 4)
-        mid_y = y - (row_h_footer / 2) + 2
-        commands.append("1 1 1 rg")
-        text(col_sr_right + 4, mid_y - 3, label, 11, "F2")
-        text_right(col_total_right - 4, mid_y - 3, amount_str, 11, "F2")
-        commands.append("0 0 0 rg")
-        y -= row_h_footer
-
-    def footer_detail_row(label, amount_str):
-        """White row; label starts at the left edge of the RATE column."""
-        nonlocal y
-        rect(table_x, y - row_h_footer + 4, table_w, row_h_footer)
-        # Divider at start of RATE column and at RATE/TOTAL boundary
+        if highlight:
+            filled_rect(table_x, y - row_h_footer + 4, table_w, row_h_footer,
+                        0.102, 0.157, 0.259)
+        else:
+            rect(table_x, y - row_h_footer + 4, table_w, row_h_footer)
         line(col_qty_right,  y - row_h_footer + 4, col_qty_right,  y + 4)
         line(col_rate_right, y - row_h_footer + 4, col_rate_right, y + 4)
         mid_y = y - (row_h_footer / 2) + 2
-        text(col_qty_right + 4, mid_y - 3, label, 10, "F1")
-        text_right(col_total_right - 4, mid_y - 3, amount_str, 10, "F1")
+        if highlight:
+            commands.append("1 1 1 rg")
+        font = "F2" if highlight else "F1"
+        size = 11 if highlight else 10
+        text(col_qty_right + 4, mid_y - 3, label, size, font)
+        text_right(col_total_right - 4, mid_y - 3, amount_str, size, font)
+        if highlight:
+            commands.append("0 0 0 rg")
         y -= row_h_footer
 
-    footer_header_row(f"Items: {items_count}     TOTAL", money(total_amount))
-    footer_detail_row("Previous Balance", money(previous_balance))
-    footer_detail_row("Cash Received",    money(cash_received))
-    footer_detail_row("Invoice Due",      money(invoice_due))
-    footer_header_row("Net Balance",      money(net_balance))
+    footer_row("TOTAL",            money(total_amount),    highlight=True)
+    footer_row("Previous Balance", money(previous_balance))
+    footer_row("Cash Received",    money(cash_received))
+    footer_row("Invoice Due",      money(invoice_due))
+    footer_row("Net Balance",      money(net_balance),     highlight=True)
 
     # ── Tear-off dotted line ─────────────────────────────────────────────────
     y -= 20
