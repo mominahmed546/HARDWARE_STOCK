@@ -24,6 +24,7 @@
                 <th>Customer</th>
                 <th>Total Amount</th>
                 <th>Paid / Due</th>
+                <th>Returns</th>
                 <th>Profit</th>
                 <th class="invoice-status-col">Status</th>
                 <th>Actions</th>
@@ -40,6 +41,14 @@
                 <td>
                     Rs {{ "{:,.2f}".format(invoice.PaidAmount|default(0)) }}
                     <div class="paid-due-sub">Due Rs {{ "{:,.2f}".format(invoice.RemainingAmount|default(0)) }}</div>
+                </td>
+                <td>
+                    {% if (invoice.ReturnCount or 0) > 0 %}
+                    {{ invoice.ReturnCount }} return(s)
+                    <div class="paid-due-sub">Rs {{ "{:,.2f}".format(invoice.ReturnTotal|default(0)) }}</div>
+                    {% else %}
+                    —
+                    {% endif %}
                 </td>
                 <td>Rs {{ "{:,.2f}".format(invoice.Profit|default(0)) }}</td>
                 <td class="invoice-status-col"><span class="pay-status {{ status|lower }}">{{ status }}</span></td>
@@ -76,7 +85,7 @@
             </tr>
             {% else %}
             <tr>
-                <td colspan="8">No invoices found.</td>
+                <td colspan="9">No invoices found.</td>
             </tr>
             {% endfor %}
         </tbody>
