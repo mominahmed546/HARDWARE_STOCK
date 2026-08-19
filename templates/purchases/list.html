@@ -5,6 +5,20 @@
 
 {% block content %}
 <div class="container">
+    <div class="payment-summary" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;margin-bottom:1rem;">
+        <div class="card">
+            <div style="font-size:.8rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Cash in Hand</div>
+            <div style="font-size:1.2rem;font-weight:700;">Rs {{ "{:,.2f}".format(cash_in_hand|default(0)) }}</div>
+        </div>
+        <div class="card">
+            <div style="font-size:.8rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Bank Account</div>
+            <div style="font-size:1.2rem;font-weight:700;">Rs {{ "{:,.2f}".format(bank_balance|default(0)) }}</div>
+        </div>
+        <div class="card">
+            <div style="font-size:.8rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;">Total Purchases Deducted</div>
+            <div style="font-size:1.2rem;font-weight:700;">Rs {{ "{:,.2f}".format(total_purchases_amount|default(0)) }}</div>
+        </div>
+    </div>
     <div class="list-header">
         <div class="search-bar">
             <form method="GET" class="search-form">
