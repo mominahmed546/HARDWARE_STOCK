@@ -1,4 +1,10 @@
 (function () {
+    /* On desktop, Web Share API shows an OS share popup instead of going directly
+       to WhatsApp. We detect mobile so the share sheet only runs on phones/tablets. */
+    function isMobile() {
+        return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    }
+
     function whatsappDigits(raw) {
         var digits = String(raw || "").replace(/\D/g, "");
         if (digits.indexOf("00") === 0) {
@@ -40,6 +46,9 @@
     }
 
     function canShareFiles(file) {
+        if (!isMobile()) {
+            return false;
+        }
         try {
             return Boolean(navigator.canShare && navigator.canShare({ files: [file] }));
         } catch (error) {
@@ -120,13 +129,14 @@
             if (button) {
                 button.disabled = true;
             }
-            setStatus(form, "Preparing the file on this device…");
+            setStatus(form, "Preparing the file…");
 
             try {
                 var file = await loadFormFile(form);
                 var blob = file instanceof Blob ? file : form._whatsappFile;
 
-                if (navigator.share && canShareFiles(file)) {
+                if (canShareFiles(file)) {
+                    /* Mobile with share API: let the OS sheet handle it. */
                     try {
                         setStatus(form, "Choose WhatsApp to send the file. The customer can open it without internet.");
                         await navigator.share({ files: [file], title: fileName });
@@ -134,21 +144,29 @@
                         return;
                     } catch (shareError) {
                         if (shareError && shareError.name === "AbortError") {
-                            setStatus(form, "Sharing was cancelled. The file is ready on this device if you want to attach it.");
+                            setStatus(form, "Sharing was cancelled. The file is saved on this device if you want to attach it.");
                             return;
                         }
+                        /* If share failed for other reason, fall through to manual path. */
                     }
                 }
 
+                /* Desktop and mobile fallback:
+                   1. Save the file to the device.
+                   2. Open WhatsApp — the user attaches the file with the paperclip. */
                 saveFile(blob, fileName);
-                setStatus(form, "File saved on this device. Opening WhatsApp — attach that file with the paperclip.");
+                if (isMobile()) {
+                    setStatus(form, "File saved. Opening WhatsApp — attach the saved file with the paperclip.");
+                } else {
+                    setStatus(form, "File downloaded. Opening WhatsApp Web — attach the downloaded file with the paperclip icon.");
+                }
                 window.setTimeout(function () {
-                    window.location.href = "https://wa.me/" + digits;
-                }, 700);
+                    window.open("https://wa.me/" + digits, "_blank", "noopener,noreferrer");
+                }, 600);
             } catch (error) {
                 form._whatsappFile = null;
                 form._whatsappFilePromise = null;
-                setStatus(form, "Could not prepare the file. Use Download on this page, then attach that saved file in WhatsApp.", true);
+                setStatus(form, "Could not prepare the file. Use the Download button on this page, then attach that file in WhatsApp.", true);
             } finally {
                 form._whatsappSending = false;
                 if (button) {
