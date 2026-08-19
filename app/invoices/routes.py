@@ -91,6 +91,41 @@ def _ensure_invoice_settlement_columns(db, cursor):
     db.commit()
 
 
+def _ensure_sales_return_tables(db, cursor):
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS SalesReturns (
+            SalesReturnID SERIAL PRIMARY KEY,
+            InvoiceID INTEGER NOT NULL REFERENCES Invoices(InvoiceID) ON DELETE CASCADE,
+            ReturnDate TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            TotalAmount NUMERIC(12, 2) NOT NULL,
+            Notes VARCHAR(255)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS SalesReturnDetails (
+            SalesReturnDetailID SERIAL PRIMARY KEY,
+            SalesReturnID INTEGER NOT NULL REFERENCES SalesReturns(SalesReturnID) ON DELETE CASCADE,
+            InvoiceDetailID INTEGER,
+            ItemID INTEGER NOT NULL REFERENCES Item(ItemID),
+            Particulars VARCHAR(255),
+            Qty INTEGER NOT NULL,
+            Rate NUMERIC(12, 2) NOT NULL,
+            LineAmount NUMERIC(12, 2) NOT NULL
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_sales_returns_invoice_id
+        ON SalesReturns (InvoiceID)
+        """
+    )
+    db.commit()
+
+
 def _ensure_invoice_schema(db, cursor):
     _ensure_previous_balance_column(db, cursor)
     _ensure_invoice_payment_status_column(db, cursor)
@@ -98,6 +133,7 @@ def _ensure_invoice_schema(db, cursor):
     _ensure_invoice_settlement_columns(db, cursor)
     _ensure_invoice_date_is_timestamp(db, cursor)
     ensure_invoice_payments_table(db, cursor)
+    _ensure_sales_return_tables(db, cursor)
 
 
 def _invoice_settlement(previous_balance, total_amount, paid_amount=0):
@@ -883,10 +919,18 @@ def list_invoices():
                     ),
                     0
                 ) AS Profit
+                ,
+                COALESCE(sr.ReturnCount, 0) AS ReturnCount,
+                COALESCE(sr.ReturnTotal, 0) AS ReturnTotal
             FROM Invoices i
             JOIN Customers c ON i.CustomerID = c.CustomerID
             LEFT JOIN InvoiceDetails d ON i.InvoiceID = d.InvoiceID
             LEFT JOIN Item it ON d.ItemID = it.ItemID
+            LEFT JOIN (
+                SELECT InvoiceID, COUNT(*) AS ReturnCount, COALESCE(SUM(TotalAmount), 0) AS ReturnTotal
+                FROM SalesReturns
+                GROUP BY InvoiceID
+            ) sr ON sr.InvoiceID = i.InvoiceID
             {purchase_unit_cost_join("d")}
             {payments_join_sql("i")}
             WHERE {owner_sql("i")}
@@ -900,7 +944,7 @@ def list_invoices():
         query += """
             GROUP BY
                 i.InvoiceID, i.[Date], i.TotalAmount, i.PaymentStatus,
-                pay.PaidAmount, c.CustomerName
+                pay.PaidAmount, c.CustomerName, sr.ReturnCount, sr.ReturnTotal
             ORDER BY i.InvoiceID DESC
         """
 
@@ -1556,6 +1600,35 @@ def sales_return(id):
                         WHERE ItemID = ? AND {owner_sql()}
                         """,
                         (return_qty, item_id),
+                    )
+
+                cursor.execute(
+                    """
+                    INSERT INTO SalesReturns (InvoiceID, ReturnDate, TotalAmount, Notes)
+                    OUTPUT INSERTED.SalesReturnID
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (id, datetime.now(), total_return_amount, notes or None),
+                )
+                sales_return_id = int(cursor.fetchone()[0])
+
+                for line, return_qty, row_amount in return_rows:
+                    cursor.execute(
+                        """
+                        INSERT INTO SalesReturnDetails (
+                            SalesReturnID, InvoiceDetailID, ItemID, Particulars, Qty, Rate, LineAmount
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            sales_return_id,
+                            int(line.DetailID),
+                            int(line.ItemID),
+                            str(line.Particulars or "Item"),
+                            int(return_qty),
+                            float(line.Rate or 0),
+                            float(row_amount),
+                        ),
                     )
 
                 new_total = max(float(invoice.TotalAmount or 0) - total_return_amount, 0.0)
