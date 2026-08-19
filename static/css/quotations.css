@@ -76,11 +76,52 @@
     max-width: 720px;
 }
 
-.quotation-whatsapp-card [data-whatsapp-status] {
-    font-weight: 600;
-    color: #0f6f64;
+/* Two-step WhatsApp send UI */
+.wa-step-box {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 1rem;
+    background: var(--surface);
 }
 
-.quotation-whatsapp-card [data-whatsapp-status].whatsapp-file-status-error {
-    color: #b91c1c;
+.wa-step-box-done {
+    background: #f0fdf4;
+    border-color: #86efac;
+}
+
+[data-theme="dark"] .wa-step-box-done {
+    background: #052e16;
+    border-color: #166534;
+}
+
+.wa-step-num {
+    flex-shrink: 0;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    background: #128c7e;
+    color: #fff;
+    font-weight: 700;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.wa-step-done {
+    background: #16a34a;
+}
+
+.wa-step-box strong {
+    display: block;
+    margin-bottom: 0.35rem;
+    font-size: 1rem;
+}
+
+.wa-step-box .btn {
+    margin-top: 0.6rem;
 }
