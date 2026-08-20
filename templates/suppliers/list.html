@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/items_list.css') }}">
+{% endblock %}
+
 {% block title %}Suppliers - Hardware Stock Management{% endblock %}
 {% block page_title %}Suppliers{% endblock %}
 
@@ -15,7 +19,8 @@
         <a href="{{ url_for('suppliers.create_supplier') }}" class="btn btn-success">+ New Supplier</a>
     </div>
     
-    <table class="data-table">
+    <div class="table-wrap">
+    <table class="data-table items-table">
         <thead>
             <tr>
                 <th>ID</th>
@@ -40,5 +45,6 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 {% endblock %}
