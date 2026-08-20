@@ -201,11 +201,61 @@ a {
     align-items: center;
     justify-content: space-between;
     gap: 1.25rem;
+    flex-wrap: wrap;
     background: var(--surface);
     border-radius: var(--radius);
     box-shadow: var(--shadow);
     padding: 1rem 1.5rem;
     margin-bottom: var(--space-lg);
+}
+
+.topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+}
+
+/* ---- Mobile sidebar drawer ---- */
+
+.hamburger-btn {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.hamburger-btn span {
+    display: block;
+    width: 18px;
+    height: 2px;
+    background: var(--text);
+    border-radius: 2px;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.hamburger-btn[aria-expanded="true"] span:nth-child(1) {
+    transform: translateY(7px) rotate(45deg);
+}
+
+.hamburger-btn[aria-expanded="true"] span:nth-child(2) {
+    opacity: 0;
+}
+
+.hamburger-btn[aria-expanded="true"] span:nth-child(3) {
+    transform: translateY(-7px) rotate(-45deg);
+}
+
+.sidebar-backdrop {
+    display: none;
 }
 
 .company-name {
@@ -702,30 +752,48 @@ a {
 }
 
 @media (max-width: 900px) {
-    .app-shell {
-        flex-direction: column;
+    .hamburger-btn {
+        display: flex;
     }
 
     .sidebar {
-        width: 100%;
-        height: auto;
-        position: relative;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: min(280px, 82vw);
+        height: 100vh;
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        z-index: 1000;
+        box-shadow: 6px 0 30px rgba(0, 0, 0, 0.3);
     }
 
-    .sidebar-nav {
-        flex-direction: row;
-        flex-wrap: wrap;
-        gap: 0.35rem;
+    body.sidebar-open .sidebar {
+        transform: translateX(0);
+    }
+
+    .sidebar-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.55);
+        z-index: 999;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.2s ease;
+    }
+
+    body.sidebar-open .sidebar-backdrop {
+        opacity: 1;
+        visibility: visible;
+    }
+
+    body.sidebar-open {
+        overflow: hidden;
     }
 
     .main-content {
         padding: 1.5rem 1.25rem 2.25rem;
-    }
-
-    .topbar {
-        align-items: flex-start;
-        flex-direction: column;
-        margin-bottom: var(--space-md);
     }
 
     .page-header {
@@ -746,5 +814,49 @@ a {
     .search-form select {
         min-width: 0;
         width: 100%;
+    }
+}
+
+@media (max-width: 480px) {
+    .main-content {
+        padding: 1.15rem 0.9rem 2rem;
+    }
+
+    .topbar {
+        padding: 0.85rem 1rem;
+    }
+
+    .company-name {
+        font-size: 0.95rem;
+    }
+
+    .user-name {
+        display: none;
+    }
+
+    .page-header h2 {
+        font-size: 1.4rem;
+    }
+
+    .page-header p {
+        font-size: 0.9rem;
+    }
+
+    .card,
+    .panel {
+        padding: 1.25rem;
+    }
+
+    .btn {
+        padding: 0.65rem 1rem;
+    }
+}
+
+/* Prevent iOS Safari from auto-zooming when focusing form fields */
+@media (max-width: 600px) {
+    input,
+    select,
+    textarea {
+        font-size: 16px;
     }
 }

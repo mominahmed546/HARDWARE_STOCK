@@ -24,7 +24,8 @@
         <div class="route-loader-spinner" role="status" aria-label="Loading"></div>
     </div>
     <div class="app-shell">
-        <aside class="sidebar">
+        <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+        <aside class="sidebar" id="sidebar">
             <div class="sidebar-brand">
                 <h1>Hardware Stock</h1>
                 <p>Inventory Management</p>
@@ -78,7 +79,14 @@
 
         <main class="main-content">
             <div class="topbar">
-                <div class="company-name">Euroglass</div>
+                <div class="topbar-left">
+                    <button class="hamburger-btn" id="sidebarToggle" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="sidebar">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </button>
+                    <div class="company-name">Euroglass</div>
+                </div>
                 <div style="display:flex;align-items:center;gap:1rem;">
                     <div class="user-name">
                         {{ current_user.username if current_user.is_authenticated else 'Guest' }}
@@ -114,6 +122,42 @@
     </div>
     <script src="{{ url_for('static', filename='js/forms.js') }}"></script>
     {% block extra_js %}{% endblock %}
+    <script>
+        (function () {
+            var toggle = document.getElementById('sidebarToggle');
+            var backdrop = document.getElementById('sidebarBackdrop');
+            var body = document.body;
+            if (!toggle || !backdrop) return;
+
+            function closeSidebar() {
+                body.classList.remove('sidebar-open');
+                toggle.setAttribute('aria-expanded', 'false');
+            }
+
+            function openSidebar() {
+                body.classList.add('sidebar-open');
+                toggle.setAttribute('aria-expanded', 'true');
+            }
+
+            toggle.addEventListener('click', function () {
+                if (body.classList.contains('sidebar-open')) {
+                    closeSidebar();
+                } else {
+                    openSidebar();
+                }
+            });
+
+            backdrop.addEventListener('click', closeSidebar);
+
+            document.addEventListener('keydown', function (event) {
+                if (event.key === 'Escape') closeSidebar();
+            });
+
+            window.addEventListener('resize', function () {
+                if (window.innerWidth > 900) closeSidebar();
+            });
+        })();
+    </script>
     <script>
         (function () {
             const html = document.documentElement;
