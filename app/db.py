@@ -212,6 +212,41 @@ def _translate_sql(query):
     return query
 
 
+_user_columns_ready = False
+
+
+def _ensure_user_contact_columns(db):
+    """Add the Email/Phone columns used by password reset if they're missing.
+
+    Mirrors the self-healing migration pattern in app/tenancy.py so a fresh
+    Render Postgres database (or one deployed before this feature existed)
+    picks up the new columns automatically, without a manual migration step.
+    """
+    global _user_columns_ready
+    if _user_columns_ready:
+        return
+
+    try:
+        cursor = db.cursor()
+        try:
+            cursor.execute("ALTER TABLE Users ADD COLUMN IF NOT EXISTS Email VARCHAR(120)")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE Users ADD COLUMN IF NOT EXISTS Phone VARCHAR(20)")
+        except Exception:
+            pass
+        try:
+            cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON Users (Email)")
+        except Exception:
+            pass
+        db.commit()
+        cursor.close()
+        _user_columns_ready = True
+    except Exception:
+        db.rollback()
+
+
 def get_db_connection(app):
     if 'db' not in g:
         database_url = app.config.get("DATABASE_URL") or os.environ.get("DATABASE_URL")
@@ -219,6 +254,7 @@ def get_db_connection(app):
             raise RuntimeError("DATABASE_URL is not configured.")
 
         g.db = ConnectionWrapper(psycopg.connect(database_url))
+        _ensure_user_contact_columns(g.db)
 
     return g.db
 
