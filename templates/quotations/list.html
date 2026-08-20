@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/items_list.css') }}">
+{% endblock %}
+
 {% block title %}Quotations - Hardware Stock Management{% endblock %}
 {% block page_title %}Quotations{% endblock %}
 {% block page_subtitle %}
@@ -18,7 +22,8 @@
         <a href="{{ url_for('quotations.create_quotation') }}" class="btn btn-success">+ New Quotation</a>
     </div>
 
-    <table class="data-table">
+    <div class="table-wrap">
+    <table class="data-table items-table">
         <thead>
             <tr>
                 <th>No.</th>
@@ -42,7 +47,7 @@
                 <td>Rs {{ "{:,.2f}".format(quotation.TotalAmount|default(0)) }}</td>
                 <td>Rs {{ "{:,.2f}".format(quotation.Advance|default(0)) }}</td>
                 <td class="list-actions-cell">
-                    <div class="list-actions">
+                    <div class="list-actions quotation-actions">
                         <a href="{{ url_for('quotations.edit_quotation', id=quotation.QuotationID) }}" class="btn btn-sm btn-info">Edit</a>
                         <a href="{{ url_for('quotations.quotation_excel', id=quotation.QuotationID) }}" class="btn btn-sm btn-secondary">Excel</a>
                         <a href="{{ url_for('quotations.quotation_whatsapp', id=quotation.QuotationID) }}" class="btn btn-sm btn-whatsapp">WhatsApp</a>
@@ -59,5 +64,6 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
 </div>
 {% endblock %}

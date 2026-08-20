@@ -516,7 +516,7 @@ a {
     white-space: nowrap;
     padding: 0.28rem 0.55rem;
     font-size: 0.74rem;
-    border-radius: 6px;
+    border-radius: 0;
 }
 
 .invoice-action-wide {
@@ -549,7 +549,7 @@ a {
     margin-right: 0;
     padding: 0.28rem 0.4rem;
     font-size: 0.74rem;
-    border-radius: 6px;
+    border-radius: 0;
 }
 
 .data-table .invoice-actions-cell .btn + .btn,
@@ -586,6 +586,10 @@ a {
 
 .list-actions .btn-whatsapp {
     min-width: 7.5rem;
+}
+
+.quotation-actions .btn {
+    border-radius: 0;
 }
 
 .data-table .list-actions-cell .btn + .btn,

@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/items_list.css') }}">
+{% endblock %}
+
 {% block title %}Invoices - Hardware Stock Management{% endblock %}
 {% block page_title %}Invoices{% endblock %}
 
@@ -16,7 +20,7 @@
     </div>
 
     <div class="table-wrap invoices-table-wrap">
-    <table class="data-table invoices-table">
+    <table class="data-table invoices-table items-table">
         <thead>
             <tr>
                 <th>ID</th>
