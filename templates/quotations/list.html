@@ -47,7 +47,7 @@
                 <td>Rs {{ "{:,.2f}".format(quotation.TotalAmount|default(0)) }}</td>
                 <td>Rs {{ "{:,.2f}".format(quotation.Advance|default(0)) }}</td>
                 <td class="list-actions-cell">
-                    <div class="list-actions quotation-actions">
+                    <div class="list-actions">
                         <a href="{{ url_for('quotations.edit_quotation', id=quotation.QuotationID) }}" class="btn btn-sm btn-info">Edit</a>
                         <a href="{{ url_for('quotations.quotation_excel', id=quotation.QuotationID) }}" class="btn btn-sm btn-secondary">Excel</a>
                         <a href="{{ url_for('quotations.quotation_whatsapp', id=quotation.QuotationID) }}" class="btn btn-sm btn-whatsapp">WhatsApp</a>
