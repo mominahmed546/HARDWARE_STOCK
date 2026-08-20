@@ -317,6 +317,18 @@ def delete_supplier(id):
 
 
 
+        cursor.execute(f"SELECT COUNT(*) FROM Purchases WHERE SupplierID = ? AND {owner_sql()}", (id,))
+
+        if cursor.fetchone()[0] > 0:
+
+            cursor.close()
+
+            flash("Cannot delete supplier that already has purchases recorded against it.", "danger")
+
+            return redirect(url_for("suppliers.list_suppliers"))
+
+
+
         cursor.execute(f"DELETE FROM Supplier WHERE SupplierID = ? AND {owner_sql()}", (id,))
 
         db.commit()
