@@ -66,6 +66,26 @@ def clean_password(value, errors, field="password", min_len=6):
     return value
 
 
+def clean_email(value, field, errors, required=True, max_len=120, label=None):
+    name = _label(field, label or "Email")
+    value = (value or "").strip().lower()
+
+    if not value:
+        if required:
+            errors.add(field, f"{name} is required.")
+        return None
+
+    if len(value) > max_len:
+        errors.add(field, f"{name} must be at most {max_len} characters.")
+        return None
+
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", value):
+        errors.add(field, f"{name} must be a valid email address.")
+        return None
+
+    return value
+
+
 def clean_optional_string(value, field, errors, max_len=100, label=None):
     return clean_string(value, field, errors, required=False, min_len=0, max_len=max_len, label=label)
 

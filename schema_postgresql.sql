@@ -1,8 +1,15 @@
 CREATE TABLE IF NOT EXISTS users (
     user_id SERIAL PRIMARY KEY,
     username VARCHAR(50) UNIQUE NOT NULL,
-    password VARCHAR(255) NOT NULL
+    password VARCHAR(255) NOT NULL,
+    email VARCHAR(120),
+    phone VARCHAR(20)
 );
+
+-- Safe to re-run: adds the columns to a database created before email/phone existed.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(120);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users (email);
 
 CREATE TABLE IF NOT EXISTS customers (
     customer_id SERIAL PRIMARY KEY,

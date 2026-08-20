@@ -18,6 +18,15 @@ class Config:
         "postgresql://postgres:postgres@localhost:5432/project2_db"
     )
 
+    # Outgoing email (used for password-reset links). Leave unset to disable
+    # sending and instead show the reset link directly (useful for local dev).
+    MAIL_SERVER = os.environ.get("MAIL_SERVER")
+    MAIL_PORT = int(os.environ.get("MAIL_PORT", 587))
+    MAIL_USE_TLS = os.environ.get("MAIL_USE_TLS", "true").lower() == "true"
+    MAIL_USERNAME = os.environ.get("MAIL_USERNAME")
+    MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
+    MAIL_DEFAULT_SENDER = os.environ.get("MAIL_DEFAULT_SENDER") or MAIL_USERNAME
+
 
 class DevelopmentConfig(Config):
     DEBUG = True

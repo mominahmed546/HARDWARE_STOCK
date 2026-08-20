@@ -21,6 +21,8 @@ _COLUMN_REPLACEMENTS = {
     "UserID": "user_id",
     "UserName": "username",
     "Username": "username",
+    "Email": "email",
+    "Phone": "phone",
     "CustomerID": "customer_id",
     "CustomerName": "customer_name",
     "ContactNo": "contact_no",
