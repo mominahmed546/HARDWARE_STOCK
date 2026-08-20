@@ -77,9 +77,9 @@
             <span class="pos-total-label">Cash in drawer</span>
             <span class="pos-total-value sales">Rs {{ "{:,.2f}".format(cash_in_hand|default(0)) }}</span>
         </a>
-        <a class="pos-total-cell cash-link" href="{{ url_for('cash.cash_book', view='monthly') }}">
-            <span class="pos-total-label">Bank account</span>
-            <span class="pos-total-value">Rs {{ "{:,.2f}".format(bank_balance|default(0)) }}</span>
+        <a class="pos-total-cell cash-link" href="{{ url_for('cash.buy_suggestions') }}">
+            <span class="pos-total-label">Cash for purchases</span>
+            <span class="pos-total-value">Rs {{ "{:,.2f}".format(cash_excluding_profit|default(0)) }}</span>
         </a>
     </div>
 

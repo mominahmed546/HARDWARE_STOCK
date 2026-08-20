@@ -65,8 +65,11 @@
                 <a href="{{ url_for('profit.monthly_profit') }}" class="nav-link {% if request.endpoint and request.endpoint.startswith('profit.') %}active{% endif %}">
                     Profit
                 </a>
-                <a href="{{ url_for('cash.cash_book') }}" class="nav-link {% if request.endpoint and request.endpoint.startswith('cash.') %}active{% endif %}">
+                <a href="{{ url_for('cash.cash_book') }}" class="nav-link {% if request.endpoint and request.endpoint.startswith('cash.') and request.endpoint != 'cash.buy_suggestions' %}active{% endif %}">
                     Cash / Bank
+                </a>
+                <a href="{{ url_for('cash.buy_suggestions') }}" class="nav-link {% if request.endpoint == 'cash.buy_suggestions' %}active{% endif %}">
+                    Buy Suggestions
                 </a>
             </nav>
 

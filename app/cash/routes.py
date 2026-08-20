@@ -1,11 +1,13 @@
 from calendar import monthrange
 from datetime import date, datetime, timedelta
 from io import BytesIO
+from math import floor
 
 from flask import Blueprint, flash, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
 
 from app import app
+from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
 from app.db import get_db_connection
 from app.payments import (
     ensure_cash_accounts,
@@ -19,6 +21,7 @@ from app.validators import ValidationErrors, clean_positive_decimal
 
 cash_bp = Blueprint("cash", __name__, url_prefix="/cash")
 
+LOW_STOCK_THRESHOLD = 10
 MONTHS = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
@@ -91,6 +94,119 @@ def _balances_through(cursor, through_date, cash_opening, bank_opening):
         (through_date,),
     )
     return cash_opening + cash_received - cash_paid, bank_opening + bank_received - bank_paid
+
+
+def _cash_capital_received(cursor, through_date):
+    """Cash receipts that only replace purchase cost (exclude profit share)."""
+    line_cost = sold_line_cost_sql("d")
+    cursor.execute(
+        f"""
+        SELECT ISNULL(SUM(capital.CashCapital), 0) AS CashCapital
+        FROM (
+            SELECT
+                p.PaymentID,
+                CASE
+                    WHEN COALESCE(i.TotalAmount, 0) <= 0 THEN 0
+                    ELSE p.Amount * LEAST(
+                        1.0,
+                        COALESCE(cost.InvoiceCost, 0) / i.TotalAmount
+                    )
+                END AS CashCapital
+            FROM InvoicePayments p
+            JOIN Invoices i ON i.InvoiceID = p.InvoiceID
+            LEFT JOIN (
+                SELECT
+                    d.InvoiceID,
+                    ISNULL(SUM({line_cost}), 0) AS InvoiceCost
+                FROM InvoiceDetails d
+                LEFT JOIN Item it ON it.ItemID = d.ItemID
+                {purchase_unit_cost_join("d")}
+                GROUP BY d.InvoiceID
+            ) cost ON cost.InvoiceID = i.InvoiceID
+            WHERE CAST(p.PaymentDate AS DATE) <= ?
+              AND COALESCE(p.PaymentMethod, 'Cash') = 'Cash'
+              AND {owner_sql("i")}
+        ) capital
+        """,
+        (through_date,),
+    )
+    row = cursor.fetchone()
+    return float(row.CashCapital or 0) if row else 0.0
+
+
+def _cash_excluding_profit(cursor, through_date, cash_opening, cash_in_hand=None):
+    """Working capital in the drawer: recovered purchase cost, not profit."""
+    capital_received = _cash_capital_received(cursor, through_date)
+    cash_paid, _, _ = _purchase_payment_split(
+        cursor,
+        "WHERE CAST(pp.PaymentDate AS DATE) <= ?",
+        (through_date,),
+    )
+    capital = float(cash_opening or 0) + capital_received - cash_paid
+    if capital < 0:
+        capital = 0.0
+    if cash_in_hand is not None:
+        cash_in_hand = float(cash_in_hand or 0)
+        if cash_in_hand < 0:
+            cash_in_hand = 0.0
+        capital = min(capital, cash_in_hand)
+    profit_in_cash = max(float(cash_in_hand or 0) - capital, 0.0) if cash_in_hand is not None else 0.0
+    return capital, profit_in_cash, capital_received
+
+
+def _buy_suggestions(cursor, budget, threshold=LOW_STOCK_THRESHOLD, limit=40):
+    """Suggest low-stock items that can be bought with the capital budget."""
+    budget = float(budget or 0)
+    if budget <= 0:
+        return [], 0.0
+
+    cursor.execute(
+        f"""
+        SELECT
+            ItemID,
+            ItemName,
+            COALESCE(Qty, 0) AS Qty,
+            COALESCE(PurchaseRate, 0) AS PurchaseRate,
+            COALESCE(SaleRate, 0) AS SaleRate
+        FROM Item
+        WHERE {owner_sql()}
+          AND COALESCE(Qty, 0) < ?
+          AND COALESCE(PurchaseRate, 0) > 0
+        ORDER BY Qty ASC, ItemName ASC
+        """,
+        (threshold,),
+    )
+    suggestions = []
+    remaining = budget
+    for item in cursor.fetchall():
+        unit_cost = float(item.PurchaseRate or 0)
+        if unit_cost <= 0:
+            continue
+        current_qty = int(item.Qty or 0)
+        needed = max(threshold - current_qty, 1)
+        affordable = int(floor(remaining / unit_cost))
+        if affordable <= 0:
+            continue
+        suggested_qty = min(needed, affordable)
+        line_cost = suggested_qty * unit_cost
+        remaining -= line_cost
+        suggestions.append(
+            {
+                "item_id": int(item.ItemID),
+                "item_name": item.ItemName,
+                "current_qty": current_qty,
+                "purchase_rate": unit_cost,
+                "sale_rate": float(item.SaleRate or 0),
+                "suggested_qty": suggested_qty,
+                "estimated_cost": line_cost,
+                "status": "Out of stock" if current_qty <= 0 else "Low stock",
+            }
+        )
+        if len(suggestions) >= limit:
+            break
+
+    spent = budget - remaining
+    return suggestions, spent
 
 
 def _daily_receipts(cursor, selected_date):
@@ -302,6 +418,9 @@ def _report_context(cursor, view, selected_date, selected_year, selected_month):
         period_label = selected_date.strftime("%d/%m/%Y")
 
     cash_in_hand, bank_balance = _balances_through(cursor, through_date, cash_opening, bank_opening)
+    cash_excluding_profit, profit_in_cash, capital_received = _cash_excluding_profit(
+        cursor, through_date, cash_opening, cash_in_hand
+    )
     return {
         "cash_opening": cash_opening,
         "bank_opening": bank_opening,
@@ -310,6 +429,9 @@ def _report_context(cursor, view, selected_date, selected_year, selected_month):
         "period_total": period_total,
         "cash_in_hand": cash_in_hand,
         "bank_balance": bank_balance,
+        "cash_excluding_profit": cash_excluding_profit,
+        "profit_in_cash": profit_in_cash,
+        "capital_received": capital_received,
         "receipts": receipts,
         "day_rows": day_rows,
         "period_label": period_label,
@@ -419,6 +541,9 @@ def cash_book():
             period_total=0,
             cash_in_hand=0,
             bank_balance=0,
+            cash_excluding_profit=0,
+            profit_in_cash=0,
+            capital_received=0,
             receipts=[],
             day_rows=[],
             period_label="",
@@ -483,5 +608,46 @@ def cash_book_pdf():
             )
         )
 
+    finally:
+        cursor.close()
+
+
+@cash_bp.route("/buy-suggestions")
+@login_required
+def buy_suggestions():
+    db = get_db_connection(app)
+    cursor = db.cursor()
+
+    try:
+        _ensure_cash_schema(db, cursor)
+        cash_opening, bank_opening = get_cash_openings(cursor)
+        today = date.today()
+        cash_in_hand, _bank = _balances_through(cursor, today, cash_opening, bank_opening)
+        cash_excluding_profit, profit_in_cash, _capital_received = _cash_excluding_profit(
+            cursor, today, cash_opening, cash_in_hand
+        )
+        suggestions, spent = _buy_suggestions(cursor, cash_excluding_profit)
+        return render_template(
+            "cash/buy_suggestions.html",
+            cash_in_hand=cash_in_hand,
+            cash_excluding_profit=cash_excluding_profit,
+            profit_in_cash=profit_in_cash,
+            suggestions=suggestions,
+            spent=spent,
+            remaining=max(cash_excluding_profit - spent, 0.0),
+            threshold=LOW_STOCK_THRESHOLD,
+        )
+    except Exception as e:
+        flash(f"Error loading buy suggestions: {str(e)}", "danger")
+        return render_template(
+            "cash/buy_suggestions.html",
+            cash_in_hand=0,
+            cash_excluding_profit=0,
+            profit_in_cash=0,
+            suggestions=[],
+            spent=0,
+            remaining=0,
+            threshold=LOW_STOCK_THRESHOLD,
+        )
     finally:
         cursor.close()

@@ -7,6 +7,7 @@ from flask_login import login_required
 from app import app
 
 from app.db import get_db_connection
+from app.cash.routes import _cash_excluding_profit
 from app.payments import (
     ensure_cash_accounts,
     ensure_invoice_payments_table,
@@ -14,6 +15,7 @@ from app.payments import (
     get_cash_openings,
 )
 from app.tenancy import owner_sql
+from datetime import date
 
 
 
@@ -52,6 +54,8 @@ def dashboard():
         'today_bank': 0,
         'cash_in_hand': 0,
         'bank_balance': 0,
+        'cash_excluding_profit': 0,
+        'profit_in_cash': 0,
     }
 
 
@@ -210,6 +214,9 @@ def dashboard():
         bank_paid_total = float(purchases_row.BankPaid or 0) if purchases_row else 0
         cash_in_hand = cash_opening + cash_received_total - cash_paid_total
         bank_balance = bank_opening + bank_received_total - bank_paid_total
+        cash_excluding_profit, profit_in_cash, _capital = _cash_excluding_profit(
+            cursor, date.today(), cash_opening, cash_in_hand
+        )
 
         cursor.close()
 
@@ -238,6 +245,8 @@ def dashboard():
             today_bank=today_bank,
             cash_in_hand=cash_in_hand,
             bank_balance=bank_balance,
+            cash_excluding_profit=cash_excluding_profit,
+            profit_in_cash=profit_in_cash,
         )
 
 

@@ -24,8 +24,11 @@
     .opening-form .form-group { margin: 0; min-width: 180px; }
     .cash-after { color: #166534; }
     .bank-after { color: #1d4ed8; }
+    .capital-after { color: #0f766e; }
+    .profit-after { color: #a16207; }
     .panel-header h2 { margin: 0 0 1rem; font-size: 1.05rem; }
-    .report-summary-grid.cash-grid { grid-template-columns: repeat(4, 1fr); }
+    .report-summary-grid.cash-grid { grid-template-columns: repeat(3, 1fr); }
+    .cash-actions { display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom: 1.25rem; }
     @media (max-width: 900px) {
         .report-summary-grid.cash-grid { grid-template-columns: 1fr 1fr; }
     }
@@ -87,6 +90,18 @@
             <div class="report-card-label">Bank account after this {{ 'month' if view == 'monthly' else 'day' }}</div>
             <div class="report-card-value bank-after">Rs {{ "{:,.2f}".format(bank_balance|default(0)) }}</div>
         </div>
+        <div class="report-card">
+            <div class="report-card-label">Cash for purchases (excludes profit)</div>
+            <div class="report-card-value capital-after">Rs {{ "{:,.2f}".format(cash_excluding_profit|default(0)) }}</div>
+        </div>
+        <div class="report-card">
+            <div class="report-card-label">Profit sitting in cash</div>
+            <div class="report-card-value profit-after">Rs {{ "{:,.2f}".format(profit_in_cash|default(0)) }}</div>
+        </div>
+    </div>
+
+    <div class="cash-actions">
+        <a href="{{ url_for('cash.buy_suggestions') }}" class="btn btn-primary">What to buy with purchase cash</a>
     </div>
 
     <div class="report-toolbar">
