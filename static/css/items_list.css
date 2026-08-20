@@ -150,7 +150,7 @@
 }
 
 .data-table.items-table td {
-    padding: 0.35rem 0.75rem;
+    padding: 0.6rem 0.75rem;
     line-height: 1.3;
     border-bottom: 1px solid #e2e8f0;
     border-right: 1px solid #e2e8f0;
@@ -169,8 +169,8 @@
 }
 
 .items-table .btn-sm {
-    padding: 0.22rem 0.5rem;
-    font-size: 0.74rem;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.82rem;
     line-height: 1.2;
 }
 

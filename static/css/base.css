@@ -514,8 +514,8 @@ a {
 
 .invoice-actions .btn {
     white-space: nowrap;
-    padding: 0.28rem 0.55rem;
-    font-size: 0.74rem;
+    padding: 0.42rem 0.7rem;
+    font-size: 0.82rem;
     border-radius: 6px;
 }
 
@@ -547,8 +547,8 @@ a {
 .invoice-status-form .pay-method-select {
     flex: 0 0 4.75rem;
     margin-right: 0;
-    padding: 0.28rem 0.4rem;
-    font-size: 0.74rem;
+    padding: 0.42rem 0.4rem;
+    font-size: 0.82rem;
     border-radius: 6px;
 }
 
@@ -578,8 +578,8 @@ a {
 
 .list-actions .btn {
     margin: 0;
-    padding: 0.28rem 0.55rem;
-    font-size: 0.74rem;
+    padding: 0.42rem 0.7rem;
+    font-size: 0.82rem;
     border-radius: 6px;
     min-width: 5.25rem;
 }
