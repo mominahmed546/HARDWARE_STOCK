@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 
@@ -166,6 +167,7 @@ def clean_optional_select_id(value, field, errors, label=None):
 
 
 def clean_date(value, field, errors, label=None):
+    """Accept YYYY-MM-DD or DD/MM/YYYY (also DD-MM-YYYY). Return YYYY-MM-DD."""
     name = _label(field, label or "Date")
     value = (value or "").strip()
 
@@ -173,8 +175,16 @@ def clean_date(value, field, errors, label=None):
         errors.add(field, f"{name} is required.")
         return None
 
-    if not re.match(r"^\d{4}-\d{2}-\d{2}$", value):
-        errors.add(field, f"{name} must be a valid date.")
+    parsed = None
+    for date_format in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y"):
+        try:
+            parsed = datetime.strptime(value, date_format).date()
+            break
+        except ValueError:
+            continue
+
+    if parsed is None:
+        errors.add(field, f"{name} must be a valid date (DD/MM/YYYY).")
         return None
 
-    return value
+    return parsed.isoformat()

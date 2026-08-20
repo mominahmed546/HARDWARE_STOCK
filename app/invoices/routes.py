@@ -414,18 +414,32 @@ def _load_invoice_form_data(cursor, extra_item_ids=None, exclude_invoice_id=None
 
 
 def _invoice_date_iso(value):
+    """Normalize any stored invoice date to YYYY-MM-DD for form/storage use."""
     if not value:
         return date.today().isoformat()
     if hasattr(value, "strftime"):
         return value.strftime("%Y-%m-%d")
 
     value = str(value).strip()
-    for date_format in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+    # Handle ISO with T and optional timezone, e.g. 2026-08-17T10:33:44+05:00
+    cleaned = value.replace("T", " ")
+    if "+" in cleaned[10:] or cleaned.endswith("Z"):
+        cleaned = cleaned[:19]
+    for date_format in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
         try:
-            return datetime.strptime(value[:19], date_format).strftime("%Y-%m-%d")
+            return datetime.strptime(cleaned[:19], date_format).strftime("%Y-%m-%d")
         except ValueError:
             continue
     return date.today().isoformat()
+
+
+def _invoice_date_display(value):
+    """Show dates as DD/MM/YYYY so the user can type them the same way."""
+    iso = _invoice_date_iso(value)
+    try:
+        return datetime.strptime(iso, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except ValueError:
+        return date.today().strftime("%d/%m/%Y")
 
 
 def _invoice_time(value):
@@ -867,7 +881,7 @@ def create_invoice():
     db = get_db_connection(app)
     cursor = db.cursor()
     errors = ValidationErrors()
-    form_data = {"invoice_date": date.today().isoformat()}
+    form_data = {"invoice_date": date.today().strftime("%d/%m/%Y")}
     invoice_lines = _default_invoice_lines()
 
     try:
@@ -1395,7 +1409,7 @@ def edit_invoice(id):
             return redirect(url_for("invoices.invoice_pdf", id=id))
 
         form_data = {
-            "invoice_date": _invoice_date_iso(invoice.InvoiceDate),
+            "invoice_date": _invoice_date_display(invoice.InvoiceDate),
             "customer_id": str(invoice.CustomerID),
             "previous_balance": f"{float(invoice.PreviousBalance or 0):.2f}",
         }
