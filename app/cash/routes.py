@@ -105,18 +105,29 @@ def _accrual_profit_for_year(cursor, year):
 def _cash_excluding_profit(cursor, through_date, cash_opening, cash_in_hand=None, bank_balance=None):
     """Split liquid funds into working capital vs profit.
 
-    Year profit (same total as Monthly Profit) is reserved first in the cash
-    drawer, then any leftover profit is reserved in the bank account. Capital
-    ("for purchases") is whatever remains in each account after that.
+    Year profit (same total as Monthly Profit) is reserved across cash and
+    bank in proportion to each balance. Transferring cash↔bank therefore
+    moves "profit sitting in …" with the money. Capital ("for purchases")
+    is whatever remains in each account after that share.
     """
     total_profit = _accrual_profit_for_year(cursor, through_date.year)
 
     cash_in_hand_value = max(float(cash_in_hand or 0), 0.0)
     bank_value = max(float(bank_balance or 0), 0.0)
+    total_liquid = cash_in_hand_value + bank_value
 
-    profit_in_cash = min(total_profit, cash_in_hand_value)
-    remaining_profit = max(total_profit - profit_in_cash, 0.0)
-    profit_in_bank = min(remaining_profit, bank_value)
+    if total_liquid <= 0 or total_profit <= 0:
+        return cash_in_hand_value, 0.0, total_profit, bank_value, 0.0
+
+    allocated_profit = min(total_profit, total_liquid)
+    profit_in_cash = round(allocated_profit * (cash_in_hand_value / total_liquid), 2)
+    # Put any leftover cents on bank so cash + bank profit equals allocated.
+    profit_in_bank = round(allocated_profit - profit_in_cash, 2)
+    if profit_in_bank < 0:
+        profit_in_bank = 0.0
+    if profit_in_bank > bank_value:
+        profit_in_bank = bank_value
+        profit_in_cash = round(allocated_profit - profit_in_bank, 2)
 
     cash_capital = max(cash_in_hand_value - profit_in_cash, 0.0)
     bank_capital = max(bank_value - profit_in_bank, 0.0)
