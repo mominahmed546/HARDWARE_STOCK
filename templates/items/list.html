@@ -9,6 +9,16 @@
 
 {% block content %}
 <div class="container">
+    {% if duplicate_groups_count %}
+    <div class="flash flash-info" style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+        <span>
+            {{ duplicate_groups_count }} item name{{ 's' if duplicate_groups_count != 1 else '' }} have duplicate
+            rows, which can cause stock and report mismatches (e.g. on Buy Suggestions).
+        </span>
+        <a href="{{ url_for('items.duplicate_items') }}" class="btn btn-sm btn-info">Review &amp; merge</a>
+    </div>
+    {% endif %}
+
     <div class="list-header">
         <div class="search-bar">
             <form method="GET" class="search-form">

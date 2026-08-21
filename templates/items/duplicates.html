@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Duplicate Items - Hardware Stock Management{% endblock %}
+{% block page_title %}Duplicate items{% endblock %}
+{% block page_subtitle %}
+<p>Same item entered more than once, each tracking its own stock separately</p>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/items_list.css') }}">
+<style>
+    .dup-group { margin-bottom: 1.75rem; }
+    .dup-group:last-child { margin-bottom: 0; }
+    .dup-group-title { display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 0.6rem; }
+    .dup-group-title h3 { margin: 0; }
+    .dup-keep-col { width: 90px; text-align: center; }
+    .dup-usage { color: var(--text-muted, #64748b); font-size: 0.85rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="report-toolbar" style="display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom:1.25rem;">
+        <a href="{{ url_for('items.list_items') }}" class="btn btn-secondary">Back to Items</a>
+    </div>
+
+    {% if not groups %}
+    <div class="panel">
+        <p class="text-muted" style="margin:0;">No duplicate item names found. You're all clear.</p>
+    </div>
+    {% else %}
+    <div class="panel">
+        <p class="text-muted" style="margin:0 0 1rem;">
+            Pick which row to keep for each item name below. Merging moves any purchase/invoice/quotation
+            history from the other row(s) onto the one you keep, adds up their quantities, and removes the
+            duplicate row(s). This cannot be undone.
+        </p>
+
+        {% for group in groups %}
+        <div class="dup-group">
+            <div class="dup-group-title">
+                <h3>{{ group.name }}</h3>
+                <span class="dup-usage">{{ group.items|length }} rows &middot; combined qty {{ group.total_qty }}</span>
+            </div>
+            <form method="POST" action="{{ url_for('items.merge_duplicate_items') }}">
+                <input type="hidden" name="item_ids" value="{{ group.items|map(attribute='ItemID')|join(',') }}">
+                <div class="table-wrap">
+                    <table class="data-table items-table">
+                        <thead>
+                            <tr>
+                                <th class="dup-keep-col">Keep</th>
+                                <th>Category</th>
+                                <th>Purchase Rate</th>
+                                <th>Sale Rate</th>
+                                <th>Qty</th>
+                                <th>Used in</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in group.items %}
+                            <tr>
+                                <td class="dup-keep-col">
+                                    <input type="radio" name="keep_id" value="{{ row.ItemID }}"
+                                           {% if row.ItemID == group.suggested_keep_id %}checked{% endif %} required>
+                                </td>
+                                <td>{{ row.CategoryName or 'N/A' }}</td>
+                                <td>{{ row.PurchaseRate }}</td>
+                                <td>{{ row.SaleRate }}</td>
+                                <td>{{ row.Qty }}</td>
+                                <td class="dup-usage">
+                                    {{ row.PurchaseLines }} purchase, {{ row.InvoiceLines }} invoice,
+                                    {{ row.QuotationLines }} quotation line(s)
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="form-actions" style="margin-top:0.75rem;">
+                    <button type="submit" class="btn btn-danger"
+                            onclick="return confirm('Merge these rows into the one you picked? This cannot be undone.')">
+                        Merge into selected row
+                    </button>
+                </div>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

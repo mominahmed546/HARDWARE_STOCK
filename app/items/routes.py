@@ -60,6 +60,72 @@ def _check_duplicate_item_name(item_name, errors, exclude_item_id=None):
         )
 
 
+def _find_duplicate_item_names(app):
+    """Normalized (lower/trimmed) names that have more than one Item row
+    for the current account. Pre-existing duplicates from before the
+    create/edit validation was added still need a one-time manual merge.
+    """
+    rows = execute_query(
+        app,
+        f"""
+        SELECT LOWER(LTRIM(RTRIM(ItemName))) AS NormName
+        FROM Item
+        WHERE {owner_sql()}
+        GROUP BY LOWER(LTRIM(RTRIM(ItemName)))
+        HAVING COUNT(*) > 1
+        """,
+    )
+    return [row.NormName for row in rows]
+
+
+def _duplicate_item_groups(app):
+    groups = []
+    for norm_name in _find_duplicate_item_names(app):
+        rows = execute_query(
+            app,
+            f"""
+            SELECT
+                i.ItemID,
+                i.ItemName,
+                c.CategoryName,
+                COALESCE(i.PurchaseRate, 0) AS PurchaseRate,
+                COALESCE(i.SaleRate, 0) AS SaleRate,
+                COALESCE(i.Qty, 0) AS Qty,
+                (SELECT COUNT(*) FROM PurchaseDetails WHERE ItemID = i.ItemID) AS PurchaseLines,
+                (SELECT COUNT(*) FROM InvoiceDetails WHERE ItemID = i.ItemID) AS InvoiceLines,
+                (SELECT COUNT(*) FROM QuotationDetails WHERE ItemID = i.ItemID) AS QuotationLines
+            FROM Item i
+            LEFT JOIN Category c ON i.CategoryID = c.CategoryID
+            WHERE LOWER(LTRIM(RTRIM(i.ItemName))) = ? AND {owner_sql("i")}
+            ORDER BY i.ItemID ASC
+            """,
+            (norm_name,),
+        )
+        if len(rows) < 2:
+            continue
+
+        total_qty = sum(int(row.Qty or 0) for row in rows)
+        suggested_keep_id = max(
+            rows,
+            key=lambda row: (
+                int(row.PurchaseLines or 0) + int(row.InvoiceLines or 0) + int(row.QuotationLines or 0),
+                int(row.Qty or 0),
+                -int(row.ItemID),
+            ),
+        ).ItemID
+
+        groups.append(
+            {
+                "name": rows[0].ItemName,
+                "items": rows,
+                "total_qty": total_qty,
+                "suggested_keep_id": suggested_keep_id,
+            }
+        )
+
+    return groups
+
+
 @items_bp.route("/list")
 @login_required
 def list_items():
@@ -103,6 +169,7 @@ def list_items():
 
         items = execute_query(app, query, tuple(params) if params else None)
         categories = execute_query(app, f"SELECT CategoryID, CategoryName FROM Category WHERE {owner_sql()} ORDER BY CategoryName")
+        duplicate_groups_count = len(_find_duplicate_item_names(app))
 
         return render_template(
             "items/list.html",
@@ -112,6 +179,7 @@ def list_items():
             category_id=category_id,
             qty_filter=qty_filter,
             qty_filters=QTY_FILTERS,
+            duplicate_groups_count=duplicate_groups_count,
         )
 
     except Exception as e:
@@ -125,6 +193,7 @@ def list_items():
             category_id="",
             qty_filter="",
             qty_filters=QTY_FILTERS,
+            duplicate_groups_count=0,
         )
 
 
@@ -346,3 +415,73 @@ def delete_item(id):
         flash(f"Error deleting item: {str(e)}", "danger")
 
     return redirect(url_for("items.list_items"))
+
+
+@items_bp.route("/duplicates")
+@login_required
+def duplicate_items():
+    try:
+        groups = _duplicate_item_groups(app)
+    except Exception as e:
+        app.logger.exception("Error loading duplicate items")
+        flash(f"Error loading duplicate items: {str(e)}", "danger")
+        groups = []
+
+    return render_template("items/duplicates.html", groups=groups)
+
+
+@items_bp.route("/duplicates/merge", methods=["POST"])
+@login_required
+def merge_duplicate_items():
+    try:
+        item_ids = [int(x) for x in request.form.get("item_ids", "").split(",") if x.strip().isdigit()]
+        keep_id = request.form.get("keep_id", type=int)
+
+        if len(item_ids) < 2 or keep_id not in item_ids:
+            flash("Could not merge: pick which item to keep in each group.", "danger")
+            return redirect(url_for("items.duplicate_items"))
+
+        db = get_db_connection(app)
+        cursor = db.cursor()
+
+        placeholders = ", ".join(["?"] * len(item_ids))
+        cursor.execute(
+            f"SELECT ItemID, ItemName, COALESCE(Qty, 0) AS Qty FROM Item "
+            f"WHERE {owner_sql()} AND ItemID IN ({placeholders})",
+            tuple(item_ids),
+        )
+        rows = {row.ItemID: row for row in cursor.fetchall()}
+
+        # Re-check ownership/membership server-side rather than trusting the
+        # posted list, since these ids came straight from hidden form fields.
+        if len(rows) != len(item_ids) or keep_id not in rows:
+            cursor.close()
+            flash("Could not merge: some items were not found.", "danger")
+            return redirect(url_for("items.duplicate_items"))
+
+        merge_ids = [i for i in item_ids if i != keep_id]
+        total_qty = sum(int(row.Qty or 0) for row in rows.values())
+
+        for other_id in merge_ids:
+            cursor.execute("UPDATE PurchaseDetails SET ItemID = ? WHERE ItemID = ?", (keep_id, other_id))
+            cursor.execute("UPDATE InvoiceDetails SET ItemID = ? WHERE ItemID = ?", (keep_id, other_id))
+            cursor.execute("UPDATE QuotationDetails SET ItemID = ? WHERE ItemID = ?", (keep_id, other_id))
+            cursor.execute("UPDATE StockHistory SET ItemID = ? WHERE ItemID = ?", (keep_id, other_id))
+            cursor.execute(f"DELETE FROM Item WHERE ItemID = ? AND {owner_sql()}", (other_id,))
+
+        cursor.execute(f"UPDATE Item SET Qty = ? WHERE ItemID = ? AND {owner_sql()}", (total_qty, keep_id))
+
+        db.commit()
+        cursor.close()
+
+        flash(
+            f'Merged {len(merge_ids)} duplicate row(s) into "{rows[keep_id].ItemName}". '
+            f"Combined quantity: {total_qty}.",
+            "success",
+        )
+
+    except Exception as e:
+        app.logger.exception("Error merging duplicate items")
+        flash(f"Error merging items: {str(e)}", "danger")
+
+    return redirect(url_for("items.duplicate_items"))
