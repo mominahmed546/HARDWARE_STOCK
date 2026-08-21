@@ -707,8 +707,13 @@ def _build_invoice_pdf(invoice, details):
     line_h = 10
     max_name_chars = 42
 
-    def text(x, y, value, size=9, font="F1"):
+    def text(x, y, value, size=9, font="F1", color=None):
+        if color:
+            r, g, b = color
+            commands.append(f"{r:.3f} {g:.3f} {b:.3f} rg")
         commands.append(f"BT /{font} {size} Tf {x} {y} Td ({_pdf_escape(value)}) Tj ET")
+        if color:
+            commands.append("0 0 0 rg")
 
     def line(x1, y1, x2, y2):
         commands.append(f"0.6 w {x1} {y1} m {x2} {y2} l S")
@@ -727,10 +732,10 @@ def _build_invoice_pdf(invoice, details):
     def money(value):
         return f"{float(value or 0):,.2f}"
 
-    def text_right(x, y, value, size=9, font="F1"):
+    def text_right(x, y, value, size=9, font="F1", color=None):
         value = str(value)
         approx_width = len(value) * (size * 0.5)
-        text(max(2, x - approx_width), y, value, size, font)
+        text(max(2, x - approx_width), y, value, size, font, color=color)
 
     def text_center(x_center, y, value, size=9, font="F1"):
         value = str(value)
@@ -839,11 +844,12 @@ def _build_invoice_pdf(invoice, details):
     # ── Footer table ─────────────────────────────────────────────────────────
     # Box spans only from col_qty_right to col_total_right (no empty left cells).
     # One divider at col_rate_right separates label from amount.
-    # TOTAL and Net Balance: dark-navy fill + white bold text.
+    # TOTAL and Net Balance: grey fill + bold text (Net Balance in red).
     row_h_footer = 18
     footer_w = col_total_right - col_qty_right
+    net_balance_red = (0.86, 0.08, 0.24)  # #dc2626
 
-    def footer_row(label, amount_str, highlight=False):
+    def footer_row(label, amount_str, highlight=False, color=None):
         nonlocal y
         bx = col_qty_right           # box starts at RATE column left edge
         if highlight:
@@ -856,15 +862,14 @@ def _build_invoice_pdf(invoice, details):
         mid_y = y - (row_h_footer / 2) + 2
         font = "F2" if highlight else "F1"
         size = 11 if highlight else 10
-        text(bx + 4, mid_y - 3, label, size, font)
-        text_right(col_total_right - 4, mid_y - 3, amount_str, size, font)
+        text(bx + 4, mid_y - 3, label, size, font, color=color)
+        text_right(col_total_right - 4, mid_y - 3, amount_str, size, font, color=color)
         y -= row_h_footer
 
     footer_row("TOTAL",            money(total_amount),    highlight=True)
     footer_row("Previous Balance", money(previous_balance))
     footer_row("Cash Received",    money(cash_received))
-    footer_row("Invoice Due",      money(invoice_due))
-    footer_row("Net Balance",      money(net_balance),     highlight=True)
+    footer_row("Net Balance",      money(net_balance),     highlight=True, color=net_balance_red)
 
     # ── Tear-off dotted line ─────────────────────────────────────────────────
     y -= 20
