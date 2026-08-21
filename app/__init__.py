@@ -16,9 +16,22 @@ app = Flask(
     template_folder=os.path.join(_base_dir, "templates"),
     static_folder=os.path.join(_base_dir, "static"),
 )
-app.config.from_object(config_map["development"])
+_env_name = os.environ.get("FLASK_ENV") or os.environ.get("APP_ENV")
+if not _env_name:
+    # Render always sets RENDER=true on deployed services; use that as the
+    # production signal so a live deploy gets ProductionConfig (secure
+    # cookies, and DEBUG=False so Jinja caches compiled templates instead of
+    # re-checking/recompiling them from disk on every request) without
+    # requiring an extra env var, while a plain local checkout still
+    # defaults to development.
+    _env_name = "production" if os.environ.get("RENDER") else "development"
+app.config.from_object(config_map.get(_env_name, config_map["development"]))
 
 app.teardown_appcontext(close_db_connection)
+
+from app.compression import init_compression
+
+init_compression(app)
 
 
 @app.template_filter("date_dmy")

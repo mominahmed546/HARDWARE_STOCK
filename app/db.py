@@ -1,7 +1,8 @@
 import os
 import re
+import threading
 
-import psycopg
+from psycopg_pool import ConnectionPool
 from flask import g
 
 # =====================================================
@@ -142,8 +143,9 @@ class CursorWrapper:
 
 
 class ConnectionWrapper:
-    def __init__(self, connection):
+    def __init__(self, connection, pool=None):
         self._connection = connection
+        self._pool = pool
 
     def cursor(self):
         return CursorWrapper(self._connection.cursor())
@@ -155,7 +157,28 @@ class ConnectionWrapper:
         self._connection.rollback()
 
     def close(self):
-        self._connection.close()
+        if self._pool is None:
+            self._connection.close()
+            return
+
+        # Pooled connections are handed to a *different*, unrelated request
+        # (possibly a different logged-in account) the next time they're
+        # checked out. Any transaction left open here must not carry over,
+        # so always roll back before returning it - routes that already
+        # commit/rollback on their own paths make this a no-op; it only
+        # does real work for the read-only paths (execute_query etc.) and
+        # any error path that forgot to roll back explicitly.
+        try:
+            self._connection.rollback()
+        except Exception:
+            pass
+        try:
+            self._pool.putconn(self._connection)
+        except Exception:
+            try:
+                self._connection.close()
+            except Exception:
+                pass
 
 
 def _normalize_key(value):
@@ -247,13 +270,51 @@ def _ensure_user_contact_columns(db):
         db.rollback()
 
 
+_pool = None
+_pool_lock = threading.Lock()
+
+
+def _get_pool(app):
+    """Lazily create one small connection pool per process.
+
+    Opening a brand new physical connection (TCP + TLS + Postgres auth
+    handshake) on every single request - as this used to do - adds real,
+    fixed latency before any query even runs, especially against a managed
+    Postgres host. A pool keeps a handful of connections warm and hands
+    them out per request instead, so most requests reuse an already-open
+    connection. The lock only guards the one-time creation (gunicorn
+    threaded workers could otherwise race and create two pools on startup).
+    """
+    global _pool
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:
+                database_url = app.config.get("DATABASE_URL") or os.environ.get("DATABASE_URL")
+                if not database_url:
+                    raise RuntimeError("DATABASE_URL is not configured.")
+
+                max_size = int(os.environ.get("DB_POOL_MAX_SIZE", 5))
+                _pool = ConnectionPool(
+                    conninfo=database_url,
+                    kwargs={"connect_timeout": 10},
+                    min_size=1,
+                    max_size=max_size,
+                    # Keep this short: if the database is genuinely down,
+                    # requests should fail fast (like the old direct-connect
+                    # code did) instead of every request hanging for a long
+                    # wait before the page's own try/except can show an
+                    # error. Healthy pools hand out a connection almost
+                    # instantly, so this never matters in normal operation.
+                    timeout=10,
+                    max_idle=300,
+                )
+    return _pool
+
+
 def get_db_connection(app):
     if 'db' not in g:
-        database_url = app.config.get("DATABASE_URL") or os.environ.get("DATABASE_URL")
-        if not database_url:
-            raise RuntimeError("DATABASE_URL is not configured.")
-
-        g.db = ConnectionWrapper(psycopg.connect(database_url))
+        pool = _get_pool(app)
+        g.db = ConnectionWrapper(pool.getconn(), pool=pool)
         _ensure_user_contact_columns(g.db)
 
     return g.db

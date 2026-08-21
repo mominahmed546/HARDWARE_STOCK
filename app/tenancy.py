@@ -143,6 +143,7 @@ def _ensure_isolation(cursor):
     _fix_quotation_numbers(cursor)
     _ensure_item_numbers(cursor)
     _ensure_cash_account_row(cursor, request_user_id() or owner_id)
+    _ensure_performance_indexes(cursor)
 
 
 def _disable_row_security(cursor, table):
@@ -243,6 +244,45 @@ def _ensure_item_numbers(cursor):
         ON Item (UserID, ItemNo)
         """,
     )
+
+
+def _ensure_performance_indexes(cursor):
+    """Index every column the app filters/joins on constantly.
+
+    owner_sql() puts "WHERE UserID = ..." on almost every query in the app,
+    and list/report pages join on these same foreign keys, but the schema
+    only ever had a couple of unique indexes. Without these, Postgres has to
+    sequentially scan the whole table for nearly every page as data grows.
+    Plain (non-CONCURRENT) CREATE INDEX is used so this can run inside the
+    existing transaction like the rest of _ensure_isolation.
+    """
+    index_specs = (
+        ("idx_item_user_id", "Item", "UserID"),
+        ("idx_item_category_id", "Item", "CategoryID"),
+        ("idx_purchases_user_id", "Purchases", "UserID"),
+        ("idx_purchases_supplier_id", "Purchases", "SupplierID"),
+        ("idx_purchase_details_purchase_id", "PurchaseDetails", "PurchaseID"),
+        ("idx_purchase_details_item_id", "PurchaseDetails", "ItemID"),
+        # PurchasePayments.PurchaseID already gets its index from
+        # ensure_purchase_payments_table() in app/payments.py.
+        ("idx_invoices_user_id", "Invoices", "UserID"),
+        ("idx_invoices_customer_id", "Invoices", "CustomerID"),
+        ("idx_invoice_details_invoice_id", "InvoiceDetails", "InvoiceID"),
+        ("idx_invoice_details_item_id", "InvoiceDetails", "ItemID"),
+        ("idx_quotations_user_id", "Quotations", "UserID"),
+        ("idx_quotations_customer_id", "Quotations", "CustomerID"),
+        ("idx_quotation_details_quotation_id", "QuotationDetails", "QuotationID"),
+        ("idx_quotation_details_item_id", "QuotationDetails", "ItemID"),
+        ("idx_customers_user_id", "Customers", "UserID"),
+        ("idx_supplier_user_id", "Supplier", "UserID"),
+        ("idx_category_user_id", "Category", "UserID"),
+        ("idx_stock_history_user_id", "StockHistory", "UserID"),
+        ("idx_stock_history_item_id", "StockHistory", "ItemID"),
+        ("idx_stock_history_purchase_id", "StockHistory", "PurchaseID"),
+        ("idx_stock_history_invoice_id", "StockHistory", "InvoiceID"),
+    )
+    for index_name, table, column in index_specs:
+        _try_run(cursor, f"CREATE INDEX IF NOT EXISTS {index_name} ON {table} ({column})")
 
 
 def _ensure_cash_account_row(cursor, user_id):

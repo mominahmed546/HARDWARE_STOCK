@@ -12,6 +12,11 @@ class Config:
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
 
+    # Lets browsers reuse CSS/JS/images across page navigations instead of
+    # re-requesting them on every single page load (short enough that a
+    # deploy's updated assets show up within an hour, not stuck forever).
+    SEND_FILE_MAX_AGE_DEFAULT = timedelta(hours=1)
+
     # PostgreSQL
     DATABASE_URL = os.environ.get(
         "DATABASE_URL",
