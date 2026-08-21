@@ -62,6 +62,9 @@
     [data-theme="dark"] .data-table tbody tr td[colspan] {
         color: #cbd5e1;
     }
+    @media (max-width: 1100px) {
+        .report-summary-grid.cash-grid { grid-template-columns: 1fr 1fr; }
+    }
     @media (max-width: 900px) {
         .report-summary-grid.cash-grid { grid-template-columns: 1fr 1fr; }
     }
@@ -126,6 +129,10 @@
         <div class="report-card">
             <div class="report-card-label">Cash for purchases (excludes profit)</div>
             <div class="report-card-value capital-after">Rs {{ "{:,.2f}".format(cash_excluding_profit|default(0)) }}</div>
+        </div>
+        <div class="report-card">
+            <div class="report-card-label">Bank for purchases (available)</div>
+            <div class="report-card-value bank-after">Rs {{ "{:,.2f}".format(bank_balance|default(0)) }}</div>
         </div>
         <div class="report-card">
             <div class="report-card-label">Profit sitting in cash</div>

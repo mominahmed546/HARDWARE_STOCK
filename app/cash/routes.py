@@ -626,6 +626,7 @@ def cash_book_pdf():
             ("Total received", data["period_total"]),
             ("Cash in drawer", data["cash_in_hand"]),
             ("Cash for purchases", data["cash_excluding_profit"]),
+            ("Bank for purchases", data["bank_balance"]),
             ("Profit in cash", data["profit_in_cash"]),
             ("Bank account", data["bank_balance"]),
         ]
