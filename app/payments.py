@@ -66,8 +66,59 @@ def ensure_invoice_payments_table(db, cursor):
     backfilled = int(cursor.rowcount or 0)
     if backfilled:
         _sync_invoices_with_payments(cursor)
+    _fix_double_counted_previous_balance(cursor)
     db.commit()
     _SCHEMA_READY["invoice_payments"] = True
+
+
+def _fix_double_counted_previous_balance(cursor):
+    """One-time repair for real payments that were double-subtracted.
+
+    Every invoice payment used to *also* subtract its amount from
+    Customers.PreviousBalance (see the removed adjust_customer_previous_balance
+    calls below). That was redundant: both the ledger and the invoice form's
+    "previous balance" pre-fill already compute what's still owed as
+    PreviousBalance + (each invoice's total minus its own InvoicePayments), so
+    every real payment silently got subtracted twice, understating what a
+    customer with any opening balance still owes (most visible on
+    /ledger/customer/<id>). Backfilled rows (Notes = 'Backfilled from Paid
+    status') never went through that code path, so they're excluded here.
+    Runs exactly once, tracked in SchemaMigrations, since PreviousBalance is no
+    longer auto-adjusted by payments going forward.
+    """
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS SchemaMigrations (
+            MigrationName VARCHAR(100) PRIMARY KEY,
+            AppliedAt TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    cursor.execute(
+        "SELECT 1 FROM SchemaMigrations WHERE MigrationName = ?",
+        ("fix_previous_balance_double_count",),
+    )
+    if cursor.fetchone():
+        return
+
+    cursor.execute(
+        """
+        UPDATE Customers c
+        SET PreviousBalance = COALESCE(c.PreviousBalance, 0) + fix.Amt
+        FROM (
+            SELECT i.CustomerID AS FixCustomerID, SUM(ip.Amount) AS Amt
+            FROM InvoicePayments ip
+            JOIN Invoices i ON i.InvoiceID = ip.InvoiceID
+            WHERE COALESCE(ip.Notes, '') <> 'Backfilled from Paid status'
+            GROUP BY i.CustomerID
+        ) fix
+        WHERE fix.FixCustomerID = c.CustomerID
+        """
+    )
+    cursor.execute(
+        "INSERT INTO SchemaMigrations (MigrationName) VALUES (?)",
+        ("fix_previous_balance_double_count",),
+    )
 
 
 def payments_join_sql(invoice_alias="i"):
@@ -305,36 +356,8 @@ def refresh_invoice_settlement(cursor, invoice_id):
     }
 
 
-def adjust_customer_previous_balance(cursor, customer_id, delta):
-    delta = float(delta or 0)
-    if abs(delta) < 0.005:
-        return
-    if delta < 0:
-        cursor.execute(
-            """
-            UPDATE Customers
-            SET PreviousBalance = CASE
-                WHEN COALESCE(PreviousBalance, 0) + ? < 0 THEN 0
-                ELSE COALESCE(PreviousBalance, 0) + ?
-            END
-            WHERE CustomerID = ?
-            """,
-            (delta, delta, customer_id),
-        )
-        return
-    cursor.execute(
-        """
-        UPDATE Customers
-        SET PreviousBalance = COALESCE(PreviousBalance, 0) + ?
-        WHERE CustomerID = ?
-        """,
-        (delta, customer_id),
-    )
-
-
 def add_invoice_payment(cursor, invoice, amount, payment_date, notes="", payment_method="Cash"):
     invoice_id = int(invoice.InvoiceID)
-    customer_id = int(invoice.CustomerID)
     total_amount = float(invoice.TotalAmount or 0)
     paid_amount = invoice_paid_total(cursor, invoice_id)
     remaining = remaining_due(total_amount, paid_amount)
@@ -352,7 +375,15 @@ def add_invoice_payment(cursor, invoice, amount, payment_date, notes="", payment
         """,
         (invoice_id, amount, payment_date, notes or None, normalize_payment_method(payment_method)),
     )
-    adjust_customer_previous_balance(cursor, customer_id, -amount)
+    # NOTE: this used to also subtract `amount` from Customers.PreviousBalance.
+    # That double-counted every payment: once here, and again when the ledger
+    # and the invoice form's "previous balance" both separately add up
+    # invoice totals minus InvoicePayments to get the amount still owed. The
+    # ledger/report code already treats PreviousBalance as a fixed opening
+    # balance from before all tracked invoices/payments, so it must only
+    # change via explicit user edits (customer form, invoice
+    # create/edit "previous balance" field), never as a side effect of a
+    # payment.
     return refresh_invoice_settlement(cursor, invoice_id)
 
 
@@ -370,20 +401,16 @@ def delete_invoice_payment(cursor, invoice, payment_id):
     if not payment:
         raise ValueError("Payment not found.")
 
-    amount = float(payment.Amount or 0)
     cursor.execute(
         "DELETE FROM InvoicePayments WHERE PaymentID = ? AND InvoiceID = ?",
         (payment_id, invoice_id),
     )
-    adjust_customer_previous_balance(cursor, int(invoice.CustomerID), amount)
     return refresh_invoice_settlement(cursor, invoice_id)
 
 
 def clear_invoice_payments(cursor, invoice):
     invoice_id = int(invoice.InvoiceID)
-    paid_amount = invoice_paid_total(cursor, invoice_id)
     cursor.execute("DELETE FROM InvoicePayments WHERE InvoiceID = ?", (invoice_id,))
-    adjust_customer_previous_balance(cursor, int(invoice.CustomerID), paid_amount)
     return refresh_invoice_settlement(cursor, invoice_id)
 
 

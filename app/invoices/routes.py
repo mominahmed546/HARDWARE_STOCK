@@ -1470,17 +1470,11 @@ def delete_invoice(id):
             flash("Invoice not found.", "danger")
             return redirect(url_for("invoices.list_invoices"))
 
-        paid_amount = invoice_paid_total(cursor, id)
-        if paid_amount > 0:
-            cursor.execute(
-                f"""
-                UPDATE Customers
-                SET PreviousBalance = COALESCE(PreviousBalance, 0) + ?
-                WHERE CustomerID = ? AND {owner_sql()}
-                """,
-                (paid_amount, int(invoice.CustomerID)),
-            )
-
+        # InvoicePayments cascade-deletes with the invoice below, so any
+        # payments already made against it are removed too - no separate
+        # PreviousBalance adjustment is needed (PreviousBalance is never
+        # touched by individual invoice payments in the first place; see
+        # app/payments.py).
         for detail in details:
             cursor.execute(
                 f"""
