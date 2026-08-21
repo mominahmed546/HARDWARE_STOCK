@@ -245,13 +245,19 @@ def import_items(app, items):
 
             total = item["qty"] * item["purchase_rate"]
 
+            # PurchaseID is assigned explicitly everywhere else in the app
+            # (see purchases/routes.py), which leaves Postgres's own SERIAL
+            # sequence lagging behind. Relying on that sequence's default
+            # here caused "duplicate key" errors once enough manually
+            # created purchases outpaced it, so assign the id the same way.
+            next_purchase_id = next_table_id(cursor, "Purchases", "PurchaseID")
             cursor.execute(
                 """
-                INSERT INTO Purchases (PurchaseDate, SupplierID, TotalAmount, UserID)
+                INSERT INTO Purchases (PurchaseID, PurchaseDate, SupplierID, TotalAmount, UserID)
                 OUTPUT INSERTED.PurchaseID
-                VALUES (?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (date.today(), supplier.SupplierID, total, request_user_id()),
+                (next_purchase_id, date.today(), supplier.SupplierID, total, request_user_id()),
             )
             purchase_id = int(cursor.fetchone()[0])
 
