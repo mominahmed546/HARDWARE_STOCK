@@ -7,7 +7,7 @@
 {% block title %}Quotations - Hardware Stock Management{% endblock %}
 {% block page_title %}Quotations{% endblock %}
 {% block page_subtitle %}
-<p>Saved quotations. Download Excel or send the Excel file on WhatsApp.</p>
+<p>Aluminum doors &amp; windows, 12mm glass partitions, curtain wall, cladding, blinds, and wallpapers. Download Excel or send on WhatsApp.</p>
 {% endblock %}
 
 {% block content %}
@@ -16,6 +16,15 @@
         <div class="search-bar">
             <form method="GET" class="search-form">
                 <input type="text" name="search" placeholder="Search quotation, name, or project..." value="{{ search }}">
+                <select name="work_type" onchange="this.form.submit()">
+                    <option value="">All work types</option>
+                    {% for work_type in work_types %}
+                    <option value="{{ work_type }}" {% if selected_work_type == work_type %}selected{% endif %}>{{ work_type }}</option>
+                    {% endfor %}
+                    {% if selected_work_type and selected_work_type not in work_types %}
+                    <option value="{{ selected_work_type }}" selected>{{ selected_work_type }}</option>
+                    {% endif %}
+                </select>
                 <button type="submit" class="btn btn-primary">Search</button>
             </form>
         </div>

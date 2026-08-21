@@ -23,6 +23,21 @@ from app.validators import (
 
 quotations_bp = Blueprint("quotations", __name__, url_prefix="/quotations")
 
+# Fabrication / fit-out work types used on Euroglass quotations
+WORK_TYPES = (
+    "Aluminum Doors & Windows",
+    "12mm Glass Partitions",
+    "Curtain Wall",
+    "Cladding",
+    "Blinds",
+    "Wallpapers",
+)
+
+
+@quotations_bp.context_processor
+def _inject_quotation_work_types():
+    return {"work_types": WORK_TYPES}
+
 
 def ensure_quotations_schema(db, cursor):
     cursor.execute(
@@ -105,6 +120,16 @@ def _quotation_lines_from_form(form):
     return lines
 
 
+def _clean_work_type(value, errors):
+    work_type = clean_optional_string(value, "work_type", errors, max_len=100, label="Work type")
+    if not work_type:
+        return work_type
+    for option in WORK_TYPES:
+        if work_type.casefold() == option.casefold():
+            return option
+    return work_type
+
+
 def _validate_quotation_header(form, errors):
     customer_id = clean_optional_select_id(form.get("customer_id"), "customer_id", errors, label="Customer")
     return {
@@ -115,7 +140,7 @@ def _validate_quotation_header(form, errors):
         ),
         "address": clean_optional_string(form.get("address"), "address", errors, max_len=255, label="Address"),
         "project": clean_optional_string(form.get("project"), "project", errors, max_len=255, label="Project"),
-        "work_type": clean_optional_string(form.get("work_type"), "work_type", errors, max_len=100, label="Work type"),
+        "work_type": _clean_work_type(form.get("work_type"), errors),
         "engineer": clean_optional_string(form.get("engineer"), "engineer", errors, max_len=100, label="Engineer"),
         "contact_no": clean_optional_string(form.get("contact_no"), "contact_no", errors, max_len=50, label="Contact"),
         "notes": clean_optional_string(form.get("notes"), "notes", errors, max_len=500, label="Note"),
@@ -547,6 +572,7 @@ def list_quotations():
     try:
         ensure_quotations_schema(db, cursor)
         search = request.args.get("search", "")
+        work_type_filter = (request.args.get("work_type") or "").strip()
         query = f"""
             SELECT
                 QuotationID, QuotationNo, QuotationDate, CustomerName, Project,
@@ -564,10 +590,18 @@ def list_quotations():
                 )
             """
             params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
+        if work_type_filter:
+            query += " AND COALESCE(WorkType, '') = ?"
+            params.append(work_type_filter)
         query += " ORDER BY QuotationNo DESC"
         cursor.execute(query, params or ())
         quotations = cursor.fetchall()
-        return render_template("quotations/list.html", quotations=quotations, search=search)
+        return render_template(
+            "quotations/list.html",
+            quotations=quotations,
+            search=search,
+            selected_work_type=work_type_filter,
+        )
 
     except Exception as e:
         flash(f"Error loading quotations: {str(e)}", "danger")
