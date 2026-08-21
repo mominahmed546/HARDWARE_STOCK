@@ -4,7 +4,7 @@
 {% block title %}{% if is_edit %}Edit Quotation{% else %}Create Quotation{% endif %} - Hardware Stock Management{% endblock %}
 {% block page_title %}{% if is_edit %}Edit Quotation #{{ quotation_no }}{% else %}Create Quotation{% endif %}{% endblock %}
 {% block page_subtitle %}
-<p>{% if is_edit %}Update the quotation details and save.{% else %}Fill the quotation form and download <strong>QUOTATION.xlsx</strong>{% endif %}</p>
+<p>{% if is_edit %}Update fabrication quotation details and save.{% else %}Quote aluminum doors &amp; windows, glass partitions, curtain wall, cladding, blinds, or wallpaper — then download <strong>QUOTATION.xlsx</strong>{% endif %}</p>
 {% endblock %}
 
 {% block extra_css %}
@@ -77,9 +77,17 @@
 
                 <div class="form-group">
                     <label for="work_type">Work Type</label>
-                    <input type="text" id="work_type" name="work_type"
-                           value="{{ fd.get('work_type', '') }}" maxlength="100"
-                           class="{% if errors and errors.get('work_type') %}is-invalid{% endif %}">
+                    {% set current_work_type = fd.get('work_type', '') %}
+                    <select id="work_type" name="work_type"
+                            class="{% if errors and errors.get('work_type') %}is-invalid{% endif %}">
+                        <option value="">Select work type</option>
+                        {% if current_work_type and current_work_type not in work_types %}
+                        <option value="{{ current_work_type }}" selected>{{ current_work_type }}</option>
+                        {% endif %}
+                        {% for work_type in work_types %}
+                        <option value="{{ work_type }}" {% if current_work_type == work_type %}selected{% endif %}>{{ work_type }}</option>
+                        {% endfor %}
+                    </select>
                     {{ field_error(errors, 'work_type') }}
                 </div>
 
@@ -101,7 +109,7 @@
             </div>
 
             <h3>Quotation Items</h3>
-            <p class="quotation-help">Width and height are in inches. SQ/FT is calculated as (Width × Height ÷ 144) × Qty when measurements are entered. Type SQ/FT yourself when only the area is known.</p>
+            <p class="quotation-help">For doors, windows, partitions, and curtain wall: Width and Height are in inches. SQ/FT is (Width × Height ÷ 144) × Qty. For blinds, wallpaper, or cladding by area, enter SQ/FT directly when measurements are not used.</p>
             {{ field_error(errors, 'description[]') }}
             {{ field_error(errors, 'quantity[]') }}
             {{ field_error(errors, 'rate[]') }}
