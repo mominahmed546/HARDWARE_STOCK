@@ -40,10 +40,10 @@
         <div class="dup-group">
             <div class="dup-group-title">
                 <h3>{{ group.name }}</h3>
-                <span class="dup-usage">{{ group.items|length }} rows &middot; combined qty {{ group.total_qty }}</span>
+                <span class="dup-usage">{{ group.rows|length }} rows &middot; combined qty {{ group.total_qty }}</span>
             </div>
             <form method="POST" action="{{ url_for('items.merge_duplicate_items') }}">
-                <input type="hidden" name="item_ids" value="{{ group.items|map(attribute='ItemID')|join(',') }}">
+                <input type="hidden" name="item_ids" value="{{ group.rows|map(attribute='ItemID')|join(',') }}">
                 <div class="table-wrap">
                     <table class="data-table items-table">
                         <thead>
@@ -57,7 +57,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            {% for row in group.items %}
+                            {% for row in group.rows %}
                             <tr>
                                 <td class="dup-keep-col">
                                     <input type="radio" name="keep_id" value="{{ row.ItemID }}"

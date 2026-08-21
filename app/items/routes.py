@@ -117,7 +117,10 @@ def _duplicate_item_groups(app):
         groups.append(
             {
                 "name": rows[0].ItemName,
-                "items": rows,
+                # Not "items" -- that shadows dict.items() when accessed as
+                # group.items in Jinja (getattr() wins over getitem() there),
+                # which silently returns a bound method instead of the rows.
+                "rows": rows,
                 "total_qty": total_qty,
                 "suggested_keep_id": suggested_keep_id,
             }
