@@ -3,7 +3,7 @@
 {% block title %}Ledger - Hardware Stock Management{% endblock %}
 {% block page_title %}Account Ledger{% endblock %}
 {% block page_subtitle %}
-<p>Customer accounts — opening, invoiced, paid, and outstanding balances</p>
+<p>Customer accounts — opening, invoiced, paid, manual entries, and outstanding balances</p>
 {% endblock %}
 
 {% block extra_css %}
@@ -12,7 +12,7 @@
 
 {% block content %}
 <div class="container ledger-index">
-    <p class="ledger-help">Debit is sales billed to the customer. Credit is cash received when an invoice is marked Paid. Outstanding is the closing balance.</p>
+    <p class="ledger-help">Debit is sales billed or manual charges. Credit is cash received or manual credits. Outstanding is the closing balance.</p>
 
     <div class="list-header">
         <div class="search-bar">
@@ -24,7 +24,10 @@
                 {% endif %}
             </form>
         </div>
-        <div class="value dr">Total Outstanding: Rs {{ "{:,.2f}".format(total_outstanding|default(0)) }}</div>
+        <div class="list-header-actions">
+            <a href="{{ url_for('ledger.add_ledger_entry') }}" class="btn btn-primary">Add Ledger Entry</a>
+            <div class="value dr">Total Outstanding: Rs {{ "{:,.2f}".format(total_outstanding|default(0)) }}</div>
+        </div>
     </div>
 
     <table class="data-table">
@@ -47,14 +50,15 @@
                 <td>{{ row.CustomerName }}</td>
                 <td>Rs {{ "{:,.2f}".format(row.PreviousBalance|default(0)) }}</td>
                 <td>{{ row.InvoiceCount or 0 }}</td>
-                <td>Rs {{ "{:,.2f}".format((row.PreviousBalance|default(0)) + (row.TotalInvoiced|default(0))) }}</td>
-                <td>Rs {{ "{:,.2f}".format(row.TotalPaid|default(0)) }}</td>
+                <td>Rs {{ "{:,.2f}".format((row.PreviousBalance|default(0)) + (row.TotalInvoiced|default(0)) + (row.ManualDebit|default(0))) }}</td>
+                <td>Rs {{ "{:,.2f}".format((row.TotalPaid|default(0)) + (row.ManualCredit|default(0))) }}</td>
                 <td class="amount-due">
                     Rs {{ "{:,.2f}".format(row.Outstanding|abs) }}
                     {{ 'Dr' if row.Outstanding >= 0 else 'Cr' }}
                 </td>
                 <td>
                     <a href="{{ url_for('ledger.customer_ledger', id=row.CustomerID) }}" class="btn btn-sm btn-info">Open Ledger</a>
+                    <a href="{{ url_for('ledger.add_ledger_entry', customer_id=row.CustomerID) }}" class="btn btn-sm btn-secondary">Add Entry</a>
                 </td>
             </tr>
             {% else %}

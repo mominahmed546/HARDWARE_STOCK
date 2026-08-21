@@ -18,6 +18,7 @@ OWNER_TABLES = (
     "Quotations",
     "CashAccounts",
     "StockHistory",
+    "LedgerEntries",
 )
 
 CHILD_TABLES = (
@@ -102,6 +103,21 @@ def _ensure_isolation(cursor):
             AccountID INTEGER PRIMARY KEY,
             CashOpening NUMERIC(12, 2) DEFAULT 0,
             BankOpening NUMERIC(12, 2) DEFAULT 0
+        )
+        """,
+    )
+    _try_run(
+        cursor,
+        """
+        CREATE TABLE IF NOT EXISTS LedgerEntries (
+            EntryID SERIAL PRIMARY KEY,
+            CustomerID INTEGER NOT NULL REFERENCES Customers(CustomerID) ON DELETE CASCADE,
+            EntryDate TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            EntryType VARCHAR(10) NOT NULL,
+            Amount NUMERIC(12, 2) NOT NULL,
+            Particulars VARCHAR(255) NOT NULL,
+            VchType VARCHAR(40) DEFAULT 'Journal',
+            Notes VARCHAR(255)
         )
         """,
     )
@@ -280,6 +296,8 @@ def _ensure_performance_indexes(cursor):
         ("idx_stock_history_item_id", "StockHistory", "ItemID"),
         ("idx_stock_history_purchase_id", "StockHistory", "PurchaseID"),
         ("idx_stock_history_invoice_id", "StockHistory", "InvoiceID"),
+        ("idx_ledger_entries_user_id", "LedgerEntries", "UserID"),
+        ("idx_ledger_entries_customer_id", "LedgerEntries", "CustomerID"),
     )
     for index_name, table, column in index_specs:
         _try_run(cursor, f"CREATE INDEX IF NOT EXISTS {index_name} ON {table} ({column})")

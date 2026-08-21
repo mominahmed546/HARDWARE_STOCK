@@ -6,10 +6,23 @@ from flask_login import login_required
 
 from app import app
 from app.db import get_db_connection
-from app.tenancy import owner_sql
+from app.tenancy import owner_sql, request_user_id
 from app.payments import ensure_invoice_payments_table, payments_join_sql
+from app.validators import (
+    ValidationErrors,
+    clean_date,
+    clean_optional_string,
+    clean_positive_decimal,
+    clean_select_id,
+    clean_string,
+)
 
 ledger_bp = Blueprint("ledger", __name__, url_prefix="/ledger")
+
+_LEDGER_ENTRIES_READY = False
+
+ENTRY_TYPES = ("Debit", "Credit")
+VCH_TYPES = ("Journal", "Adjustment", "Receipt", "Payment", "Opening", "Other")
 
 
 def _ensure_previous_balance_column(db, cursor):
@@ -39,6 +52,54 @@ def _ensure_invoice_payment_status_column(db, cursor):
     db.commit()
 
 
+def ensure_ledger_entries_table(db, cursor):
+    global _LEDGER_ENTRIES_READY
+    if _LEDGER_ENTRIES_READY:
+        return
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS LedgerEntries (
+            EntryID SERIAL PRIMARY KEY,
+            CustomerID INTEGER NOT NULL REFERENCES Customers(CustomerID) ON DELETE CASCADE,
+            EntryDate TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            EntryType VARCHAR(10) NOT NULL,
+            Amount NUMERIC(12, 2) NOT NULL,
+            Particulars VARCHAR(255) NOT NULL,
+            VchType VARCHAR(40) DEFAULT 'Journal',
+            Notes VARCHAR(255),
+            UserID INTEGER
+        )
+        """
+    )
+    cursor.execute(
+        """
+        ALTER TABLE LedgerEntries
+        ADD COLUMN IF NOT EXISTS UserID INTEGER
+        """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_ledger_entries_customer_id
+        ON LedgerEntries (CustomerID)
+        """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_ledger_entries_user_id
+        ON LedgerEntries (UserID)
+        """
+    )
+    db.commit()
+    _LEDGER_ENTRIES_READY = True
+
+
+def _prepare_ledger_schema(db, cursor):
+    _ensure_previous_balance_column(db, cursor)
+    _ensure_invoice_payment_status_column(db, cursor)
+    ensure_invoice_payments_table(db, cursor)
+    ensure_ledger_entries_table(db, cursor)
+
+
 def _event_sort_date(value):
     if value is None:
         return datetime.min
@@ -55,7 +116,7 @@ def _balance_side(balance):
     return "Dr" if float(balance or 0) >= 0 else "Cr"
 
 
-def _build_ledger_entries(opening_balance, invoices, details_by_invoice, payments_by_invoice):
+def _build_ledger_entries(opening_balance, invoices, details_by_invoice, payments_by_invoice, manual_entries=None):
     entries = []
     balance = float(opening_balance or 0)
     opening_debit = balance if balance > 0 else 0.0
@@ -72,7 +133,9 @@ def _build_ledger_entries(opening_balance, invoices, details_by_invoice, payment
             "balance": balance,
             "balance_side": _balance_side(balance),
             "invoice_id": None,
+            "entry_id": None,
             "is_opening": True,
+            "is_manual": False,
         }
     )
 
@@ -100,19 +163,31 @@ def _build_ledger_entries(opening_balance, invoices, details_by_invoice, payment
                 }
             )
 
+    for manual in manual_entries or []:
+        entry_type = str(manual.EntryType or "").strip()
+        events.append(
+            {
+                "kind": "manual_debit" if entry_type == "Debit" else "manual_credit",
+                "date": manual.EntryDate,
+                "manual": manual,
+                "sort": 0 if entry_type == "Debit" else 1,
+            }
+        )
+
     events.sort(
         key=lambda event: (
             _event_sort_date(event["date"]),
             event["sort"],
-            int(event["invoice"].InvoiceID),
+            int(getattr(event.get("invoice"), "InvoiceID", 0) or 0),
+            int(getattr(event.get("manual"), "EntryID", 0) or 0),
             int(getattr(event.get("payment"), "PaymentID", 0) or 0),
         )
     )
 
     for event in events:
-        invoice = event["invoice"]
-        invoice_id = invoice.InvoiceID
         if event["kind"] == "invoice":
+            invoice = event["invoice"]
+            invoice_id = invoice.InvoiceID
             amount = float(invoice.TotalAmount or 0)
             item_names = [
                 str(row.Particulars or "Item").strip()
@@ -140,41 +215,97 @@ def _build_ledger_entries(opening_balance, invoices, details_by_invoice, payment
                     "balance": balance,
                     "balance_side": _balance_side(balance),
                     "invoice_id": invoice_id,
+                    "entry_id": None,
                     "is_opening": False,
+                    "is_manual": False,
                 }
             )
             continue
 
-        payment = event["payment"]
-        amount = float(payment.Amount or 0)
-        notes = str(payment.Notes or "").strip()
-        method = str(getattr(payment, "PaymentMethod", "Cash") or "Cash")
-        if method == "Bank":
-            source = "Bank"
-        elif method == "In-Kind":
-            source = "In-Kind items"
-        else:
-            source = "Cash"
-        particulars = f"By {source} received against Invoice No. {invoice_id}"
-        if notes and notes != "Backfilled from Paid status" and notes != "Marked paid":
-            particulars += f" — {notes}"
+        if event["kind"] == "payment":
+            invoice = event["invoice"]
+            invoice_id = invoice.InvoiceID
+            payment = event["payment"]
+            amount = float(payment.Amount or 0)
+            notes = str(payment.Notes or "").strip()
+            method = str(getattr(payment, "PaymentMethod", "Cash") or "Cash")
+            if method == "Bank":
+                source = "Bank"
+            elif method == "In-Kind":
+                source = "In-Kind items"
+            else:
+                source = "Cash"
+            particulars = f"By {source} received against Invoice No. {invoice_id}"
+            if notes and notes != "Backfilled from Paid status" and notes != "Marked paid":
+                particulars += f" — {notes}"
 
-        balance -= amount
-        total_credit += amount
-        entries.append(
-            {
-                "date": payment.PaymentDate,
-                "vch_no": str(invoice_id),
-                "vch_type": "Receipt",
-                "particulars": particulars,
-                "debit": 0.0,
-                "credit": amount,
-                "balance": balance,
-                "balance_side": _balance_side(balance),
-                "invoice_id": invoice_id,
-                "is_opening": False,
-            }
-        )
+            balance -= amount
+            total_credit += amount
+            entries.append(
+                {
+                    "date": payment.PaymentDate,
+                    "vch_no": str(invoice_id),
+                    "vch_type": "Receipt",
+                    "particulars": particulars,
+                    "debit": 0.0,
+                    "credit": amount,
+                    "balance": balance,
+                    "balance_side": _balance_side(balance),
+                    "invoice_id": invoice_id,
+                    "entry_id": None,
+                    "is_opening": False,
+                    "is_manual": False,
+                }
+            )
+            continue
+
+        manual = event["manual"]
+        amount = float(manual.Amount or 0)
+        particulars = str(manual.Particulars or "").strip() or "Ledger entry"
+        notes = str(manual.Notes or "").strip()
+        if notes:
+            particulars = f"{particulars} — {notes}"
+        vch_type = str(manual.VchType or "Journal").strip() or "Journal"
+        entry_id = int(manual.EntryID)
+
+        if event["kind"] == "manual_debit":
+            balance += amount
+            total_debit += amount
+            entries.append(
+                {
+                    "date": manual.EntryDate,
+                    "vch_no": f"L{entry_id}",
+                    "vch_type": vch_type,
+                    "particulars": particulars,
+                    "debit": amount,
+                    "credit": 0.0,
+                    "balance": balance,
+                    "balance_side": _balance_side(balance),
+                    "invoice_id": None,
+                    "entry_id": entry_id,
+                    "is_opening": False,
+                    "is_manual": True,
+                }
+            )
+        else:
+            balance -= amount
+            total_credit += amount
+            entries.append(
+                {
+                    "date": manual.EntryDate,
+                    "vch_no": f"L{entry_id}",
+                    "vch_type": vch_type,
+                    "particulars": particulars,
+                    "debit": 0.0,
+                    "credit": amount,
+                    "balance": balance,
+                    "balance_side": _balance_side(balance),
+                    "invoice_id": None,
+                    "entry_id": entry_id,
+                    "is_opening": False,
+                    "is_manual": True,
+                }
+            )
 
     return entries, total_debit, total_credit, balance
 
@@ -244,15 +375,44 @@ def _load_customer_ledger(cursor, customer_id):
         for row in cursor.fetchall():
             payments_by_invoice.setdefault(row.InvoiceID, []).append(row)
 
+    cursor.execute(
+        f"""
+        SELECT
+            EntryID,
+            CustomerID,
+            EntryDate,
+            EntryType,
+            Amount,
+            Particulars,
+            COALESCE(VchType, 'Journal') AS VchType,
+            Notes
+        FROM LedgerEntries
+        WHERE CustomerID = ? AND {owner_sql()}
+        ORDER BY EntryDate ASC, EntryID ASC
+        """,
+        (customer_id,),
+    )
+    manual_entries = cursor.fetchall()
+
     opening_balance = float(customer.PreviousBalance or 0)
     entries, total_debit, total_credit, closing_balance = _build_ledger_entries(
-        opening_balance, invoices, details_by_invoice, payments_by_invoice
+        opening_balance,
+        invoices,
+        details_by_invoice,
+        payments_by_invoice,
+        manual_entries,
     )
     total_invoiced = sum(float(invoice.TotalAmount or 0) for invoice in invoices)
     total_paid = sum(
         float(payment.Amount or 0)
         for payments in payments_by_invoice.values()
         for payment in payments
+    )
+    manual_debit = sum(
+        float(row.Amount or 0) for row in manual_entries if str(row.EntryType or "") == "Debit"
+    )
+    manual_credit = sum(
+        float(row.Amount or 0) for row in manual_entries if str(row.EntryType or "") == "Credit"
     )
 
     return {
@@ -262,10 +422,12 @@ def _load_customer_ledger(cursor, customer_id):
         "opening_balance": opening_balance,
         "total_invoiced": total_invoiced,
         "total_paid": total_paid,
+        "manual_debit": manual_debit,
+        "manual_credit": manual_credit,
         "total_debit": total_debit,
         "total_credit": total_credit,
         "closing_balance": closing_balance,
-        "outstanding": opening_balance + total_invoiced - total_paid,
+        "outstanding": opening_balance + total_invoiced + manual_debit - total_paid - manual_credit,
     }
 
 
@@ -401,6 +563,91 @@ def _build_ledger_pdf(data):
     return pdf
 
 
+def _load_customers_for_select(cursor):
+    cursor.execute(
+        f"""
+        SELECT CustomerID, CustomerName
+        FROM Customers
+        WHERE {owner_sql()}
+        ORDER BY CustomerName
+        """
+    )
+    return cursor.fetchall()
+
+
+def _parse_entry_form(form, fixed_customer_id=None):
+    errors = ValidationErrors()
+    if fixed_customer_id is not None:
+        customer_id = int(fixed_customer_id)
+    else:
+        customer_id = clean_select_id(form.get("customer_id"), "customer_id", errors, label="Customer")
+
+    entry_date = clean_date(form.get("entry_date"), "entry_date", errors, label="Entry date")
+    entry_type = clean_string(
+        form.get("entry_type"),
+        "entry_type",
+        errors,
+        required=True,
+        min_len=1,
+        max_len=10,
+        label="Entry type",
+    )
+    if entry_type and entry_type not in ENTRY_TYPES:
+        errors.add("entry_type", "Entry type must be Debit or Credit.")
+
+    amount = clean_positive_decimal(
+        form.get("amount"), "amount", errors, required=True, min_val=0.01, label="Amount"
+    )
+    particulars = clean_string(
+        form.get("particulars"),
+        "particulars",
+        errors,
+        required=True,
+        min_len=1,
+        max_len=255,
+        label="Particulars",
+    )
+    vch_type = clean_string(
+        form.get("vch_type"),
+        "vch_type",
+        errors,
+        required=True,
+        min_len=1,
+        max_len=40,
+        label="Voucher type",
+    )
+    if vch_type and vch_type not in VCH_TYPES:
+        errors.add("vch_type", "Choose a valid voucher type.")
+    notes = clean_optional_string(form.get("notes"), "notes", errors, max_len=255, label="Notes")
+
+    form_data = {
+        "customer_id": str(customer_id or form.get("customer_id") or ""),
+        "entry_date": form.get("entry_date") or "",
+        "entry_type": entry_type or form.get("entry_type") or "Debit",
+        "amount": form.get("amount") or "",
+        "particulars": particulars or form.get("particulars") or "",
+        "vch_type": vch_type or form.get("vch_type") or "Journal",
+        "notes": notes or form.get("notes") or "",
+    }
+
+    if not errors.valid:
+        return None, form_data, errors.errors
+
+    return (
+        {
+            "customer_id": customer_id,
+            "entry_date": entry_date,
+            "entry_type": entry_type,
+            "amount": amount,
+            "particulars": particulars,
+            "vch_type": vch_type,
+            "notes": notes or None,
+        },
+        form_data,
+        {},
+    )
+
+
 @ledger_bp.route("/list")
 @login_required
 def list_ledger():
@@ -408,9 +655,7 @@ def list_ledger():
     cursor = db.cursor()
 
     try:
-        _ensure_previous_balance_column(db, cursor)
-        _ensure_invoice_payment_status_column(db, cursor)
-        ensure_invoice_payments_table(db, cursor)
+        _prepare_ledger_schema(db, cursor)
 
         search = request.args.get("search", "")
         query = f"""
@@ -421,9 +666,13 @@ def list_ledger():
                 COALESCE(inv.InvoiceCount, 0) AS InvoiceCount,
                 COALESCE(inv.TotalInvoiced, 0) AS TotalInvoiced,
                 COALESCE(inv.TotalPaid, 0) AS TotalPaid,
+                COALESCE(le.ManualDebit, 0) AS ManualDebit,
+                COALESCE(le.ManualCredit, 0) AS ManualCredit,
                 COALESCE(c.PreviousBalance, 0)
                     + COALESCE(inv.TotalInvoiced, 0)
-                    - COALESCE(inv.TotalPaid, 0) AS Outstanding
+                    + COALESCE(le.ManualDebit, 0)
+                    - COALESCE(inv.TotalPaid, 0)
+                    - COALESCE(le.ManualCredit, 0) AS Outstanding
             FROM Customers c
             LEFT JOIN (
                 SELECT
@@ -436,6 +685,15 @@ def list_ledger():
                 WHERE {owner_sql("i")}
                 GROUP BY i.CustomerID
             ) inv ON inv.CustomerID = c.CustomerID
+            LEFT JOIN (
+                SELECT
+                    CustomerID,
+                    SUM(CASE WHEN EntryType = 'Debit' THEN Amount ELSE 0 END) AS ManualDebit,
+                    SUM(CASE WHEN EntryType = 'Credit' THEN Amount ELSE 0 END) AS ManualCredit
+                FROM LedgerEntries
+                WHERE {owner_sql()}
+                GROUP BY CustomerID
+            ) le ON le.CustomerID = c.CustomerID
             WHERE {owner_sql("c")}
         """
         params = []
@@ -465,6 +723,209 @@ def list_ledger():
         cursor.close()
 
 
+@ledger_bp.route("/entry/new", methods=["GET", "POST"])
+@login_required
+def add_ledger_entry():
+    db = get_db_connection(app)
+    cursor = db.cursor()
+
+    try:
+        _prepare_ledger_schema(db, cursor)
+        customers = _load_customers_for_select(cursor)
+        preset_customer_id = request.args.get("customer_id", type=int)
+
+        if request.method == "POST":
+            parsed, form_data, errors = _parse_entry_form(request.form)
+            if errors:
+                return render_template(
+                    "ledger/entry_form.html",
+                    customers=customers,
+                    form_data=form_data,
+                    errors=errors,
+                    fixed_customer=None,
+                    entry_types=ENTRY_TYPES,
+                    vch_types=VCH_TYPES,
+                )
+
+            cursor.execute(
+                f"SELECT CustomerID FROM Customers WHERE CustomerID = ? AND {owner_sql()}",
+                (parsed["customer_id"],),
+            )
+            if not cursor.fetchone():
+                flash("Customer not found.", "danger")
+                return redirect(url_for("ledger.list_ledger"))
+
+            cursor.execute(
+                """
+                INSERT INTO LedgerEntries (
+                    CustomerID, EntryDate, EntryType, Amount, Particulars, VchType, Notes, UserID
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    parsed["customer_id"],
+                    parsed["entry_date"],
+                    parsed["entry_type"],
+                    parsed["amount"],
+                    parsed["particulars"],
+                    parsed["vch_type"],
+                    parsed["notes"],
+                    request_user_id(),
+                ),
+            )
+            db.commit()
+            flash("Ledger entry added.", "success")
+            return redirect(url_for("ledger.customer_ledger", id=parsed["customer_id"]))
+
+        form_data = {
+            "customer_id": str(preset_customer_id or ""),
+            "entry_date": datetime.now().strftime("%d/%m/%Y"),
+            "entry_type": "Debit",
+            "amount": "",
+            "particulars": "",
+            "vch_type": "Journal",
+            "notes": "",
+        }
+        return render_template(
+            "ledger/entry_form.html",
+            customers=customers,
+            form_data=form_data,
+            errors={},
+            fixed_customer=None,
+            entry_types=ENTRY_TYPES,
+            vch_types=VCH_TYPES,
+        )
+
+    except Exception as e:
+        db.rollback()
+        flash(f"Error saving ledger entry: {str(e)}", "danger")
+        return redirect(url_for("ledger.list_ledger"))
+
+    finally:
+        cursor.close()
+
+
+@ledger_bp.route("/customer/<int:id>/entry", methods=["GET", "POST"])
+@login_required
+def add_customer_ledger_entry(id):
+    db = get_db_connection(app)
+    cursor = db.cursor()
+
+    try:
+        _prepare_ledger_schema(db, cursor)
+        cursor.execute(
+            f"""
+            SELECT CustomerID, CustomerName
+            FROM Customers
+            WHERE CustomerID = ? AND {owner_sql()}
+            """,
+            (id,),
+        )
+        customer = cursor.fetchone()
+        if not customer:
+            flash("Customer not found.", "danger")
+            return redirect(url_for("ledger.list_ledger"))
+
+        if request.method == "POST":
+            parsed, form_data, errors = _parse_entry_form(request.form, fixed_customer_id=id)
+            if errors:
+                return render_template(
+                    "ledger/entry_form.html",
+                    customers=[],
+                    form_data=form_data,
+                    errors=errors,
+                    fixed_customer=customer,
+                    entry_types=ENTRY_TYPES,
+                    vch_types=VCH_TYPES,
+                )
+
+            cursor.execute(
+                """
+                INSERT INTO LedgerEntries (
+                    CustomerID, EntryDate, EntryType, Amount, Particulars, VchType, Notes, UserID
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    id,
+                    parsed["entry_date"],
+                    parsed["entry_type"],
+                    parsed["amount"],
+                    parsed["particulars"],
+                    parsed["vch_type"],
+                    parsed["notes"],
+                    request_user_id(),
+                ),
+            )
+            db.commit()
+            flash("Ledger entry added.", "success")
+            return redirect(url_for("ledger.customer_ledger", id=id))
+
+        form_data = {
+            "customer_id": str(id),
+            "entry_date": datetime.now().strftime("%d/%m/%Y"),
+            "entry_type": "Debit",
+            "amount": "",
+            "particulars": "",
+            "vch_type": "Journal",
+            "notes": "",
+        }
+        return render_template(
+            "ledger/entry_form.html",
+            customers=[],
+            form_data=form_data,
+            errors={},
+            fixed_customer=customer,
+            entry_types=ENTRY_TYPES,
+            vch_types=VCH_TYPES,
+        )
+
+    except Exception as e:
+        db.rollback()
+        flash(f"Error saving ledger entry: {str(e)}", "danger")
+        return redirect(url_for("ledger.customer_ledger", id=id))
+
+    finally:
+        cursor.close()
+
+
+@ledger_bp.route("/entry/<int:entry_id>/delete", methods=["POST"])
+@login_required
+def delete_ledger_entry(entry_id):
+    db = get_db_connection(app)
+    cursor = db.cursor()
+
+    try:
+        _prepare_ledger_schema(db, cursor)
+        cursor.execute(
+            f"""
+            SELECT EntryID, CustomerID
+            FROM LedgerEntries
+            WHERE EntryID = ? AND {owner_sql()}
+            """,
+            (entry_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            flash("Ledger entry not found.", "danger")
+            return redirect(url_for("ledger.list_ledger"))
+
+        customer_id = int(row.CustomerID)
+        cursor.execute(
+            f"DELETE FROM LedgerEntries WHERE EntryID = ? AND {owner_sql()}",
+            (entry_id,),
+        )
+        db.commit()
+        flash("Ledger entry deleted.", "success")
+        return redirect(url_for("ledger.customer_ledger", id=customer_id))
+
+    except Exception as e:
+        db.rollback()
+        flash(f"Error deleting ledger entry: {str(e)}", "danger")
+        return redirect(url_for("ledger.list_ledger"))
+
+    finally:
+        cursor.close()
+
+
 @ledger_bp.route("/customer/<int:id>")
 @login_required
 def customer_ledger(id):
@@ -472,9 +933,7 @@ def customer_ledger(id):
     cursor = db.cursor()
 
     try:
-        _ensure_previous_balance_column(db, cursor)
-        _ensure_invoice_payment_status_column(db, cursor)
-        ensure_invoice_payments_table(db, cursor)
+        _prepare_ledger_schema(db, cursor)
         data = _load_customer_ledger(cursor, id)
 
         if not data:
@@ -503,9 +962,7 @@ def customer_ledger_pdf(id):
     cursor = db.cursor()
 
     try:
-        _ensure_previous_balance_column(db, cursor)
-        _ensure_invoice_payment_status_column(db, cursor)
-        ensure_invoice_payments_table(db, cursor)
+        _prepare_ledger_schema(db, cursor)
         data = _load_customer_ledger(cursor, id)
 
         if not data:

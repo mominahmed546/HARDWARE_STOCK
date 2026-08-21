@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% from 'macros/form.html' import field_error %}
+
+{% block title %}Add Ledger Entry - Hardware Stock Management{% endblock %}
+{% block page_title %}Add Ledger Entry{% endblock %}
+{% block page_subtitle %}
+<p>Independent debit or credit entry on a customer account (not tied to an invoice)</p>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/ledger.css') }}">
+{% endblock %}
+
+{% block content %}
+{% set fd = form_data or {} %}
+<div class="form-container">
+    <div class="form-card">
+        <h2>Add Ledger Entry</h2>
+        <p class="ledger-help" style="margin-top:0;">
+            Debit increases what the customer owes. Credit reduces the balance (payment, write-off, or adjustment).
+        </p>
+
+        <form method="POST" data-validate novalidate>
+            {% if fixed_customer %}
+            <div class="form-group">
+                <label>Customer</label>
+                <input type="text" value="{{ fixed_customer.CustomerName }}" readonly>
+                <input type="hidden" name="customer_id" value="{{ fixed_customer.CustomerID }}">
+            </div>
+            {% else %}
+            <div class="form-group">
+                <label for="customer_id">Customer</label>
+                <select id="customer_id" name="customer_id" required
+                        class="{% if errors and errors.get('customer_id') %}is-invalid{% endif %}">
+                    <option value="">Select customer…</option>
+                    {% for customer in customers %}
+                    <option value="{{ customer.CustomerID }}"
+                        {% if fd.get('customer_id')|string == customer.CustomerID|string %}selected{% endif %}>
+                        {{ customer.CustomerName }}
+                    </option>
+                    {% endfor %}
+                </select>
+                {{ field_error(errors, 'customer_id') }}
+            </div>
+            {% endif %}
+
+            <div class="form-group">
+                <label for="entry_date">Entry Date</label>
+                <input type="text" id="entry_date" name="entry_date"
+                       value="{{ fd.get('entry_date', '') }}"
+                       placeholder="DD/MM/YYYY" required
+                       class="{% if errors and errors.get('entry_date') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'entry_date') }}
+            </div>
+
+            <div class="form-group">
+                <label for="entry_type">Entry Type</label>
+                <select id="entry_type" name="entry_type" required
+                        class="{% if errors and errors.get('entry_type') %}is-invalid{% endif %}">
+                    {% for option in entry_types %}
+                    <option value="{{ option }}" {% if fd.get('entry_type') == option %}selected{% endif %}>
+                        {{ option }}
+                    </option>
+                    {% endfor %}
+                </select>
+                {{ field_error(errors, 'entry_type') }}
+            </div>
+
+            <div class="form-group">
+                <label for="amount">Amount (Rs)</label>
+                <input type="number" id="amount" name="amount"
+                       value="{{ fd.get('amount', '') }}"
+                       min="0.01" step="0.01" required placeholder="0.00"
+                       class="{% if errors and errors.get('amount') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'amount') }}
+            </div>
+
+            <div class="form-group">
+                <label for="vch_type">Voucher Type</label>
+                <select id="vch_type" name="vch_type" required
+                        class="{% if errors and errors.get('vch_type') %}is-invalid{% endif %}">
+                    {% for option in vch_types %}
+                    <option value="{{ option }}" {% if fd.get('vch_type') == option %}selected{% endif %}>
+                        {{ option }}
+                    </option>
+                    {% endfor %}
+                </select>
+                {{ field_error(errors, 'vch_type') }}
+            </div>
+
+            <div class="form-group">
+                <label for="particulars">Particulars</label>
+                <input type="text" id="particulars" name="particulars"
+                       value="{{ fd.get('particulars', '') }}"
+                       maxlength="255" required placeholder="e.g. Adjustment / prior balance / discount"
+                       class="{% if errors and errors.get('particulars') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'particulars') }}
+            </div>
+
+            <div class="form-group">
+                <label for="notes">Notes (optional)</label>
+                <input type="text" id="notes" name="notes"
+                       value="{{ fd.get('notes', '') }}"
+                       maxlength="255" placeholder="Optional note"
+                       class="{% if errors and errors.get('notes') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'notes') }}
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Save Entry</button>
+                {% if fixed_customer %}
+                <a href="{{ url_for('ledger.customer_ledger', id=fixed_customer.CustomerID) }}" class="btn btn-secondary">Cancel</a>
+                {% else %}
+                <a href="{{ url_for('ledger.list_ledger') }}" class="btn btn-secondary">Cancel</a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

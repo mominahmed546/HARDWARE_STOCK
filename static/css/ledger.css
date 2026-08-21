@@ -123,6 +123,32 @@
     color: #166534;
 }
 
+.ledger-table .manual td {
+    background: #fffbeb;
+}
+
+.ledger-table .particulars .inline-delete {
+    display: inline;
+    margin-left: 0.5rem;
+}
+
+.ledger-table .particulars .btn-link-danger {
+    border: 0;
+    background: none;
+    padding: 0;
+    color: #b91c1c;
+    font-size: 0.78rem;
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.ledger-index .list-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+}
+
 .ledger-table tfoot th {
     background: #e2e8f0;
     color: #0f172a;
@@ -196,7 +222,8 @@
     .topbar,
     .page-header,
     .ledger-actions,
-    .flash-messages {
+    .flash-messages,
+    .inline-delete {
         display: none !important;
     }
 

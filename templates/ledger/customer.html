@@ -42,7 +42,8 @@
         </div>
 
         <div class="ledger-actions">
-            <a href="{{ url_for('ledger.customer_ledger_pdf', id=customer.CustomerID) }}" class="btn btn-primary">Download PDF</a>
+            <a href="{{ url_for('ledger.add_customer_ledger_entry', id=customer.CustomerID) }}" class="btn btn-primary">Add Entry</a>
+            <a href="{{ url_for('ledger.customer_ledger_pdf', id=customer.CustomerID) }}" class="btn btn-secondary">Download PDF</a>
             <button type="button" class="btn btn-secondary" onclick="window.print()">Print</button>
             <a href="{{ back_url or url_for('ledger.list_ledger') }}" class="btn btn-secondary">{{ back_label or 'Back to Ledger' }}</a>
         </div>
@@ -62,7 +63,7 @@
                 </thead>
                 <tbody>
                     {% for entry in entries %}
-                    <tr class="{% if entry.is_opening %}opening{% elif entry.vch_type == 'Receipt' %}receipt{% endif %}">
+                    <tr class="{% if entry.is_opening %}opening{% elif entry.is_manual %}manual{% elif entry.vch_type == 'Receipt' %}receipt{% endif %}">
                         <td>{{ entry.date|date_dmy if entry.date else '—' }}</td>
                         <td><span class="vch-type">{{ entry.vch_type or '—' }}</span></td>
                         <td>
@@ -72,7 +73,14 @@
                             {{ entry.vch_no or '—' }}
                             {% endif %}
                         </td>
-                        <td class="particulars">{{ entry.particulars }}</td>
+                        <td class="particulars">
+                            {{ entry.particulars }}
+                            {% if entry.is_manual and entry.entry_id %}
+                            <form method="POST" action="{{ url_for('ledger.delete_ledger_entry', entry_id=entry.entry_id) }}" class="inline-delete" onsubmit="return confirm('Delete this ledger entry?');">
+                                <button type="submit" class="btn-link-danger">Delete</button>
+                            </form>
+                            {% endif %}
+                        </td>
                         <td class="num">{% if entry.debit %}{{ "{:,.2f}".format(entry.debit) }}{% else %}—{% endif %}</td>
                         <td class="num">{% if entry.credit %}{{ "{:,.2f}".format(entry.credit) }}{% else %}—{% endif %}</td>
                         <td class="num">{{ "{:,.2f}".format(entry.balance|abs) }} {{ entry.balance_side }}</td>

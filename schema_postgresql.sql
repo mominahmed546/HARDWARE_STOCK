@@ -150,6 +150,24 @@ CREATE TABLE IF NOT EXISTS stock_history (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS ledger_entries (
+    entry_id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(user_id),
+    customer_id INTEGER NOT NULL REFERENCES customers(customer_id) ON DELETE CASCADE,
+    entry_date TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    entry_type VARCHAR(10) NOT NULL,
+    amount NUMERIC(12, 2) NOT NULL,
+    particulars VARCHAR(255) NOT NULL,
+    vch_type VARCHAR(40) DEFAULT 'Journal',
+    notes VARCHAR(255)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ledger_entries_customer_id
+    ON ledger_entries (customer_id);
+
+CREATE INDEX IF NOT EXISTS idx_ledger_entries_user_id
+    ON ledger_entries (user_id);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_quotations_user_no
     ON quotations (user_id, quotation_no);
 
