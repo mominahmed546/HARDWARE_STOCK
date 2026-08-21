@@ -30,11 +30,19 @@
     </div>
     {% else %}
     <div class="panel">
-        <p class="text-muted" style="margin:0 0 1rem;">
-            Pick which row to keep for each item name below. Merging moves any purchase/invoice/quotation
-            history from the other row(s) onto the one you keep, adds up their quantities, and removes the
-            duplicate row(s). This cannot be undone.
-        </p>
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+            <p class="text-muted" style="margin:0 0 1rem; flex:1 1 320px;">
+                Pick which row to keep for each item name below. Merging moves any purchase/invoice/quotation
+                history from the other row(s) onto the one you keep, adds up their quantities, and removes the
+                duplicate row(s). This cannot be undone.
+            </p>
+            <form method="POST" action="{{ url_for('items.merge_all_duplicate_items') }}">
+                <button type="submit" class="btn btn-danger"
+                        onclick="return confirm('Merge all {{ groups|length }} duplicate group(s) using the pre-selected row (most usage history, then highest quantity) in each? This cannot be undone.')">
+                    Merge all ({{ groups|length }})
+                </button>
+            </form>
+        </div>
 
         {% for group in groups %}
         <div class="dup-group">

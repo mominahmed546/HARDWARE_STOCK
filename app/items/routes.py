@@ -421,17 +421,31 @@ def delete_item(id):
     return redirect(url_for("items.list_items"))
 
 
+def _repoint_and_delete_items(cursor, keep_id, other_ids):
+    """Move purchase/invoice/quotation/stock history from `other_ids` onto
+    `keep_id`, then delete the now-empty duplicate rows. Caller owns the
+    transaction (commit/rollback) and the owner_sql() check on Item.
+    """
+    for other_id in other_ids:
+        cursor.execute("UPDATE PurchaseDetails SET ItemID = ? WHERE ItemID = ?", (keep_id, other_id))
+        cursor.execute("UPDATE InvoiceDetails SET ItemID = ? WHERE ItemID = ?", (keep_id, other_id))
+        cursor.execute("UPDATE QuotationDetails SET ItemID = ? WHERE ItemID = ?", (keep_id, other_id))
+        cursor.execute("UPDATE StockHistory SET ItemID = ? WHERE ItemID = ?", (keep_id, other_id))
+        cursor.execute(f"DELETE FROM Item WHERE ItemID = ? AND {owner_sql()}", (other_id,))
+
+
 @items_bp.route("/duplicates")
 @login_required
 def duplicate_items():
     try:
         groups = _duplicate_item_groups(app)
+        return render_template("items/duplicates.html", groups=groups)
     except Exception as e:
+        # Render the page inside the try too: any bad row/field should
+        # flash instead of showing a raw 500.
         app.logger.exception("Error loading duplicate items")
         flash(f"Error loading duplicate items: {str(e)}", "danger")
-        groups = []
-
-    return render_template("items/duplicates.html", groups=groups)
+        return redirect(url_for("items.list_items"))
 
 
 @items_bp.route("/duplicates/merge", methods=["POST"])
@@ -466,13 +480,7 @@ def merge_duplicate_items():
         merge_ids = [i for i in item_ids if i != keep_id]
         total_qty = sum(int(row.Qty or 0) for row in rows.values())
 
-        for other_id in merge_ids:
-            cursor.execute("UPDATE PurchaseDetails SET ItemID = ? WHERE ItemID = ?", (keep_id, other_id))
-            cursor.execute("UPDATE InvoiceDetails SET ItemID = ? WHERE ItemID = ?", (keep_id, other_id))
-            cursor.execute("UPDATE QuotationDetails SET ItemID = ? WHERE ItemID = ?", (keep_id, other_id))
-            cursor.execute("UPDATE StockHistory SET ItemID = ? WHERE ItemID = ?", (keep_id, other_id))
-            cursor.execute(f"DELETE FROM Item WHERE ItemID = ? AND {owner_sql()}", (other_id,))
-
+        _repoint_and_delete_items(cursor, keep_id, merge_ids)
         cursor.execute(f"UPDATE Item SET Qty = ? WHERE ItemID = ? AND {owner_sql()}", (total_qty, keep_id))
 
         db.commit()
@@ -486,6 +494,47 @@ def merge_duplicate_items():
 
     except Exception as e:
         app.logger.exception("Error merging duplicate items")
+        flash(f"Error merging items: {str(e)}", "danger")
+
+    return redirect(url_for("items.duplicate_items"))
+
+
+@items_bp.route("/duplicates/merge-all", methods=["POST"])
+@login_required
+def merge_all_duplicate_items():
+    try:
+        groups = _duplicate_item_groups(app)
+
+        if not groups:
+            flash("No duplicate items to merge.", "info")
+            return redirect(url_for("items.duplicate_items"))
+
+        db = get_db_connection(app)
+        cursor = db.cursor()
+        merged_rows = 0
+
+        for group in groups:
+            keep_id = group["suggested_keep_id"]
+            other_ids = [int(row.ItemID) for row in group["rows"] if int(row.ItemID) != keep_id]
+            if not other_ids:
+                continue
+
+            total_qty = sum(int(row.Qty or 0) for row in group["rows"])
+            _repoint_and_delete_items(cursor, keep_id, other_ids)
+            cursor.execute(f"UPDATE Item SET Qty = ? WHERE ItemID = ? AND {owner_sql()}", (total_qty, keep_id))
+            merged_rows += len(other_ids)
+
+        db.commit()
+        cursor.close()
+
+        flash(
+            f"Merged {merged_rows} duplicate row(s) across {len(groups)} item name(s), "
+            "using the suggested pick (most usage history, then highest quantity) for each.",
+            "success",
+        )
+
+    except Exception as e:
+        app.logger.exception("Error merging all duplicate items")
         flash(f"Error merging items: {str(e)}", "danger")
 
     return redirect(url_for("items.duplicate_items"))
