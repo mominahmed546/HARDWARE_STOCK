@@ -114,6 +114,9 @@ def _monthly_sales_data(cursor, selected_year):
     if selected_year not in years and years:
         selected_year = years[0]
 
+    year_start = date(int(selected_year), 1, 1)
+    year_end = date(int(selected_year) + 1, 1, 1)
+
     cursor.execute(
         f"""
         SELECT
@@ -121,11 +124,11 @@ def _monthly_sales_data(cursor, selected_year):
             COUNT(*) AS InvoiceCount,
             ISNULL(SUM(TotalAmount), 0) AS TotalSales
         FROM Invoices
-        WHERE YEAR([Date]) = ? AND {owner_sql()}
+        WHERE [Date] >= ? AND [Date] < ? AND {owner_sql()}
         GROUP BY MONTH([Date])
         ORDER BY SalesMonth
         """,
-        (selected_year,),
+        (year_start, year_end),
     )
     rows_by_month = {row.SalesMonth: row for row in cursor.fetchall()}
 
@@ -158,11 +161,12 @@ def _monthly_sales_data(cursor, selected_year):
             COUNT(*) AS InvoiceCount,
             ISNULL(SUM(TotalAmount), 0) AS TotalAmount
         FROM Invoices
-        WHERE YEAR([Date]) = ? AND {owner_sql()}
+        WHERE [Date] >= ? AND [Date] < ? AND {owner_sql()}
         GROUP BY COALESCE(PaymentStatus, 'Unpaid')
         """,
-        (selected_year,),
+        (year_start, year_end),
     )
+
     status_rows = cursor.fetchall()
     paid_count = 0
     unpaid_count = 0

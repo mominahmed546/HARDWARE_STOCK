@@ -7,7 +7,8 @@ from flask_login import login_required
 from app import app
 from app.db import get_db_connection
 from app.tenancy import owner_sql, request_user_id
-from app.payments import ensure_invoice_payments_table, payments_join_sql
+from app.payments import ensure_invoice_payments_table
+from app.perf import pagination_meta, parse_page, parse_page_size
 from app.validators import (
     ValidationErrors,
     clean_date,
@@ -20,6 +21,7 @@ from app.validators import (
 ledger_bp = Blueprint("ledger", __name__, url_prefix="/ledger")
 
 _LEDGER_ENTRIES_READY = False
+_LEDGER_SCHEMA_READY = False
 
 ENTRY_TYPES = ("Debit", "Credit")
 VCH_TYPES = ("Journal", "Adjustment", "Receipt", "Payment", "Opening", "Other")
@@ -94,10 +96,16 @@ def ensure_ledger_entries_table(db, cursor):
 
 
 def _prepare_ledger_schema(db, cursor):
+    global _LEDGER_SCHEMA_READY
+    if _LEDGER_SCHEMA_READY:
+        ensure_invoice_payments_table(db, cursor)
+        ensure_ledger_entries_table(db, cursor)
+        return
     _ensure_previous_balance_column(db, cursor)
     _ensure_invoice_payment_status_column(db, cursor)
     ensure_invoice_payments_table(db, cursor)
     ensure_ledger_entries_table(db, cursor)
+    _LEDGER_SCHEMA_READY = True
 
 
 def _event_sort_date(value):
@@ -658,30 +666,19 @@ def list_ledger():
         _prepare_ledger_schema(db, cursor)
 
         search = request.args.get("search", "")
-        query = f"""
-            SELECT
-                c.CustomerID,
-                c.CustomerName,
-                COALESCE(c.PreviousBalance, 0) AS PreviousBalance,
-                COALESCE(inv.InvoiceCount, 0) AS InvoiceCount,
-                COALESCE(inv.TotalInvoiced, 0) AS TotalInvoiced,
-                COALESCE(inv.TotalPaid, 0) AS TotalPaid,
-                COALESCE(le.ManualDebit, 0) AS ManualDebit,
-                COALESCE(le.ManualCredit, 0) AS ManualCredit,
-                COALESCE(c.PreviousBalance, 0)
-                    + COALESCE(inv.TotalInvoiced, 0)
-                    + COALESCE(le.ManualDebit, 0)
-                    - COALESCE(inv.TotalPaid, 0)
-                    - COALESCE(le.ManualCredit, 0) AS Outstanding
+        page = parse_page(request.args.get("page"))
+        page_size = parse_page_size(request.args.get("page_size"))
+
+        # CashReceived on invoices replaces the global InvoicePayments join.
+        base_from = f"""
             FROM Customers c
             LEFT JOIN (
                 SELECT
                     i.CustomerID,
                     COUNT(*) AS InvoiceCount,
                     SUM(i.TotalAmount) AS TotalInvoiced,
-                    SUM(COALESCE(pay.PaidAmount, 0)) AS TotalPaid
+                    SUM(COALESCE(i.CashReceived, 0)) AS TotalPaid
                 FROM Invoices i
-                {payments_join_sql("i")}
                 WHERE {owner_sql("i")}
                 GROUP BY i.CustomerID
             ) inv ON inv.CustomerID = c.CustomerID
@@ -697,22 +694,58 @@ def list_ledger():
             WHERE {owner_sql("c")}
         """
         params = []
-
         if search:
-            query += " AND c.CustomerName LIKE ?"
+            base_from += " AND c.CustomerName LIKE ?"
             params.append(f"%{search}%")
 
-        query += " ORDER BY c.CustomerName"
+        outstanding_expr = """
+            COALESCE(c.PreviousBalance, 0)
+                + COALESCE(inv.TotalInvoiced, 0)
+                + COALESCE(le.ManualDebit, 0)
+                - COALESCE(inv.TotalPaid, 0)
+                - COALESCE(le.ManualCredit, 0)
+        """
 
-        cursor.execute(query, params or ())
+        cursor.execute(
+            f"""
+            SELECT
+                COUNT(*) AS TotalCount,
+                COALESCE(SUM({outstanding_expr}), 0) AS TotalOutstanding
+            {base_from}
+            """,
+            params or (),
+        )
+        totals = cursor.fetchone()
+        total = int(totals.TotalCount or 0)
+        total_outstanding = float(totals.TotalOutstanding or 0)
+        pagination = pagination_meta(total, page, page_size)
+
+        cursor.execute(
+            f"""
+            SELECT
+                c.CustomerID,
+                c.CustomerName,
+                COALESCE(c.PreviousBalance, 0) AS PreviousBalance,
+                COALESCE(inv.InvoiceCount, 0) AS InvoiceCount,
+                COALESCE(inv.TotalInvoiced, 0) AS TotalInvoiced,
+                COALESCE(inv.TotalPaid, 0) AS TotalPaid,
+                COALESCE(le.ManualDebit, 0) AS ManualDebit,
+                COALESCE(le.ManualCredit, 0) AS ManualCredit,
+                {outstanding_expr} AS Outstanding
+            {base_from}
+            ORDER BY c.CustomerName
+            LIMIT ? OFFSET ?
+            """,
+            list(params) + [pagination["page_size"], pagination["offset"]],
+        )
         ledgers = cursor.fetchall()
-        total_outstanding = sum(float(row.Outstanding or 0) for row in ledgers)
 
         return render_template(
             "ledger/list.html",
             ledgers=ledgers,
             search=search,
             total_outstanding=total_outstanding,
+            pagination=pagination,
         )
 
     except Exception as e:

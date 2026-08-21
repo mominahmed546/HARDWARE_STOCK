@@ -5,6 +5,7 @@ from flask_login import login_required
 
 from app import app
 from app.db import get_db_connection
+from app.perf import pagination_meta, parse_page, parse_page_size
 from app.quotations.excel import MAX_LINE_ROWS, build_quotation_xlsx, line_amount, sqft_for_line
 from app.tenancy import owner_sql, request_user_id
 from app.wa_api import is_configured as wa_api_configured
@@ -22,6 +23,7 @@ from app.validators import (
 )
 
 quotations_bp = Blueprint("quotations", __name__, url_prefix="/quotations")
+_QUOTATIONS_SCHEMA_READY = False
 
 # Fabrication / fit-out work types used on Euroglass quotations
 WORK_TYPES = (
@@ -40,6 +42,9 @@ def _inject_quotation_work_types():
 
 
 def ensure_quotations_schema(db, cursor):
+    global _QUOTATIONS_SCHEMA_READY
+    if _QUOTATIONS_SCHEMA_READY:
+        return
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS Quotations (
@@ -81,6 +86,7 @@ def ensure_quotations_schema(db, cursor):
         """
     )
     db.commit()
+    _QUOTATIONS_SCHEMA_READY = True
 
 
 def _default_quotation_lines():
@@ -573,16 +579,13 @@ def list_quotations():
         ensure_quotations_schema(db, cursor)
         search = request.args.get("search", "")
         work_type_filter = (request.args.get("work_type") or "").strip()
-        query = f"""
-            SELECT
-                QuotationID, QuotationNo, QuotationDate, CustomerName, Project,
-                WorkType, Advance, TotalAmount
-            FROM Quotations
-            WHERE {owner_sql()}
-        """
+        page = parse_page(request.args.get("page"))
+        page_size = parse_page_size(request.args.get("page_size"))
+
+        where_sql = f"WHERE {owner_sql()}"
         params = []
         if search:
-            query += """
+            where_sql += """
                 AND (
                     CAST(QuotationNo AS VARCHAR(20)) LIKE ?
                     OR CustomerName LIKE ?
@@ -591,16 +594,35 @@ def list_quotations():
             """
             params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
         if work_type_filter:
-            query += " AND COALESCE(WorkType, '') = ?"
+            where_sql += " AND COALESCE(WorkType, '') = ?"
             params.append(work_type_filter)
-        query += " ORDER BY QuotationNo DESC"
-        cursor.execute(query, params or ())
+
+        cursor.execute(
+            f"SELECT COUNT(*) AS TotalCount FROM Quotations {where_sql}",
+            params or (),
+        )
+        pagination = pagination_meta(int(cursor.fetchone().TotalCount or 0), page, page_size)
+
+        query = f"""
+            SELECT
+                QuotationID, QuotationNo, QuotationDate, CustomerName, Project,
+                WorkType, Advance, TotalAmount
+            FROM Quotations
+            {where_sql}
+            ORDER BY QuotationNo DESC
+            LIMIT ? OFFSET ?
+        """
+        cursor.execute(
+            query,
+            params + [pagination["page_size"], pagination["offset"]],
+        )
         quotations = cursor.fetchall()
         return render_template(
             "quotations/list.html",
             quotations=quotations,
             search=search,
             selected_work_type=work_type_filter,
+            pagination=pagination,
         )
 
     except Exception as e:

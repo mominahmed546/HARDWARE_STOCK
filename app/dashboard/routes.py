@@ -12,6 +12,7 @@ from app.payments import (
     ensure_purchase_payments_table,
     get_cash_openings,
 )
+from app.perf import day_bounds, through_exclusive
 from app.tenancy import owner_sql
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -122,34 +123,39 @@ def dashboard():
 
         cash_opening, bank_opening = get_cash_openings(cursor)
 
+        today = date.today()
+        today_start, today_end = day_bounds(today)
+        until = through_exclusive(today)
+
         # Invoice payment totals (today + all-time through today) in one pass.
+        # Half-open ranges keep PaymentDate indexes usable.
         cursor.execute(
             f"""
             SELECT
                 COALESCE(SUM(
                     CASE
-                        WHEN CAST(p.PaymentDate AS DATE) = CURRENT_DATE
+                        WHEN p.PaymentDate >= ? AND p.PaymentDate < ?
                              AND COALESCE(p.PaymentMethod, 'Cash') = 'Cash'
                         THEN p.Amount ELSE 0
                     END
                 ), 0) AS TodayCash,
                 COALESCE(SUM(
                     CASE
-                        WHEN CAST(p.PaymentDate AS DATE) = CURRENT_DATE
+                        WHEN p.PaymentDate >= ? AND p.PaymentDate < ?
                              AND COALESCE(p.PaymentMethod, 'Cash') = 'Bank'
                         THEN p.Amount ELSE 0
                     END
                 ), 0) AS TodayBank,
                 COALESCE(SUM(
                     CASE
-                        WHEN CAST(p.PaymentDate AS DATE) <= CURRENT_DATE
+                        WHEN p.PaymentDate < ?
                              AND COALESCE(p.PaymentMethod, 'Cash') = 'Cash'
                         THEN p.Amount ELSE 0
                     END
                 ), 0) AS CashReceived,
                 COALESCE(SUM(
                     CASE
-                        WHEN CAST(p.PaymentDate AS DATE) <= CURRENT_DATE
+                        WHEN p.PaymentDate < ?
                              AND COALESCE(p.PaymentMethod, 'Cash') = 'Bank'
                         THEN p.Amount ELSE 0
                     END
@@ -157,8 +163,9 @@ def dashboard():
             FROM InvoicePayments p
             JOIN Invoices i ON i.InvoiceID = p.InvoiceID
             WHERE {owner_sql("i")}
-              AND CAST(p.PaymentDate AS DATE) <= CURRENT_DATE
-            """
+              AND p.PaymentDate < ?
+            """,
+            (today_start, today_end, today_start, today_end, until, until, until),
         )
         pay_row = cursor.fetchone()
         today_cash = float(pay_row.TodayCash or 0) if pay_row else 0.0
@@ -179,9 +186,10 @@ def dashboard():
                 ), 0) AS BankPaid
             FROM PurchasePayments pp
             JOIN Purchases p ON p.PurchaseID = pp.PurchaseID
-            WHERE CAST(pp.PaymentDate AS DATE) <= CURRENT_DATE
+            WHERE pp.PaymentDate < ?
               AND {owner_sql("p")}
-            """
+            """,
+            (until,),
         )
         purchases_row = cursor.fetchone()
         cash_paid_total = float(purchases_row.CashPaid or 0) if purchases_row else 0.0
@@ -197,7 +205,7 @@ def dashboard():
             profit_in_bank,
         ) = _cash_excluding_profit(
             cursor,
-            date.today(),
+            today,
             cash_opening,
             cash_in_hand,
             bank_balance=bank_balance,

@@ -1,0 +1,22 @@
+{# Reusable list pagination. Preserve other query args via extra_args dict. #}
+{% macro pager(pagination, endpoint, extra_args=None) %}
+{% if pagination and pagination.total_pages > 1 %}
+{% set args = extra_args or {} %}
+<nav class="list-pagination" aria-label="Pagination" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin:1rem 0;">
+  <span class="pagination-meta" style="opacity:0.85;">
+    Showing page {{ pagination.page }} of {{ pagination.total_pages }}
+    ({{ pagination.total }} total)
+  </span>
+  <span class="pagination-actions" style="display:flex;gap:0.5rem;">
+    {% if pagination.has_prev %}
+    <a class="btn btn-sm btn-secondary"
+       href="{{ url_for(endpoint, page=pagination.prev_page, **args) }}">Previous</a>
+    {% endif %}
+    {% if pagination.has_next %}
+    <a class="btn btn-sm btn-secondary"
+       href="{{ url_for(endpoint, page=pagination.next_page, **args) }}">Next</a>
+    {% endif %}
+  </span>
+</nav>
+{% endif %}
+{% endmacro %}
