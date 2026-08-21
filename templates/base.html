@@ -222,5 +222,17 @@
             window.addEventListener('load', hideLoader);
         })();
     </script>
+    <script>
+        (function () {
+            // Make sure success/error banners are never missed after a form
+            // submit reloads the page at a scroll position the browser decided
+            // to keep - a very common source of "the button did nothing"
+            // reports when the message actually did appear, just off-screen.
+            var flashBox = document.querySelector('.flash-messages');
+            if (flashBox) {
+                flashBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        })();
+    </script>
 </body>
 </html>

@@ -7,7 +7,6 @@ from flask import Blueprint, flash, redirect, render_template, request, send_fil
 from flask_login import login_required
 
 from app import app
-from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
 from app.db import get_db_connection
 from app.payments import (
     ensure_cash_accounts,
@@ -16,6 +15,7 @@ from app.payments import (
     get_cash_openings,
     save_cash_openings,
 )
+from app.profit.routes import _monthly_profit_data
 from app.tenancy import owner_sql
 from app.validators import ValidationErrors, clean_positive_decimal
 
@@ -96,62 +96,33 @@ def _balances_through(cursor, through_date, cash_opening, bank_opening):
     return cash_opening + cash_received - cash_paid, bank_opening + bank_received - bank_paid
 
 
-def _cash_capital_received(cursor, through_date):
-    """Cash receipts that only replace purchase cost (exclude profit share)."""
-    line_cost = sold_line_cost_sql("d")
-    cursor.execute(
-        f"""
-        SELECT ISNULL(SUM(capital.CashCapital), 0) AS CashCapital
-        FROM (
-            SELECT
-                p.PaymentID,
-                CASE
-                    WHEN COALESCE(i.TotalAmount, 0) <= 0 THEN 0
-                    ELSE p.Amount * LEAST(
-                        1.0,
-                        COALESCE(cost.InvoiceCost, 0) / i.TotalAmount
-                    )
-                END AS CashCapital
-            FROM InvoicePayments p
-            JOIN Invoices i ON i.InvoiceID = p.InvoiceID
-            LEFT JOIN (
-                SELECT
-                    d.InvoiceID,
-                    ISNULL(SUM({line_cost}), 0) AS InvoiceCost
-                FROM InvoiceDetails d
-                LEFT JOIN Item it ON it.ItemID = d.ItemID
-                {purchase_unit_cost_join("d")}
-                GROUP BY d.InvoiceID
-            ) cost ON cost.InvoiceID = i.InvoiceID
-            WHERE CAST(p.PaymentDate AS DATE) <= ?
-              AND COALESCE(p.PaymentMethod, 'Cash') = 'Cash'
-              AND {owner_sql("i")}
-        ) capital
-        """,
-        (through_date,),
-    )
-    row = cursor.fetchone()
-    return float(row.CashCapital or 0) if row else 0.0
+def _accrual_profit_for_year(cursor, year):
+    """Total profit for the year, using the exact same figure shown on the
+    Monthly Profit report (Revenue - Cost, prorated by amount paid). Reusing
+    it here keeps the cash pages and the profit report always in agreement
+    instead of drifting apart with two independently-computed numbers.
+    """
+    _, _, _, _, _, total_profit, _ = _monthly_profit_data(cursor, year)
+    return max(float(total_profit or 0), 0.0)
 
 
 def _cash_excluding_profit(cursor, through_date, cash_opening, cash_in_hand=None):
-    """Working capital in the drawer: recovered purchase cost, not profit."""
-    capital_received = _cash_capital_received(cursor, through_date)
-    cash_paid, _, _ = _purchase_payment_split(
-        cursor,
-        "WHERE CAST(pp.PaymentDate AS DATE) <= ?",
-        (through_date,),
-    )
-    capital = float(cash_opening or 0) + capital_received - cash_paid
-    if capital < 0:
-        capital = 0.0
-    if cash_in_hand is not None:
-        cash_in_hand = float(cash_in_hand or 0)
-        if cash_in_hand < 0:
-            cash_in_hand = 0.0
-        capital = min(capital, cash_in_hand)
-    profit_in_cash = max(float(cash_in_hand or 0) - capital, 0.0) if cash_in_hand is not None else 0.0
-    return capital, profit_in_cash, capital_received
+    """Split the cash drawer into working capital vs profit.
+
+    Profit is taken straight from the Monthly Profit report's Total Profit
+    for the same year, so "Profit sitting in cash" always matches what
+    /profit/monthly shows. Capital ("cash for purchases") is whatever's left
+    of the drawer once that profit share is set aside.
+    """
+    total_profit = _accrual_profit_for_year(cursor, through_date.year)
+
+    if cash_in_hand is None:
+        return 0.0, total_profit, total_profit
+
+    cash_in_hand_value = max(float(cash_in_hand or 0), 0.0)
+    profit_in_cash = min(total_profit, cash_in_hand_value)
+    capital = max(cash_in_hand_value - profit_in_cash, 0.0)
+    return capital, profit_in_cash, total_profit
 
 
 def _buy_suggestions(cursor, budget, threshold=LOW_STOCK_THRESHOLD, limit=40):
@@ -418,7 +389,7 @@ def _report_context(cursor, view, selected_date, selected_year, selected_month):
         period_label = selected_date.strftime("%d/%m/%Y")
 
     cash_in_hand, bank_balance = _balances_through(cursor, through_date, cash_opening, bank_opening)
-    cash_excluding_profit, profit_in_cash, capital_received = _cash_excluding_profit(
+    cash_excluding_profit, profit_in_cash, accrual_profit = _cash_excluding_profit(
         cursor, through_date, cash_opening, cash_in_hand
     )
     return {
@@ -431,7 +402,7 @@ def _report_context(cursor, view, selected_date, selected_year, selected_month):
         "bank_balance": bank_balance,
         "cash_excluding_profit": cash_excluding_profit,
         "profit_in_cash": profit_in_cash,
-        "capital_received": capital_received,
+        "accrual_profit": accrual_profit,
         "receipts": receipts,
         "day_rows": day_rows,
         "period_label": period_label,
@@ -543,7 +514,7 @@ def cash_book():
             bank_balance=0,
             cash_excluding_profit=0,
             profit_in_cash=0,
-            capital_received=0,
+            accrual_profit=0,
             receipts=[],
             day_rows=[],
             period_label="",
@@ -625,7 +596,7 @@ def buy_suggestions():
         cash_opening, bank_opening = get_cash_openings(cursor)
         today = date.today()
         cash_in_hand, _bank = _balances_through(cursor, today, cash_opening, bank_opening)
-        cash_excluding_profit, profit_in_cash, _capital_received = _cash_excluding_profit(
+        cash_excluding_profit, profit_in_cash, _accrual_profit = _cash_excluding_profit(
             cursor, today, cash_opening, cash_in_hand
         )
         suggestions, spent = _buy_suggestions(cursor, cash_excluding_profit)

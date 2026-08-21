@@ -1811,9 +1811,27 @@ def invoice_payments(id):
                     datetime.strptime(payment_date_value, "%Y-%m-%d").date(),
                     datetime.now().time(),
                 )
-                result = add_invoice_payment(
-                    cursor, invoice, amount, payment_datetime, notes, payment_method
-                )
+                try:
+                    result = add_invoice_payment(
+                        cursor, invoice, amount, payment_datetime, notes, payment_method
+                    )
+                except ValueError as e:
+                    db.rollback()
+                    errors.add("amount", str(e))
+                    flash(str(e), "danger")
+                    payments = list_invoice_payments(cursor, id)
+                    return render_template(
+                        "invoices/payments.html",
+                        invoice=invoice,
+                        payments=payments,
+                        paid_amount=paid_amount,
+                        remaining=remaining,
+                        errors=errors.errors,
+                        form_data=form_data,
+                        in_kind_items=in_kind_items,
+                        in_kind_categories=in_kind_categories,
+                        in_kind_rows=in_kind_rows,
+                    )
                 db.commit()
                 flash(
                     f"Recorded Rs {amount:,.2f} via {payment_method}. Invoice #{id} is now {result['status']}.",

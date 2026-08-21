@@ -69,16 +69,25 @@
                     {% for line in lines %}
                     <tr class="invoice-item-row">
                         <td>
-                            <select name="item_id[]" required
-                                    class="invoice-item-select {% if errors and errors.get('item_id[]') %}is-invalid{% endif %}">
-                                <option value="">Select item</option>
-                                {% for item in items %}
-                                <option value="{{ item.ItemID }}" data-rate="{{ item.SaleRate }}" data-qty="{{ item.Qty }}"
-                                    {% if line.get('item_id')|string == item.ItemID|string %}selected{% endif %}>
-                                    {{ item.ItemName }} (Stock: {{ item.Qty }})
-                                </option>
-                                {% endfor %}
-                            </select>
+                            <div class="item-combobox">
+                                <input type="hidden" name="item_id[]" class="invoice-item-value" value="{{ line.get('item_id', '') }}">
+                                <button type="button"
+                                        class="item-combobox-trigger {% if errors and errors.get('item_id[]') %}is-invalid{% endif %}">
+                                    <span class="item-combobox-label">Select item</span>
+                                </button>
+                                <div class="item-combobox-panel">
+                                    <input type="text" class="item-combobox-search" placeholder="Search items...">
+                                    <ul class="item-combobox-list">
+                                        {% for item in items %}
+                                        <li class="item-combobox-option" data-id="{{ item.ItemID }}" data-rate="{{ item.SaleRate }}"
+                                            data-qty="{{ item.Qty }}" data-label="{{ item.ItemName }} (Stock: {{ item.Qty }})">
+                                            {{ item.ItemName }} (Stock: {{ item.Qty }})
+                                        </li>
+                                        {% endfor %}
+                                    </ul>
+                                    <div class="item-combobox-empty" hidden>No items match your search.</div>
+                                </div>
+                            </div>
                         </td>
                         <td>
                             <input type="number" name="quantity[]" min="1" step="1"
@@ -124,6 +133,7 @@
     const grandTotal = document.getElementById('invoice-grand-total');
     const customerSelect = document.getElementById('customer_id');
     const previousBalanceInput = document.getElementById('previous_balance');
+    const currentBalanceHint = document.getElementById('current-balance-hint');
     const lockPreviousBalance = {{ 'true' if is_edit|default(false) else 'false' }};
 
     function formatMoney(value) {
@@ -152,22 +162,116 @@
         });
     }
 
-    function bindRow(row) {
-        const itemSelect = row.querySelector('.invoice-item-select');
-        const quantityInput = row.querySelector('.invoice-quantity');
-        const rateInput = row.querySelector('.invoice-rate');
-        const removeButton = row.querySelector('.remove-invoice-item');
+    function closeAllCombobox(except) {
+        document.querySelectorAll('.item-combobox.open').forEach(function (box) {
+            if (box !== except) {
+                box.classList.remove('open');
+            }
+        });
+    }
 
-        itemSelect.addEventListener('change', function () {
-            const selected = itemSelect.options[itemSelect.selectedIndex];
-            const rate = selected.getAttribute('data-rate');
+    function positionPanel(box) {
+        const panel = box.querySelector('.item-combobox-panel');
+        const trigger = box.querySelector('.item-combobox-trigger');
+        panel.classList.remove('drop-up');
 
+        const triggerRect = trigger.getBoundingClientRect();
+        const estimatedHeight = Math.min(panel.scrollHeight || 260, 280);
+        const spaceBelow = window.innerHeight - triggerRect.bottom;
+
+        if (spaceBelow < estimatedHeight && triggerRect.top > estimatedHeight) {
+            panel.classList.add('drop-up');
+        }
+    }
+
+    function resetCombobox(box) {
+        const hiddenInput = box.querySelector('.invoice-item-value');
+        const label = box.querySelector('.item-combobox-label');
+        const search = box.querySelector('.item-combobox-search');
+        const empty = box.querySelector('.item-combobox-empty');
+
+        hiddenInput.value = '';
+        label.textContent = 'Select item';
+        label.classList.remove('has-value');
+        search.value = '';
+        empty.hidden = true;
+        box.querySelectorAll('.item-combobox-option').forEach(function (option) {
+            option.hidden = false;
+        });
+    }
+
+    function filterCombobox(box, query) {
+        const normalized = query.trim().toLowerCase();
+        const options = box.querySelectorAll('.item-combobox-option');
+        let visibleCount = 0;
+
+        options.forEach(function (option) {
+            const matches = !normalized || option.getAttribute('data-label').toLowerCase().indexOf(normalized) !== -1;
+            option.hidden = !matches;
+            if (matches) visibleCount += 1;
+        });
+
+        box.querySelector('.item-combobox-empty').hidden = visibleCount !== 0;
+    }
+
+    function initCombobox(box, rateInput) {
+        const trigger = box.querySelector('.item-combobox-trigger');
+        const panel = box.querySelector('.item-combobox-panel');
+        const hiddenInput = box.querySelector('.invoice-item-value');
+        const label = box.querySelector('.item-combobox-label');
+        const search = box.querySelector('.item-combobox-search');
+
+        if (hiddenInput.value) {
+            const preselected = box.querySelector('.item-combobox-option[data-id="' + hiddenInput.value + '"]');
+            if (preselected) {
+                label.textContent = preselected.getAttribute('data-label');
+                label.classList.add('has-value');
+            }
+        }
+
+        trigger.addEventListener('click', function (event) {
+            event.stopPropagation();
+            const isOpen = box.classList.contains('open');
+            closeAllCombobox(box);
+            box.classList.toggle('open', !isOpen);
+            if (!isOpen) {
+                positionPanel(box);
+                search.value = '';
+                filterCombobox(box, '');
+                search.focus();
+            }
+        });
+
+        search.addEventListener('input', function () {
+            filterCombobox(box, search.value);
+        });
+
+        panel.addEventListener('click', function (event) {
+            const option = event.target.closest('.item-combobox-option');
+            if (!option || option.hidden) return;
+
+            hiddenInput.value = option.getAttribute('data-id');
+            label.textContent = option.getAttribute('data-label');
+            label.classList.add('has-value');
+            trigger.classList.remove('is-invalid');
+
+            const rate = option.getAttribute('data-rate');
             if (rate) {
                 rateInput.value = rate;
             }
 
+            box.classList.remove('open');
             updateTotals();
         });
+    }
+
+    function bindRow(row) {
+        const combobox = row.querySelector('.item-combobox');
+        const quantityInput = row.querySelector('.invoice-quantity');
+        const rateInput = row.querySelector('.invoice-rate');
+        const removeButton = row.querySelector('.remove-invoice-item');
+
+        initCombobox(combobox, rateInput);
 
         quantityInput.addEventListener('input', updateTotals);
         rateInput.addEventListener('input', updateTotals);
@@ -178,6 +282,20 @@
             updateTotals();
         });
     }
+
+    document.addEventListener('click', function () {
+        closeAllCombobox(null);
+    });
+
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') {
+            closeAllCombobox(null);
+        }
+    });
+
+    window.addEventListener('resize', function () {
+        closeAllCombobox(null);
+    });
 
     function syncCustomerBalance(overwriteValue) {
         const selected = customerSelect.options[customerSelect.selectedIndex];
@@ -200,7 +318,8 @@
     addInvoiceItem.addEventListener('click', function () {
         const row = invoiceItemsBody.querySelector('.invoice-item-row').cloneNode(true);
 
-        row.querySelector('.invoice-item-select').value = '';
+        row.querySelector('.item-combobox').classList.remove('open');
+        resetCombobox(row.querySelector('.item-combobox'));
         row.querySelector('.invoice-quantity').value = '1';
         row.querySelector('.invoice-rate').value = '0';
         row.querySelector('.invoice-line-total').textContent = formatMoney(0);
@@ -219,5 +338,30 @@
     syncRemoveButtons();
     updateTotals();
     syncCustomerBalance(!lockPreviousBalance);
+
+    invoiceItemsTable.closest('form').addEventListener('submit', function (event) {
+        if (event.submitter && event.submitter.value === 'save_previous_balance') {
+            return;
+        }
+
+        let firstInvalid = null;
+
+        invoiceItemsBody.querySelectorAll('.item-combobox').forEach(function (box) {
+            const hiddenInput = box.querySelector('.invoice-item-value');
+            const trigger = box.querySelector('.item-combobox-trigger');
+            const isEmpty = !hiddenInput.value;
+
+            trigger.classList.toggle('is-invalid', isEmpty);
+            if (isEmpty && !firstInvalid) {
+                firstInvalid = trigger;
+            }
+        });
+
+        if (firstInvalid) {
+            event.preventDefault();
+            firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            firstInvalid.focus();
+        }
+    });
 </script>
 {% endblock %}

@@ -135,3 +135,137 @@
     padding: 0.45rem 0.85rem;
     font-size: 0.85rem;
 }
+
+/* Compact searchable dropdown used to pick an item on invoice/purchase rows.
+   Native <select> popups can take over most of a phone screen when the item
+   list is long, so this renders a small, self-contained panel instead. */
+.item-combobox {
+    position: relative;
+    min-width: 180px;
+}
+
+.item-combobox-trigger {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.item-combobox-trigger:focus,
+.item-combobox.open .item-combobox-trigger {
+    border-color: #2563eb;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.item-combobox-trigger.is-invalid {
+    border-color: #dc2626;
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+}
+
+.item-combobox-trigger::after {
+    content: '\25BE';
+    flex-shrink: 0;
+    color: var(--text-muted);
+}
+
+.item-combobox-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.item-combobox-label.has-value {
+    color: var(--text);
+    font-weight: 600;
+}
+
+.item-combobox-panel {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    width: max(100%, 260px);
+    max-width: min(340px, 90vw);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 16px 32px rgba(15, 23, 42, 0.2);
+    z-index: 80;
+    overflow: hidden;
+    flex-direction: column;
+}
+
+.item-combobox.open .item-combobox-panel {
+    display: flex;
+}
+
+.item-combobox-panel.drop-up {
+    top: auto;
+    bottom: calc(100% + 6px);
+}
+
+.item-combobox-search {
+    margin: 0.5rem;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.88rem;
+    background: var(--bg);
+    color: var(--text);
+    width: calc(100% - 1rem);
+}
+
+.item-combobox-search:focus {
+    border-color: #2563eb;
+    outline: none;
+}
+
+.item-combobox-list {
+    list-style: none;
+    margin: 0;
+    padding: 0 0.35rem 0.5rem;
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.item-combobox-option {
+    padding: 0.55rem 0.65rem;
+    border-radius: 6px;
+    font-size: 0.88rem;
+    color: var(--text);
+    cursor: pointer;
+    white-space: normal;
+    line-height: 1.3;
+}
+
+.item-combobox-option:hover {
+    background: var(--bg);
+}
+
+.item-combobox-empty {
+    padding: 0.5rem 0.85rem 0.75rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+@media (max-width: 600px) {
+    .item-combobox-search {
+        font-size: 16px;
+    }
+
+    .item-combobox-list {
+        max-height: 45vh;
+    }
+}
