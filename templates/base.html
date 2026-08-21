@@ -33,11 +33,13 @@
             <div class="sidebar-brand">
                 <a href="{{ url_for('dashboard.dashboard') }}" class="sidebar-logo-link" aria-label="Euroglass dashboard">
                     <img
-                        src="{{ url_for('static', filename='images/euroglass-logo.png') }}"
+                        src="{{ url_for('static', filename='images/euroglass-logo-sm.png') }}"
                         alt="Euroglass Aluminium &amp; Glass Hardware"
                         class="sidebar-logo"
-                        width="180"
-                        height="180"
+                        width="160"
+                        height="160"
+                        decoding="async"
+                        fetchpriority="high"
                     >
                 </a>
             </div>

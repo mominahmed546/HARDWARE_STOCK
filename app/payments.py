@@ -135,13 +135,21 @@ def payments_join_sql(invoice_alias="i"):
 
 
 def paid_ratio_sql(invoice_alias="i", paid_alias="pay"):
-    """Share of the invoice that has been paid, capped at 100%."""
+    """Share of the invoice that has been paid, capped at 100%.
+
+    When paid_alias is None, use Invoices.CashReceived (kept in sync with
+    InvoicePayments) so callers can skip the expensive payments aggregate join.
+    """
+    if paid_alias:
+        paid_amount_expr = f"COALESCE({paid_alias}.PaidAmount, 0)"
+    else:
+        paid_amount_expr = f"COALESCE({invoice_alias}.CashReceived, 0)"
     return f"""
         CASE
             WHEN COALESCE({invoice_alias}.TotalAmount, 0) <= 0 THEN 0
             ELSE LEAST(
                 1.0,
-                COALESCE({paid_alias}.PaidAmount, 0) / {invoice_alias}.TotalAmount
+                {paid_amount_expr} / {invoice_alias}.TotalAmount
             )
         END
     """
