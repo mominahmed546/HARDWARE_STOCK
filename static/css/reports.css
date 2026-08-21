@@ -11,7 +11,8 @@
 .report-toolbar h2,
 .report-toolbar h3,
 .report-toolbar p,
-.report-toolbar label {
+.report-toolbar label,
+.report-toolbar .form-group label {
     color: var(--text);
 }
 
@@ -88,14 +89,50 @@
     text-align: left;
 }
 
+.panel-header h2 {
+    color: var(--text);
+}
+
+/* Explicit dark-mode contrast: do not rely on cached light-only rules. */
+[data-theme="dark"] .report-toolbar,
+[data-theme="dark"] .report-card {
+    background: #1e293b;
+    border-color: #475569;
+    color: #f8fafc;
+}
+
+[data-theme="dark"] .report-toolbar h2,
+[data-theme="dark"] .report-toolbar h3,
+[data-theme="dark"] .report-toolbar p,
+[data-theme="dark"] .report-toolbar label,
+[data-theme="dark"] .report-toolbar .form-group label,
+[data-theme="dark"] .report-filter label,
+[data-theme="dark"] .report-card-value,
+[data-theme="dark"] .panel-header h2 {
+    color: #f8fafc;
+}
+
+[data-theme="dark"] .report-toolbar .text-muted,
+[data-theme="dark"] .report-toolbar p.text-muted,
+[data-theme="dark"] .report-card-label {
+    color: #cbd5e1;
+}
+
+[data-theme="dark"] .report-filter select,
+[data-theme="dark"] .report-filter input[type="date"],
+[data-theme="dark"] .report-filter input[type="number"],
+[data-theme="dark"] .report-toolbar input[type="number"],
+[data-theme="dark"] .report-toolbar input[type="text"],
+[data-theme="dark"] .report-toolbar select {
+    background: #0f172a;
+    border-color: #64748b;
+    color: #f8fafc;
+}
+
 [data-theme="dark"] .data-table tfoot th {
     background: #1e3a5f;
     border-top-color: #334155;
     color: #bfdbfe;
-}
-
-.panel-header h2 {
-    color: var(--text);
 }
 
 @media (max-width: 800px) {

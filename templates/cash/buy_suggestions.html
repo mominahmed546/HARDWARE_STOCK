@@ -7,12 +7,12 @@
 {% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/reports.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/reports.css') }}?v=cash-dark-2">
 <style>
     .report-summary-grid.suggest-grid { grid-template-columns: repeat(3, 1fr); }
     .capital-value { color: #0f766e; }
     .profit-value { color: #a16207; }
-    [data-theme="dark"] .capital-value { color: #2dd4bf; }
+    [data-theme="dark"] .capital-value { color: #5eead4; }
     [data-theme="dark"] .profit-value { color: #fbbf24; }
     @media (max-width: 800px) {
         .report-summary-grid.suggest-grid { grid-template-columns: 1fr; }
