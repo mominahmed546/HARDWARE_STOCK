@@ -134,7 +134,36 @@
     </div>
 
     <div class="cash-actions">
-        <a href="{{ url_for('cash.buy_suggestions') }}" class="btn btn-primary">What to buy with purchase cash</a>
+        <a href="#transfer-cash-to-bank" class="btn btn-primary">Transfer cash to bank</a>
+        <a href="{{ url_for('cash.buy_suggestions') }}" class="btn btn-secondary">What to buy with purchase cash</a>
+    </div>
+
+    <div class="report-toolbar" id="transfer-cash-to-bank">
+        <h3 style="margin:0 0 0.85rem;">Transfer cash to bank</h3>
+        <p class="text-muted" style="margin:0 0 1rem;">
+            Move money from the cash drawer (Rs {{ "{:,.2f}".format(cash_in_hand|default(0)) }} on hand) into the bank account.
+        </p>
+        <form method="POST" class="opening-form" id="transfer-to-bank-form">
+            <input type="hidden" name="action" value="transfer_to_bank">
+            <div class="form-group">
+                <label for="transfer_amount">Amount to transfer</label>
+                <input type="number" id="transfer_amount" name="transfer_amount" min="0.01" step="0.01"
+                       placeholder="e.g. 20000" required
+                       max="{{ '%.2f'|format(cash_in_hand|default(0)|float) if (cash_in_hand|default(0)|float) > 0 else '' }}">
+                {% if adjust_errors and adjust_errors.get('transfer_amount') %}
+                <div class="error-message">{{ adjust_errors.get('transfer_amount') }}</div>
+                {% endif %}
+            </div>
+            <button type="button" class="btn btn-secondary" id="transferAllCashBtn"
+                    {% if (cash_in_hand|default(0)|float) <= 0 %}disabled{% endif %}>
+                Use all cash in drawer
+            </button>
+            <button type="submit" class="btn btn-primary"
+                    {% if (cash_in_hand|default(0)|float) <= 0 %}disabled{% endif %}
+                    onclick="return confirm('Transfer this amount from cash in hand to the bank account?')">
+                Transfer to bank
+            </button>
+        </form>
     </div>
 
     <div class="report-toolbar">
@@ -167,26 +196,6 @@
                 {% endif %}
             </div>
             <button type="submit" class="btn btn-primary">Update cash drawer</button>
-        </form>
-    </div>
-    <div class="report-toolbar">
-        <h3 style="margin:0 0 0.85rem;">Transfer cash to bank</h3>
-        <p class="text-muted" style="margin:0 0 1rem;">
-            Move money from the cash drawer (Rs {{ "{:,.2f}".format(cash_in_hand|default(0)) }} on hand) into the bank account.
-        </p>
-        <form method="POST" class="opening-form">
-            <input type="hidden" name="action" value="transfer_to_bank">
-            <div class="form-group">
-                <label for="transfer_amount">Amount to transfer</label>
-                <input type="number" id="transfer_amount" name="transfer_amount" min="0.01" step="0.01" placeholder="e.g. 20000" required>
-                {% if adjust_errors and adjust_errors.get('transfer_amount') %}
-                <div class="error-message">{{ adjust_errors.get('transfer_amount') }}</div>
-                {% endif %}
-            </div>
-            <button type="submit" class="btn btn-primary"
-                    onclick="return confirm('Transfer this amount from cash in hand to the bank account?')">
-                Transfer to bank
-            </button>
         </form>
     </div>
 
@@ -279,4 +288,18 @@
     </div>
     {% endif %}
 </div>
+<script>
+(function () {
+    var btn = document.getElementById('transferAllCashBtn');
+    var input = document.getElementById('transfer_amount');
+    if (!btn || !input) return;
+    btn.addEventListener('click', function () {
+        var amount = {{ '%.2f'|format(cash_in_hand|default(0)|float) }};
+        if (amount > 0) {
+            input.value = amount.toFixed(2);
+            input.focus();
+        }
+    });
+})();
+</script>
 {% endblock %}
