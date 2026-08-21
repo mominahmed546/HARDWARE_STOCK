@@ -258,6 +258,21 @@
     function syncPaymentMode() {
         const isInKind = paymentMethod.value === 'In-Kind';
         inKindFields.style.display = isInKind ? 'block' : 'none';
+
+        // Hidden in-kind rows still have min="0.01" quantity/rate inputs that
+        // default to 0, so the browser considers them invalid and silently
+        // blocks the whole form's submit (it can't focus a hidden field to
+        // show the error). Disabling them while hidden exempts them from
+        // validation and from being posted, which is what we want anyway
+        // when Cash/Bank is selected.
+        rowsTbody.querySelectorAll('.in-kind-row').forEach(function (row) {
+            row.querySelectorAll('input, select').forEach(function (field) {
+                field.disabled = !isInKind;
+            });
+            if (isInKind) {
+                syncRowMode(row);
+            }
+        });
     }
 
     function syncRowMode(row) {
