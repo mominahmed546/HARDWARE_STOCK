@@ -350,6 +350,49 @@ def _validate_invoice_lines(form, cursor, errors, extra_stock_by_item=None):
     return lines, valid_lines
 
 
+def _other_invoices_unpaid_total(cursor, customer_id, exclude_invoice_id=None):
+    """Sum of GREATEST(total - paid, 0) across a customer's other invoices.
+
+    This is the same "other invoices" component that gets folded into the
+    Previous Balance field shown/edited on the invoice form (see
+    _load_invoice_form_data). It must be backed back out before persisting
+    whatever the form submits into Customers.PreviousBalance, otherwise every
+    invoice created/edited (or "Save Previous Balance" click) that leaves the
+    pre-filled default untouched permanently bakes other invoices' remaining
+    dues into the customer's baseline - which the ledger and this same
+    pre-fill then both add on top of again, compounding with every invoice.
+    """
+    exclude_filter = ""
+    params = [customer_id]
+    if exclude_invoice_id is not None:
+        exclude_filter = "AND i.InvoiceID <> ?"
+        params.append(exclude_invoice_id)
+
+    cursor.execute(
+        f"""
+        SELECT COALESCE(
+            SUM(GREATEST(COALESCE(i.TotalAmount, 0) - COALESCE(pay.PaidAmount, 0), 0)),
+            0
+        ) AS UnpaidTotal
+        FROM Invoices i
+        {payments_join_sql("i")}
+        WHERE i.CustomerID = ? {exclude_filter} AND {owner_sql("i")}
+        """,
+        params,
+    )
+    row = cursor.fetchone()
+    return float(row.UnpaidTotal or 0) if row else 0.0
+
+
+def _legacy_previous_balance(cursor, customer_id, submitted_previous_balance, exclude_invoice_id=None):
+    """Back out the "other invoices" component before saving to Customers.
+
+    See _other_invoices_unpaid_total for why this is necessary.
+    """
+    other_unpaid = _other_invoices_unpaid_total(cursor, customer_id, exclude_invoice_id=exclude_invoice_id)
+    return max(float(submitted_previous_balance or 0) - other_unpaid, 0.0)
+
+
 def _load_invoice_form_data(cursor, extra_item_ids=None, exclude_invoice_id=None):
     unpaid_filter = ""
     unpaid_params = []
@@ -914,9 +957,10 @@ def create_invoice():
                         invoice_lines=invoice_lines,
                     )
 
+                legacy_balance = _legacy_previous_balance(cursor, customer_id, previous_balance)
                 cursor.execute(
                     f"UPDATE Customers SET PreviousBalance = ? WHERE CustomerID = ? AND {owner_sql()}",
-                    (previous_balance, customer_id),
+                    (legacy_balance, customer_id),
                 )
                 db.commit()
                 flash("Previous balance updated successfully.", "success")
@@ -954,10 +998,15 @@ def create_invoice():
             )
 
             # Persist manually entered previous balance so future invoices
-            # start from the same user-confirmed opening balance.
+            # start from the same user-confirmed opening balance. The
+            # submitted value includes other invoices' remaining dues (it's
+            # what the form pre-fills), so that part must be backed out
+            # before saving - otherwise it gets double-counted forever after
+            # by the ledger and by every later invoice's own pre-fill.
+            legacy_balance = _legacy_previous_balance(cursor, data["customer_id"], data["previous_balance"])
             cursor.execute(
                 f"UPDATE Customers SET PreviousBalance = ? WHERE CustomerID = ? AND {owner_sql()}",
-                (data["previous_balance"], data["customer_id"]),
+                (legacy_balance, data["customer_id"]),
             )
 
             # Assign invoice number as MAX(invoice_id)+1 so deleted numbers are reused
@@ -1305,9 +1354,12 @@ def edit_invoice(id):
                         invoice_id=id,
                     )
 
+                legacy_balance = _legacy_previous_balance(
+                    cursor, customer_id, previous_balance, exclude_invoice_id=id
+                )
                 cursor.execute(
                     f"UPDATE Customers SET PreviousBalance = ? WHERE CustomerID = ? AND {owner_sql()}",
-                    (previous_balance, customer_id),
+                    (legacy_balance, customer_id),
                 )
                 db.commit()
                 flash("Previous balance updated successfully.", "success")
@@ -1355,9 +1407,12 @@ def edit_invoice(id):
                 _invoice_time(invoice.InvoiceDate),
             )
 
+            legacy_balance = _legacy_previous_balance(
+                cursor, data["customer_id"], data["previous_balance"], exclude_invoice_id=id
+            )
             cursor.execute(
                 f"UPDATE Customers SET PreviousBalance = ? WHERE CustomerID = ? AND {owner_sql()}",
-                (data["previous_balance"], data["customer_id"]),
+                (legacy_balance, data["customer_id"]),
             )
 
             for item_id, qty in extra_stock_by_item.items():

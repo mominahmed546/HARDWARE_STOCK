@@ -66,25 +66,39 @@ def ensure_invoice_payments_table(db, cursor):
     backfilled = int(cursor.rowcount or 0)
     if backfilled:
         _sync_invoices_with_payments(cursor)
-    _fix_double_counted_previous_balance(cursor)
+    _reset_previous_balance_clean_slate(cursor)
     db.commit()
     _SCHEMA_READY["invoice_payments"] = True
 
 
-def _fix_double_counted_previous_balance(cursor):
-    """One-time repair for real payments that were double-subtracted.
+def _reset_previous_balance_clean_slate(cursor):
+    """One-time repair for Customers.PreviousBalance, which had two bugs.
 
-    Every invoice payment used to *also* subtract its amount from
-    Customers.PreviousBalance (see the removed adjust_customer_previous_balance
-    calls below). That was redundant: both the ledger and the invoice form's
-    "previous balance" pre-fill already compute what's still owed as
-    PreviousBalance + (each invoice's total minus its own InvoicePayments), so
-    every real payment silently got subtracted twice, understating what a
-    customer with any opening balance still owes (most visible on
-    /ledger/customer/<id>). Backfilled rows (Notes = 'Backfilled from Paid
-    status') never went through that code path, so they're excluded here.
-    Runs exactly once, tracked in SchemaMigrations, since PreviousBalance is no
-    longer auto-adjusted by payments going forward.
+    1) Every invoice payment used to *also* subtract its amount from
+       Customers.PreviousBalance, on top of the ledger/invoice form already
+       computing what's owed as PreviousBalance + (each invoice's total minus
+       its own InvoicePayments) - understating what's owed.
+    2) The invoice form's "previous balance" field pre-fills with the
+       customer's stored baseline *plus* the remaining unpaid total of their
+       OTHER invoices, and creating/editing an invoice (or clicking "Save
+       Previous Balance") without touching that pre-filled default saved the
+       combined number straight back into Customers.PreviousBalance. Every
+       later invoice's pre-fill then added the (already-inflated) other-
+       invoices total on top of that again, so the value compounded upward
+       with every invoice a repeat customer had - vastly overstating what
+       they owe.
+
+    Both are fixed in code now (see app/invoices/routes.py and the removed
+    adjust_customer_previous_balance in this file), but there's no reliable
+    way to unwind how much either bug already changed this field for
+    existing customers - bug 2 in particular compounds non-linearly across
+    however many invoices each customer has had. The only safe, honest
+    repair is a clean-slate reset: what's actually owed is independently and
+    correctly tracked per invoice (TotalAmount minus real InvoicePayments
+    rows), so resetting this to 0 doesn't lose or invent any of that.  Any
+    genuine pre-software legacy debt can be re-entered afterward via "Save
+    Previous Balance" on the invoice form (now fixed) or the customer edit
+    page. Runs exactly once, tracked in SchemaMigrations.
     """
     cursor.execute(
         """
@@ -96,28 +110,17 @@ def _fix_double_counted_previous_balance(cursor):
     )
     cursor.execute(
         "SELECT 1 FROM SchemaMigrations WHERE MigrationName = ?",
-        ("fix_previous_balance_double_count",),
+        ("reset_previous_balance_clean_slate",),
     )
     if cursor.fetchone():
         return
 
     cursor.execute(
-        """
-        UPDATE Customers c
-        SET PreviousBalance = COALESCE(c.PreviousBalance, 0) + fix.Amt
-        FROM (
-            SELECT i.CustomerID AS FixCustomerID, SUM(ip.Amount) AS Amt
-            FROM InvoicePayments ip
-            JOIN Invoices i ON i.InvoiceID = ip.InvoiceID
-            WHERE COALESCE(ip.Notes, '') <> 'Backfilled from Paid status'
-            GROUP BY i.CustomerID
-        ) fix
-        WHERE fix.FixCustomerID = c.CustomerID
-        """
+        "UPDATE Customers SET PreviousBalance = 0 WHERE COALESCE(PreviousBalance, 0) <> 0"
     )
     cursor.execute(
         "INSERT INTO SchemaMigrations (MigrationName) VALUES (?)",
-        ("fix_previous_balance_double_count",),
+        ("reset_previous_balance_clean_slate",),
     )
 
 
