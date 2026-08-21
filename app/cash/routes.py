@@ -102,23 +102,25 @@ def _accrual_profit_for_year(cursor, year):
     return _year_total_profit(cursor, year)
 
 
-def _cash_excluding_profit(cursor, through_date, cash_opening, cash_in_hand=None):
-    """Split the cash drawer into working capital vs profit.
+def _cash_excluding_profit(cursor, through_date, cash_opening, cash_in_hand=None, bank_balance=None):
+    """Split liquid funds into working capital vs profit.
 
-    Profit is taken straight from the Monthly Profit report's Total Profit
-    for the same year, so "Profit sitting in cash" always matches what
-    /profit/monthly shows. Capital ("cash for purchases") is whatever's left
-    of the drawer once that profit share is set aside.
+    Year profit (same total as Monthly Profit) is reserved first in the cash
+    drawer, then any leftover profit is reserved in the bank account. Capital
+    ("for purchases") is whatever remains in each account after that.
     """
     total_profit = _accrual_profit_for_year(cursor, through_date.year)
 
-    if cash_in_hand is None:
-        return 0.0, total_profit, total_profit
-
     cash_in_hand_value = max(float(cash_in_hand or 0), 0.0)
+    bank_value = max(float(bank_balance or 0), 0.0)
+
     profit_in_cash = min(total_profit, cash_in_hand_value)
-    capital = max(cash_in_hand_value - profit_in_cash, 0.0)
-    return capital, profit_in_cash, total_profit
+    remaining_profit = max(total_profit - profit_in_cash, 0.0)
+    profit_in_bank = min(remaining_profit, bank_value)
+
+    cash_capital = max(cash_in_hand_value - profit_in_cash, 0.0)
+    bank_capital = max(bank_value - profit_in_bank, 0.0)
+    return cash_capital, profit_in_cash, total_profit, bank_capital, profit_in_bank
 
 
 def _buy_suggestions(cursor, budget, threshold=LOW_STOCK_THRESHOLD, limit=40):
@@ -385,8 +387,18 @@ def _report_context(cursor, view, selected_date, selected_year, selected_month):
         period_label = selected_date.strftime("%d/%m/%Y")
 
     cash_in_hand, bank_balance = _balances_through(cursor, through_date, cash_opening, bank_opening)
-    cash_excluding_profit, profit_in_cash, accrual_profit = _cash_excluding_profit(
-        cursor, through_date, cash_opening, cash_in_hand
+    (
+        cash_excluding_profit,
+        profit_in_cash,
+        accrual_profit,
+        bank_excluding_profit,
+        profit_in_bank,
+    ) = _cash_excluding_profit(
+        cursor,
+        through_date,
+        cash_opening,
+        cash_in_hand,
+        bank_balance=bank_balance,
     )
     return {
         "cash_opening": cash_opening,
@@ -397,7 +409,9 @@ def _report_context(cursor, view, selected_date, selected_year, selected_month):
         "cash_in_hand": cash_in_hand,
         "bank_balance": bank_balance,
         "cash_excluding_profit": cash_excluding_profit,
+        "bank_excluding_profit": bank_excluding_profit,
         "profit_in_cash": profit_in_cash,
+        "profit_in_bank": profit_in_bank,
         "accrual_profit": accrual_profit,
         "receipts": receipts,
         "day_rows": day_rows,
@@ -598,7 +612,9 @@ def cash_book():
             cash_in_hand=0,
             bank_balance=0,
             cash_excluding_profit=0,
+            bank_excluding_profit=0,
             profit_in_cash=0,
+            profit_in_bank=0,
             accrual_profit=0,
             receipts=[],
             day_rows=[],
@@ -626,7 +642,9 @@ def cash_book_pdf():
             ("Total received", data["period_total"]),
             ("Cash in drawer", data["cash_in_hand"]),
             ("Cash for purchases", data["cash_excluding_profit"]),
+            ("Bank for purchases", data["bank_excluding_profit"]),
             ("Profit in cash", data["profit_in_cash"]),
+            ("Profit in bank", data["profit_in_bank"]),
             ("Bank account", data["bank_balance"]),
         ]
         if view == "monthly":
@@ -680,16 +698,29 @@ def buy_suggestions():
         _ensure_cash_schema(db, cursor)
         cash_opening, bank_opening = get_cash_openings(cursor)
         today = date.today()
-        cash_in_hand, _bank = _balances_through(cursor, today, cash_opening, bank_opening)
-        cash_excluding_profit, profit_in_cash, _accrual_profit = _cash_excluding_profit(
-            cursor, today, cash_opening, cash_in_hand
+        cash_in_hand, bank_balance = _balances_through(cursor, today, cash_opening, bank_opening)
+        (
+            cash_excluding_profit,
+            profit_in_cash,
+            _accrual_profit,
+            bank_excluding_profit,
+            profit_in_bank,
+        ) = _cash_excluding_profit(
+            cursor,
+            today,
+            cash_opening,
+            cash_in_hand,
+            bank_balance=bank_balance,
         )
         suggestions, spent = _buy_suggestions(cursor, cash_excluding_profit)
         return render_template(
             "cash/buy_suggestions.html",
             cash_in_hand=cash_in_hand,
+            bank_balance=bank_balance,
             cash_excluding_profit=cash_excluding_profit,
+            bank_excluding_profit=bank_excluding_profit,
             profit_in_cash=profit_in_cash,
+            profit_in_bank=profit_in_bank,
             suggestions=suggestions,
             spent=spent,
             remaining=max(cash_excluding_profit - spent, 0.0),
@@ -700,8 +731,11 @@ def buy_suggestions():
         return render_template(
             "cash/buy_suggestions.html",
             cash_in_hand=0,
+            bank_balance=0,
             cash_excluding_profit=0,
+            bank_excluding_profit=0,
             profit_in_cash=0,
+            profit_in_bank=0,
             suggestions=[],
             spent=0,
             remaining=0,
