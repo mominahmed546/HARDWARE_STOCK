@@ -16,19 +16,23 @@
         border-radius: 999px;
         text-decoration: none;
         font-weight: 700;
-        background: #e2e8f0;
-        color: #334155;
+        background: var(--border);
+        color: var(--text);
     }
-    .cash-tabs a.active { background: #2563eb; color: #fff; }
+    .cash-tabs a.active { background: var(--primary); color: #fff; }
     .opening-form { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; }
     .opening-form .form-group { margin: 0; min-width: 180px; }
     .cash-after { color: #166534; }
     .bank-after { color: #1d4ed8; }
     .capital-after { color: #0f766e; }
     .profit-after { color: #a16207; }
-    .panel-header h2 { margin: 0 0 1rem; font-size: 1.05rem; }
+    .panel-header h2 { margin: 0 0 1rem; font-size: 1.05rem; color: var(--text); }
     .report-summary-grid.cash-grid { grid-template-columns: repeat(3, 1fr); }
     .cash-actions { display:flex; gap:0.75rem; flex-wrap:wrap; margin-bottom: 1.25rem; }
+    [data-theme="dark"] .cash-after { color: #4ade80; }
+    [data-theme="dark"] .bank-after { color: #60a5fa; }
+    [data-theme="dark"] .capital-after { color: #2dd4bf; }
+    [data-theme="dark"] .profit-after { color: #fbbf24; }
     @media (max-width: 900px) {
         .report-summary-grid.cash-grid { grid-template-columns: 1fr 1fr; }
     }
