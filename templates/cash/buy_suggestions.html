@@ -9,7 +9,7 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/reports.css') }}?v=cash-dark-2">
 <style>
-    .report-summary-grid.suggest-grid { grid-template-columns: repeat(4, 1fr); }
+    .report-summary-grid.suggest-grid { grid-template-columns: repeat(3, 1fr); }
     .capital-value { color: #0f766e; }
     .bank-value { color: #1d4ed8; }
     .profit-value { color: #a16207; }
@@ -30,16 +30,24 @@
             <div class="report-card-value">Rs {{ "{:,.2f}".format(cash_in_hand|default(0)) }}</div>
         </div>
         <div class="report-card">
+            <div class="report-card-label">Bank account (all)</div>
+            <div class="report-card-value bank-value">Rs {{ "{:,.2f}".format(bank_balance|default(0)) }}</div>
+        </div>
+        <div class="report-card">
             <div class="report-card-label">Cash for purchases (excludes profit)</div>
             <div class="report-card-value capital-value">Rs {{ "{:,.2f}".format(cash_excluding_profit|default(0)) }}</div>
         </div>
         <div class="report-card">
-            <div class="report-card-label">Bank for purchases (available)</div>
-            <div class="report-card-value bank-value">Rs {{ "{:,.2f}".format(bank_balance|default(0)) }}</div>
+            <div class="report-card-label">Bank for purchases (excludes profit)</div>
+            <div class="report-card-value bank-value">Rs {{ "{:,.2f}".format(bank_excluding_profit|default(0)) }}</div>
         </div>
         <div class="report-card">
             <div class="report-card-label">Profit sitting in cash</div>
             <div class="report-card-value profit-value">Rs {{ "{:,.2f}".format(profit_in_cash|default(0)) }}</div>
+        </div>
+        <div class="report-card">
+            <div class="report-card-label">Profit sitting in bank</div>
+            <div class="report-card-value profit-value">Rs {{ "{:,.2f}".format(profit_in_bank|default(0)) }}</div>
         </div>
     </div>
 

@@ -34,7 +34,9 @@ def dashboard():
         "cash_in_hand": 0,
         "bank_balance": 0,
         "cash_excluding_profit": 0,
+        "bank_excluding_profit": 0,
         "profit_in_cash": 0,
+        "profit_in_bank": 0,
     }
 
     try:
@@ -187,8 +189,18 @@ def dashboard():
 
         cash_in_hand = cash_opening + cash_received_total - cash_paid_total
         bank_balance = bank_opening + bank_received_total - bank_paid_total
-        cash_excluding_profit, profit_in_cash, _capital = _cash_excluding_profit(
-            cursor, date.today(), cash_opening, cash_in_hand
+        (
+            cash_excluding_profit,
+            profit_in_cash,
+            _accrual_profit,
+            bank_excluding_profit,
+            profit_in_bank,
+        ) = _cash_excluding_profit(
+            cursor,
+            date.today(),
+            cash_opening,
+            cash_in_hand,
+            bank_balance=bank_balance,
         )
 
         cursor.close()
@@ -208,7 +220,9 @@ def dashboard():
             cash_in_hand=cash_in_hand,
             bank_balance=bank_balance,
             cash_excluding_profit=cash_excluding_profit,
+            bank_excluding_profit=bank_excluding_profit,
             profit_in_cash=profit_in_cash,
+            profit_in_bank=profit_in_bank,
         )
 
     except Exception as e:
