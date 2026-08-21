@@ -145,64 +145,35 @@
     </div>
 
     <div class="cash-actions">
-        <a href="#transfer-cash-to-bank" class="btn btn-primary">Transfer cash to bank</a>
-        <a href="#transfer-bank-to-cash" class="btn btn-primary">Transfer bank to cash</a>
+        <a href="#transfer-funds" class="btn btn-primary">Transfer cash ↔ bank</a>
         <a href="{{ url_for('cash.buy_suggestions') }}" class="btn btn-secondary">What to buy with purchase cash</a>
     </div>
 
-    <div class="report-toolbar" id="transfer-cash-to-bank">
-        <h3 style="margin:0 0 0.85rem;">Transfer cash to bank</h3>
-        <p class="text-muted" style="margin:0 0 1rem;">
-            Move money from the cash drawer (Rs {{ "{:,.2f}".format(cash_in_hand|default(0)) }} on hand) into the bank account.
+    <div class="report-toolbar" id="transfer-funds">
+        <h3 style="margin:0 0 0.85rem;">Transfer between cash and bank</h3>
+        <p class="text-muted" style="margin:0 0 1rem;" id="transferHelpText">
+            Cash in drawer: Rs {{ "{:,.2f}".format(cash_in_hand|default(0)) }}
+            · Bank: Rs {{ "{:,.2f}".format(bank_balance|default(0)) }}
         </p>
-        <form method="POST" class="opening-form" id="transfer-to-bank-form">
-            <input type="hidden" name="action" value="transfer_to_bank">
+        <form method="POST" class="opening-form" id="transfer-funds-form">
+            <input type="hidden" name="action" value="transfer_funds">
+            <div class="form-group">
+                <label for="transfer_direction">Transfer direction</label>
+                <select id="transfer_direction" name="transfer_direction" required>
+                    <option value="cash_to_bank">Cash in drawer → Bank</option>
+                    <option value="bank_to_cash">Bank → Cash in drawer</option>
+                </select>
+            </div>
             <div class="form-group">
                 <label for="transfer_amount">Amount to transfer</label>
                 <input type="number" id="transfer_amount" name="transfer_amount" min="0.01" step="0.01"
-                       placeholder="e.g. 20000" required
-                       {% if cash_in_hand|default(0) > 0 %}max="{{ '%.2f'|format(cash_in_hand|float) }}"{% endif %}>
-                {% if adjust_errors and adjust_errors.get('transfer_amount') %}
-                <div class="error-message">{{ adjust_errors.get('transfer_amount') }}</div>
+                       placeholder="e.g. 20000" required>
+                {% if adjust_errors and (adjust_errors.get('transfer_amount') or adjust_errors.get('transfer_from_bank_amount')) %}
+                <div class="error-message">{{ adjust_errors.get('transfer_amount') or adjust_errors.get('transfer_from_bank_amount') }}</div>
                 {% endif %}
             </div>
-            <button type="button" class="btn btn-secondary" id="transferAllCashBtn"
-                    {% if cash_in_hand|default(0) <= 0 %}disabled{% endif %}>
-                Use all cash in drawer
-            </button>
-            <button type="submit" class="btn btn-primary"
-                    {% if cash_in_hand|default(0) <= 0 %}disabled{% endif %}
-                    onclick="return confirm('Transfer this amount from cash in hand to the bank account?')">
-                Transfer to bank
-            </button>
-        </form>
-    </div>
-
-    <div class="report-toolbar" id="transfer-bank-to-cash">
-        <h3 style="margin:0 0 0.85rem;">Transfer bank to cash</h3>
-        <p class="text-muted" style="margin:0 0 1rem;">
-            Move money from the bank account (Rs {{ "{:,.2f}".format(bank_balance|default(0)) }} in bank) into the cash drawer.
-        </p>
-        <form method="POST" class="opening-form" id="transfer-to-cash-form">
-            <input type="hidden" name="action" value="transfer_to_cash">
-            <div class="form-group">
-                <label for="transfer_from_bank_amount">Amount to transfer</label>
-                <input type="number" id="transfer_from_bank_amount" name="transfer_from_bank_amount" min="0.01" step="0.01"
-                       placeholder="e.g. 20000" required
-                       {% if bank_balance|default(0) > 0 %}max="{{ '%.2f'|format(bank_balance|float) }}"{% endif %}>
-                {% if adjust_errors and adjust_errors.get('transfer_from_bank_amount') %}
-                <div class="error-message">{{ adjust_errors.get('transfer_from_bank_amount') }}</div>
-                {% endif %}
-            </div>
-            <button type="button" class="btn btn-secondary" id="transferAllBankBtn"
-                    {% if bank_balance|default(0) <= 0 %}disabled{% endif %}>
-                Use all bank balance
-            </button>
-            <button type="submit" class="btn btn-primary"
-                    {% if bank_balance|default(0) <= 0 %}disabled{% endif %}
-                    onclick="return confirm('Transfer this amount from the bank account to cash in hand?')">
-                Transfer to cash
-            </button>
+            <button type="button" class="btn btn-secondary" id="transferAllBtn">Use available balance</button>
+            <button type="submit" class="btn btn-primary" id="transferSubmitBtn">Transfer</button>
         </form>
     </div>
 
@@ -330,19 +301,67 @@
 </div>
 <script>
 (function () {
-    function wireFill(btnId, inputId, amount) {
-        var btn = document.getElementById(btnId);
-        var input = document.getElementById(inputId);
-        if (!btn || !input) return;
-        btn.addEventListener('click', function () {
-            if (amount > 0) {
-                input.value = Number(amount).toFixed(2);
-                input.focus();
-            }
-        });
+    var cashAvailable = {{ cash_in_hand|default(0)|float }};
+    var bankAvailable = {{ bank_balance|default(0)|float }};
+    var direction = document.getElementById('transfer_direction');
+    var amount = document.getElementById('transfer_amount');
+    var useAll = document.getElementById('transferAllBtn');
+    var submitBtn = document.getElementById('transferSubmitBtn');
+    var help = document.getElementById('transferHelpText');
+    var form = document.getElementById('transfer-funds-form');
+    if (!direction || !amount || !useAll || !submitBtn || !form) return;
+
+    function available() {
+        return direction.value === 'bank_to_cash' ? bankAvailable : cashAvailable;
     }
-    wireFill('transferAllCashBtn', 'transfer_amount', {{ cash_in_hand|default(0)|float }});
-    wireFill('transferAllBankBtn', 'transfer_from_bank_amount', {{ bank_balance|default(0)|float }});
+
+    function syncDirection() {
+        var avail = available();
+        var toBank = direction.value === 'cash_to_bank';
+        if (help) {
+            help.textContent = toBank
+                ? ('Move money from cash in drawer (Rs ' + cashAvailable.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ') into the bank.')
+                : ('Move money from bank (Rs ' + bankAvailable.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ') into the cash drawer.');
+        }
+        if (avail > 0) {
+            amount.max = avail.toFixed(2);
+            useAll.disabled = false;
+            submitBtn.disabled = false;
+        } else {
+            amount.removeAttribute('max');
+            useAll.disabled = true;
+            submitBtn.disabled = true;
+        }
+        useAll.textContent = toBank ? 'Use all cash in drawer' : 'Use all bank balance';
+        submitBtn.textContent = toBank ? 'Transfer to bank' : 'Transfer to cash';
+        if (amount.value && Number(amount.value) > avail) {
+            amount.value = avail > 0 ? avail.toFixed(2) : '';
+        }
+    }
+
+    direction.addEventListener('change', syncDirection);
+    useAll.addEventListener('click', function () {
+        var avail = available();
+        if (avail > 0) {
+            amount.value = avail.toFixed(2);
+            amount.focus();
+        }
+    });
+    form.addEventListener('submit', function (event) {
+        var avail = available();
+        var value = Number(amount.value || 0);
+        if (!(value > 0) || value > avail + 0.005) {
+            event.preventDefault();
+            return;
+        }
+        var message = direction.value === 'cash_to_bank'
+            ? 'Transfer this amount from cash in hand to the bank account?'
+            : 'Transfer this amount from the bank account to cash in hand?';
+        if (!window.confirm(message)) {
+            event.preventDefault();
+        }
+    });
+    syncDirection();
 })();
 </script>
 {% endblock %}

@@ -474,94 +474,92 @@ def cash_book():
                 )
             )
 
-        if request.method == "POST" and request.form.get("action") == "transfer_to_bank":
-            transfer_amount = clean_positive_decimal(
-                request.form.get("transfer_amount"),
-                "transfer_amount",
-                adjust_errors,
-                min_val=0.01,
-                label="Transfer amount",
-            )
-            if not adjust_errors.valid:
-                flash(adjust_errors.first(), "danger")
-            else:
-                data = _report_context(cursor, view, selected_date, selected_year, selected_month)
-                cash_opening, bank_opening = get_cash_openings(cursor)
-                transfer_amount = float(transfer_amount)
-                current_cash_in_hand = float(data["cash_in_hand"] or 0)
-                if transfer_amount > current_cash_in_hand + 0.005:
-                    flash(
-                        f"Cannot transfer more than the current cash in hand "
-                        f"(Rs {current_cash_in_hand:,.2f}).",
-                        "danger",
-                    )
-                else:
-                    # Shifting both openings by the same amount moves the split
-                    # between drawer and bank without touching the total
-                    # (received - paid) either side has tracked historically,
-                    # the same way "Adjust current cash" below only shifts
-                    # cash_opening.
-                    save_cash_openings(
-                        cursor,
-                        max(cash_opening - transfer_amount, 0.0),
-                        bank_opening + transfer_amount,
-                    )
-                    db.commit()
-                    flash(f"Transferred Rs {transfer_amount:,.2f} from cash in hand to the bank account.", "success")
-                    return redirect(
-                        url_for(
-                            "cash.cash_book",
-                            view=view,
-                            date=date_value,
-                            year=selected_year,
-                            month=selected_month,
-                        )
-                    )
+        if request.method == "POST" and request.form.get("action") in {
+            "transfer_funds",
+            "transfer_to_bank",
+            "transfer_to_cash",
+        }:
+            action = request.form.get("action")
+            direction = (request.form.get("transfer_direction") or "").strip()
+            if action == "transfer_to_bank":
+                direction = "cash_to_bank"
+            elif action == "transfer_to_cash":
+                direction = "bank_to_cash"
 
-        if request.method == "POST" and request.form.get("action") == "transfer_to_cash":
-            transfer_amount = clean_positive_decimal(
-                request.form.get("transfer_from_bank_amount"),
-                "transfer_from_bank_amount",
-                adjust_errors,
-                min_val=0.01,
-                label="Transfer amount",
-            )
-            if not adjust_errors.valid:
-                flash(adjust_errors.first(), "danger")
+            if direction not in {"cash_to_bank", "bank_to_cash"}:
+                flash("Choose whether to transfer cash to bank or bank to cash.", "danger")
             else:
-                data = _report_context(cursor, view, selected_date, selected_year, selected_month)
-                cash_opening, bank_opening = get_cash_openings(cursor)
-                transfer_amount = float(transfer_amount)
-                current_bank = float(data["bank_balance"] or 0)
-                if transfer_amount > current_bank + 0.005:
-                    flash(
-                        f"Cannot transfer more than the current bank balance "
-                        f"(Rs {current_bank:,.2f}).",
-                        "danger",
-                    )
+                amount_field = "transfer_amount"
+                transfer_amount = clean_positive_decimal(
+                    request.form.get(amount_field) or request.form.get("transfer_from_bank_amount"),
+                    amount_field,
+                    adjust_errors,
+                    min_val=0.01,
+                    label="Transfer amount",
+                )
+                if not adjust_errors.valid:
+                    flash(adjust_errors.first(), "danger")
                 else:
-                    # Mirror of cash→bank: move the split the other way by
-                    # shifting openings equally so historical receipts/payments
-                    # stay intact.
-                    save_cash_openings(
-                        cursor,
-                        cash_opening + transfer_amount,
-                        max(bank_opening - transfer_amount, 0.0),
-                    )
-                    db.commit()
-                    flash(
-                        f"Transferred Rs {transfer_amount:,.2f} from the bank account to cash in hand.",
-                        "success",
-                    )
-                    return redirect(
-                        url_for(
-                            "cash.cash_book",
-                            view=view,
-                            date=date_value,
-                            year=selected_year,
-                            month=selected_month,
-                        )
-                    )
+                    data = _report_context(cursor, view, selected_date, selected_year, selected_month)
+                    cash_opening, bank_opening = get_cash_openings(cursor)
+                    transfer_amount = float(transfer_amount)
+                    current_cash_in_hand = float(data["cash_in_hand"] or 0)
+                    current_bank = float(data["bank_balance"] or 0)
+
+                    if direction == "cash_to_bank":
+                        if transfer_amount > current_cash_in_hand + 0.005:
+                            flash(
+                                f"Cannot transfer more than the current cash in hand "
+                                f"(Rs {current_cash_in_hand:,.2f}).",
+                                "danger",
+                            )
+                        else:
+                            save_cash_openings(
+                                cursor,
+                                max(cash_opening - transfer_amount, 0.0),
+                                bank_opening + transfer_amount,
+                            )
+                            db.commit()
+                            flash(
+                                f"Transferred Rs {transfer_amount:,.2f} from cash in hand to the bank account.",
+                                "success",
+                            )
+                            return redirect(
+                                url_for(
+                                    "cash.cash_book",
+                                    view=view,
+                                    date=date_value,
+                                    year=selected_year,
+                                    month=selected_month,
+                                )
+                            )
+                    else:
+                        if transfer_amount > current_bank + 0.005:
+                            flash(
+                                f"Cannot transfer more than the current bank balance "
+                                f"(Rs {current_bank:,.2f}).",
+                                "danger",
+                            )
+                        else:
+                            save_cash_openings(
+                                cursor,
+                                cash_opening + transfer_amount,
+                                max(bank_opening - transfer_amount, 0.0),
+                            )
+                            db.commit()
+                            flash(
+                                f"Transferred Rs {transfer_amount:,.2f} from the bank account to cash in hand.",
+                                "success",
+                            )
+                            return redirect(
+                                url_for(
+                                    "cash.cash_book",
+                                    view=view,
+                                    date=date_value,
+                                    year=selected_year,
+                                    month=selected_month,
+                                )
+                            )
 
         if request.method == "POST" and request.form.get("action") == "set_current_cash":
             target_cash = clean_positive_decimal(
