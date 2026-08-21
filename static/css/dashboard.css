@@ -74,21 +74,61 @@
     color: #fff;
     font-weight: 700;
     background: var(--primary);
-    border: 1px solid var(--primary);
+    border: 1px solid transparent;
     border-radius: 12px;
     box-shadow: var(--shadow);
     text-align: center;
-    transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    transition: filter 0.15s, transform 0.1s, box-shadow 0.15s;
 }
 
 .fkey:hover {
-    background: var(--primary-hover);
-    border-color: var(--primary-hover);
     color: #fff;
+    filter: brightness(1.08);
 }
 
 .fkey:active {
     transform: translateY(1px);
+}
+
+/* Distinct colors per dashboard action */
+.fkey-product {
+    background: #0f766e;
+}
+
+.fkey-category {
+    background: #475569;
+}
+
+.fkey-supplier {
+    background: #b45309;
+}
+
+.fkey-purchase {
+    background: #c2410c;
+}
+
+.fkey-customer {
+    background: #0369a1;
+}
+
+.fkey-invoice {
+    background: #15803d;
+}
+
+.fkey-quotation {
+    background: #0e7490;
+}
+
+.fkey-report {
+    background: #1e3a5f;
+}
+
+.fkey-items {
+    background: #334155;
+}
+
+.fkey-transfer {
+    background: #047857;
 }
 
 .fkey-label {
@@ -295,16 +335,24 @@ a.pos-total-cell.cash-link:hover {
 }
 
 [data-theme="dark"] .fkey {
-    background: var(--primary);
     color: #fff;
-    border-color: var(--primary);
 }
 
 [data-theme="dark"] .fkey:hover {
-    background: var(--primary-hover);
-    border-color: var(--primary-hover);
     color: #fff;
+    filter: brightness(1.12);
 }
+
+[data-theme="dark"] .fkey-product { background: #0f766e; }
+[data-theme="dark"] .fkey-category { background: #64748b; }
+[data-theme="dark"] .fkey-supplier { background: #d97706; }
+[data-theme="dark"] .fkey-purchase { background: #ea580c; }
+[data-theme="dark"] .fkey-customer { background: #0284c7; }
+[data-theme="dark"] .fkey-invoice { background: #16a34a; }
+[data-theme="dark"] .fkey-quotation { background: #0891b2; }
+[data-theme="dark"] .fkey-report { background: #334155; }
+[data-theme="dark"] .fkey-items { background: #475569; }
+[data-theme="dark"] .fkey-transfer { background: #059669; }
 
 [data-theme="dark"] .pos-total-cell,
 [data-theme="dark"] .pos-panel {
