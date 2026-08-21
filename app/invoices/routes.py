@@ -869,7 +869,6 @@ def _build_invoice_pdf(invoice, details):
     footer_row("TOTAL",            money(total_amount),    highlight=True)
     footer_row("Previous Balance", money(previous_balance))
     footer_row("Cash Received",    money(cash_received))
-    footer_row("Invoice Due",      money(invoice_due))
     footer_row("Net Balance",      money(net_balance),     highlight=True, color=net_balance_red)
 
     # ── Tear-off dotted line ─────────────────────────────────────────────────
