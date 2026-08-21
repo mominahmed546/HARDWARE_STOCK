@@ -336,7 +336,8 @@ def edit_item(id):
             form_data = request.form.to_dict()
             data = _validate_item_form(request.form, errors)
 
-            if errors.valid:
+            name_changed = (data.get("item_name") or "").strip().lower() != (item.ItemName or "").strip().lower()
+            if errors.valid and name_changed:
                 _check_duplicate_item_name(data["item_name"], errors, exclude_item_id=id)
 
             if not errors.valid:
