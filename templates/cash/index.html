@@ -135,6 +135,7 @@
 
     <div class="cash-actions">
         <a href="#transfer-cash-to-bank" class="btn btn-primary">Transfer cash to bank</a>
+        <a href="#transfer-bank-to-cash" class="btn btn-primary">Transfer bank to cash</a>
         <a href="{{ url_for('cash.buy_suggestions') }}" class="btn btn-secondary">What to buy with purchase cash</a>
     </div>
 
@@ -149,19 +150,47 @@
                 <label for="transfer_amount">Amount to transfer</label>
                 <input type="number" id="transfer_amount" name="transfer_amount" min="0.01" step="0.01"
                        placeholder="e.g. 20000" required
-                       max="{{ '%.2f'|format(cash_in_hand|default(0)|float) if (cash_in_hand|default(0)|float) > 0 else '' }}">
+                       {% if cash_in_hand|default(0) > 0 %}max="{{ '%.2f'|format(cash_in_hand|float) }}"{% endif %}>
                 {% if adjust_errors and adjust_errors.get('transfer_amount') %}
                 <div class="error-message">{{ adjust_errors.get('transfer_amount') }}</div>
                 {% endif %}
             </div>
             <button type="button" class="btn btn-secondary" id="transferAllCashBtn"
-                    {% if (cash_in_hand|default(0)|float) <= 0 %}disabled{% endif %}>
+                    {% if cash_in_hand|default(0) <= 0 %}disabled{% endif %}>
                 Use all cash in drawer
             </button>
             <button type="submit" class="btn btn-primary"
-                    {% if (cash_in_hand|default(0)|float) <= 0 %}disabled{% endif %}
+                    {% if cash_in_hand|default(0) <= 0 %}disabled{% endif %}
                     onclick="return confirm('Transfer this amount from cash in hand to the bank account?')">
                 Transfer to bank
+            </button>
+        </form>
+    </div>
+
+    <div class="report-toolbar" id="transfer-bank-to-cash">
+        <h3 style="margin:0 0 0.85rem;">Transfer bank to cash</h3>
+        <p class="text-muted" style="margin:0 0 1rem;">
+            Move money from the bank account (Rs {{ "{:,.2f}".format(bank_balance|default(0)) }} in bank) into the cash drawer.
+        </p>
+        <form method="POST" class="opening-form" id="transfer-to-cash-form">
+            <input type="hidden" name="action" value="transfer_to_cash">
+            <div class="form-group">
+                <label for="transfer_from_bank_amount">Amount to transfer</label>
+                <input type="number" id="transfer_from_bank_amount" name="transfer_from_bank_amount" min="0.01" step="0.01"
+                       placeholder="e.g. 20000" required
+                       {% if bank_balance|default(0) > 0 %}max="{{ '%.2f'|format(bank_balance|float) }}"{% endif %}>
+                {% if adjust_errors and adjust_errors.get('transfer_from_bank_amount') %}
+                <div class="error-message">{{ adjust_errors.get('transfer_from_bank_amount') }}</div>
+                {% endif %}
+            </div>
+            <button type="button" class="btn btn-secondary" id="transferAllBankBtn"
+                    {% if bank_balance|default(0) <= 0 %}disabled{% endif %}>
+                Use all bank balance
+            </button>
+            <button type="submit" class="btn btn-primary"
+                    {% if bank_balance|default(0) <= 0 %}disabled{% endif %}
+                    onclick="return confirm('Transfer this amount from the bank account to cash in hand?')">
+                Transfer to cash
             </button>
         </form>
     </div>
@@ -290,16 +319,19 @@
 </div>
 <script>
 (function () {
-    var btn = document.getElementById('transferAllCashBtn');
-    var input = document.getElementById('transfer_amount');
-    if (!btn || !input) return;
-    btn.addEventListener('click', function () {
-        var amount = {{ '%.2f'|format(cash_in_hand|default(0)|float) }};
-        if (amount > 0) {
-            input.value = amount.toFixed(2);
-            input.focus();
-        }
-    });
+    function wireFill(btnId, inputId, amount) {
+        var btn = document.getElementById(btnId);
+        var input = document.getElementById(inputId);
+        if (!btn || !input) return;
+        btn.addEventListener('click', function () {
+            if (amount > 0) {
+                input.value = Number(amount).toFixed(2);
+                input.focus();
+            }
+        });
+    }
+    wireFill('transferAllCashBtn', 'transfer_amount', {{ cash_in_hand|default(0)|float }});
+    wireFill('transferAllBankBtn', 'transfer_from_bank_amount', {{ bank_balance|default(0)|float }});
 })();
 </script>
 {% endblock %}
