@@ -26,6 +26,18 @@
     line-height: 1.2;
 }
 
+.pos-store-block {
+    min-width: 0;
+}
+
+.pos-store-subtitle {
+    margin-top: 0.25rem;
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+}
+
 .pos-clock {
     background: var(--surface);
     color: var(--text-muted);
