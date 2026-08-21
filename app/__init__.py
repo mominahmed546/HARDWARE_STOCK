@@ -51,6 +51,18 @@ def date_dmy(value):
 
     return value
 
+
+@app.route("/favicon.ico")
+def favicon():
+    from flask import send_from_directory
+
+    return send_from_directory(
+        os.path.join(app.static_folder, "images"),
+        "favicon.ico",
+        mimetype="image/vnd.microsoft.icon",
+    )
+
+
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "auth.login"
