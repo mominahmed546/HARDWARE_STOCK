@@ -34,6 +34,32 @@ def _validate_item_form(form, errors):
     }
 
 
+def _check_duplicate_item_name(item_name, errors, exclude_item_id=None):
+    """Block creating/renaming an item to a name that already exists for this
+    account (case- and whitespace-insensitive). Duplicate item rows track
+    stock independently, which silently corrupts anything that reads Qty
+    (e.g. Buy Suggestions can call one copy "out of stock" while another
+    copy of the same item still has stock on the list page).
+    """
+    query = f"""
+        SELECT ItemID, ItemName FROM Item
+        WHERE LOWER(LTRIM(RTRIM(ItemName))) = LOWER(LTRIM(RTRIM(?)))
+          AND {owner_sql()}
+    """
+    params = [item_name]
+    if exclude_item_id is not None:
+        query += " AND ItemID != ?"
+        params.append(exclude_item_id)
+
+    existing = execute_query_one(app, query, tuple(params))
+    if existing:
+        errors.add(
+            "item_name",
+            f'An item named "{existing.ItemName}" already exists. Edit that item to change its '
+            "quantity/rate instead of creating a duplicate.",
+        )
+
+
 @items_bp.route("/list")
 @login_required
 def list_items():
@@ -170,6 +196,9 @@ def create_item():
         form_data = request.form.to_dict()
         data = _validate_item_form(request.form, errors)
 
+        if errors.valid:
+            _check_duplicate_item_name(data["item_name"], errors)
+
         if not errors.valid:
             flash(errors.first(), "danger")
             return render_template(
@@ -237,6 +266,9 @@ def edit_item(id):
         if request.method == "POST":
             form_data = request.form.to_dict()
             data = _validate_item_form(request.form, errors)
+
+            if errors.valid:
+                _check_duplicate_item_name(data["item_name"], errors, exclude_item_id=id)
 
             if not errors.valid:
                 flash(errors.first(), "danger")
