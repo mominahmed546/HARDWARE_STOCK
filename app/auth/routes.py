@@ -190,7 +190,7 @@ def register():
 
         username = clean_username(request.form.get('username'), errors)
 
-        email = clean_email(request.form.get('email'), errors)
+        email = clean_email(request.form.get('email'), 'email', errors)
 
         phone = clean_phone(request.form.get('phone'), 'phone', errors, required=True)
 
@@ -300,7 +300,7 @@ def forgot_password():
         form_data = request.form.to_dict()
 
         username = clean_username(request.form.get('username'), errors)
-        email = clean_email(request.form.get('email'), errors)
+        email = clean_email(request.form.get('email'), 'email', errors)
         phone = clean_phone(request.form.get('phone'), 'phone', errors, required=True)
 
         if not errors.valid:
