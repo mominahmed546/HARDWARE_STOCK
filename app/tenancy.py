@@ -296,6 +296,9 @@ def _ensure_performance_indexes(cursor):
         ("idx_stock_history_item_id", "StockHistory", "ItemID"),
         ("idx_stock_history_purchase_id", "StockHistory", "PurchaseID"),
         ("idx_stock_history_invoice_id", "StockHistory", "InvoiceID"),
+        ("idx_invoice_payments_payment_date", "InvoicePayments", "PaymentDate"),
+        ("idx_purchase_payments_payment_date", "PurchasePayments", "PaymentDate"),
+        ("idx_invoices_user_date", "Invoices", "UserID, [Date]"),
         ("idx_ledger_entries_user_id", "LedgerEntries", "UserID"),
         ("idx_ledger_entries_customer_id", "LedgerEntries", "CustomerID"),
     )

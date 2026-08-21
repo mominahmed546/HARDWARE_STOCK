@@ -22,6 +22,34 @@ def _pdf_escape(value):
     return str(value).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
+def _year_total_profit(cursor, selected_year):
+    """Single-number year profit matching the Monthly Profit report total.
+
+    Skips the years list and per-month breakdown used by the full report page.
+    Uses Invoices.CashReceived for the paid ratio so we avoid aggregating all
+    InvoicePayments on every dashboard/cash load.
+    """
+    year_start = date(int(selected_year), 1, 1)
+    year_end = date(int(selected_year) + 1, 1, 1)
+    line_cost = sold_line_cost_sql("id")
+    paid_ratio = paid_ratio_sql("i", None)
+    cursor.execute(
+        f"""
+        SELECT
+            ISNULL(SUM((id.Qty * id.Rate) * ({paid_ratio})), 0)
+                - ISNULL(SUM(({line_cost}) * ({paid_ratio})), 0) AS Profit
+        FROM Invoices i
+        JOIN InvoiceDetails id ON id.InvoiceID = i.InvoiceID
+        LEFT JOIN Item it ON it.ItemID = id.ItemID
+        {purchase_unit_cost_join("id")}
+        WHERE i.[Date] >= ? AND i.[Date] < ? AND {owner_sql("i")}
+        """,
+        (year_start, year_end),
+    )
+    row = cursor.fetchone()
+    return max(float(row.Profit or 0) if row else 0.0, 0.0)
+
+
 def _monthly_profit_data(cursor, selected_year):
     cursor.execute(
         f"""

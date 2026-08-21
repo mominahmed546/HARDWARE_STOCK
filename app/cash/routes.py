@@ -15,7 +15,7 @@ from app.payments import (
     get_cash_openings,
     save_cash_openings,
 )
-from app.profit.routes import _monthly_profit_data
+from app.profit.routes import _year_total_profit
 from app.tenancy import owner_sql
 from app.validators import ValidationErrors, clean_positive_decimal
 
@@ -53,12 +53,13 @@ def _payment_split(cursor, where_sql="", params=()):
     cursor.execute(
         f"""
         SELECT
-            ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Bank' THEN Amount ELSE 0 END), 0) AS BankAmount,
-            ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Cash' THEN Amount ELSE 0 END), 0) AS CashAmount,
-            ISNULL(SUM(Amount), 0) AS TotalAmount
-        FROM InvoicePayments
+            ISNULL(SUM(CASE WHEN COALESCE(p.PaymentMethod, 'Cash') = 'Bank' THEN p.Amount ELSE 0 END), 0) AS BankAmount,
+            ISNULL(SUM(CASE WHEN COALESCE(p.PaymentMethod, 'Cash') = 'Cash' THEN p.Amount ELSE 0 END), 0) AS CashAmount,
+            ISNULL(SUM(p.Amount), 0) AS TotalAmount
+        FROM InvoicePayments p
+        JOIN Invoices i ON i.InvoiceID = p.InvoiceID
         {where_sql}
-        {"AND" if where_sql else "WHERE"} InvoiceID IN (SELECT InvoiceID FROM Invoices WHERE {owner_sql()})
+        {"AND" if where_sql else "WHERE"} {owner_sql("i")}
         """,
         params,
     )
@@ -85,7 +86,7 @@ def _purchase_payment_split(cursor, where_sql="", params=()):
 def _balances_through(cursor, through_date, cash_opening, bank_opening):
     cash_received, bank_received, _ = _payment_split(
         cursor,
-        "WHERE CAST(PaymentDate AS DATE) <= ?",
+        "WHERE CAST(p.PaymentDate AS DATE) <= ?",
         (through_date,),
     )
     cash_paid, bank_paid, _ = _purchase_payment_split(
@@ -97,13 +98,8 @@ def _balances_through(cursor, through_date, cash_opening, bank_opening):
 
 
 def _accrual_profit_for_year(cursor, year):
-    """Total profit for the year, using the exact same figure shown on the
-    Monthly Profit report (Revenue - Cost, prorated by amount paid). Reusing
-    it here keeps the cash pages and the profit report always in agreement
-    instead of drifting apart with two independently-computed numbers.
-    """
-    _, _, _, _, _, total_profit, _ = _monthly_profit_data(cursor, year)
-    return max(float(total_profit or 0), 0.0)
+    """Total profit for the year, matching the Monthly Profit report total."""
+    return _year_total_profit(cursor, year)
 
 
 def _cash_excluding_profit(cursor, through_date, cash_opening, cash_in_hand=None):
@@ -371,7 +367,7 @@ def _report_context(cursor, view, selected_date, selected_year, selected_month):
         through_date = date(selected_year, selected_month, last_day)
         period_cash, period_bank, period_total = _payment_split(
             cursor,
-            "WHERE YEAR(PaymentDate) = ? AND MONTH(PaymentDate) = ?",
+            "WHERE YEAR(p.PaymentDate) = ? AND MONTH(p.PaymentDate) = ?",
             (selected_year, selected_month),
         )
         receipts = []
@@ -381,7 +377,7 @@ def _report_context(cursor, view, selected_date, selected_year, selected_month):
         through_date = selected_date
         period_cash, period_bank, period_total = _payment_split(
             cursor,
-            "WHERE CAST(PaymentDate AS DATE) = ?",
+            "WHERE CAST(p.PaymentDate AS DATE) = ?",
             (selected_date,),
         )
         receipts = _daily_receipts(cursor, selected_date)
