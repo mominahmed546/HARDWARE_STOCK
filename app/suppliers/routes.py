@@ -7,6 +7,7 @@ from flask_login import login_required
 from app import app
 
 from app.db import get_db_connection
+from app.perf import pagination_meta, parse_page, parse_page_size
 from app.tenancy import owner_sql, request_user_id
 
 from app.validators import ValidationErrors, clean_string, clean_phone
@@ -52,29 +53,33 @@ def list_suppliers():
 
 
         search = request.args.get("search", "")
+        page = parse_page(request.args.get("page"))
+        page_size = parse_page_size(request.args.get("page_size"))
 
-
-
-        query = f"SELECT * FROM Supplier WHERE {owner_sql()}"
-
+        where_sql = f"WHERE {owner_sql()}"
         params = []
 
-
-
         if search:
-
-            query += " AND SupplierName LIKE ?"
-
+            where_sql += " AND SupplierName LIKE ?"
             params.append(f"%{search}%")
 
+        cursor.execute(
+            f"SELECT COUNT(*) AS TotalCount FROM Supplier {where_sql}",
+            params or (),
+        )
+        pagination = pagination_meta(int(cursor.fetchone().TotalCount or 0), page, page_size)
 
-
-        query += " ORDER BY SupplierName"
-
-
-
-        cursor.execute(query, params or ())
-
+        query = f"""
+            SELECT *
+            FROM Supplier
+            {where_sql}
+            ORDER BY SupplierName
+            LIMIT ? OFFSET ?
+        """
+        cursor.execute(
+            query,
+            params + [pagination["page_size"], pagination["offset"]],
+        )
         suppliers = cursor.fetchall()
 
         cursor.close()
@@ -88,6 +93,8 @@ def list_suppliers():
             suppliers=suppliers,
 
             search=search,
+
+            pagination=pagination,
 
         )
 

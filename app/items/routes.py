@@ -4,6 +4,7 @@ from flask_login import login_required
 
 from app import app
 from app.db import execute_query, execute_query_one, execute_update, get_db_connection
+from app.perf import pagination_meta, parse_page, parse_page_size
 from app.tenancy import next_owner_no, next_table_id, owner_sql, request_user_id
 from app.items.import_utils import build_items_template_xlsx, import_items, parse_items_xlsx
 from app.validators import (
@@ -136,8 +137,32 @@ def list_items():
         search = request.args.get("search", "", type=str)
         category_id = request.args.get("category_id", "", type=str)
         qty_filter = request.args.get("qty_filter", "", type=str)
+        page = parse_page(request.args.get("page"))
+        page_size = parse_page_size(request.args.get("page_size"))
         if qty_filter not in QTY_FILTERS:
             qty_filter = ""
+
+        where_sql = f"WHERE {owner_sql('i')}"
+        params = []
+
+        if search:
+            # LIKE is case-sensitive on PostgreSQL, unlike SQL Server
+            where_sql += " AND LOWER(i.ItemName) LIKE LOWER(?)"
+            params.append(f"%{search}%")
+
+        if category_id:
+            where_sql += " AND i.CategoryID = ?"
+            params.append(int(category_id))
+
+        if qty_filter:
+            where_sql += QTY_FILTERS[qty_filter][1]
+
+        total_row = execute_query_one(
+            app,
+            f"SELECT COUNT(*) AS TotalCount FROM Item i {where_sql}",
+            tuple(params) if params else None,
+        )
+        pagination = pagination_meta(int(total_row.TotalCount or 0), page, page_size)
 
         query = f"""
             SELECT
@@ -151,26 +176,15 @@ def list_items():
                 c.CategoryName
             FROM Item i
             LEFT JOIN Category c ON i.CategoryID = c.CategoryID
-            WHERE {owner_sql("i")}
+            {where_sql}
+            ORDER BY COALESCE(i.ItemNo, i.ItemID), i.ItemID
+            LIMIT ? OFFSET ?
         """
-
-        params = []
-
-        if search:
-            # LIKE is case-sensitive on PostgreSQL, unlike SQL Server
-            query += " AND LOWER(i.ItemName) LIKE LOWER(?)"
-            params.append(f"%{search}%")
-
-        if category_id:
-            query += " AND i.CategoryID = ?"
-            params.append(int(category_id))
-
-        if qty_filter:
-            query += QTY_FILTERS[qty_filter][1]
-
-        query += " ORDER BY COALESCE(i.ItemNo, i.ItemID), i.ItemID"
-
-        items = execute_query(app, query, tuple(params) if params else None)
+        items = execute_query(
+            app,
+            query,
+            tuple(params + [pagination["page_size"], pagination["offset"]]),
+        )
         categories = execute_query(app, f"SELECT CategoryID, CategoryName FROM Category WHERE {owner_sql()} ORDER BY CategoryName")
         duplicate_groups_count = len(_find_duplicate_item_names(app))
 
@@ -183,6 +197,7 @@ def list_items():
             qty_filter=qty_filter,
             qty_filters=QTY_FILTERS,
             duplicate_groups_count=duplicate_groups_count,
+            pagination=pagination,
         )
 
     except Exception as e:
@@ -197,6 +212,7 @@ def list_items():
             qty_filter="",
             qty_filters=QTY_FILTERS,
             duplicate_groups_count=0,
+            pagination=pagination_meta(0, 1, 50),
         )
 
 

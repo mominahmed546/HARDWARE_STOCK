@@ -212,10 +212,17 @@ def _translate_insert_returning(match):
     return f"INSERT INTO {table} ({columns}) VALUES ({values}) RETURNING {returning}"
 
 
+# Sorted once at import: longest identifiers first so "InvoiceDetails"
+# replaces before "Invoice" / "Details" fragments never fight each other.
+_COLUMN_REPLACEMENTS_SORTED = sorted(
+    _COLUMN_REPLACEMENTS.items(), key=lambda item: len(item[0]), reverse=True
+)
+
+
 def _replace_identifiers(query):
     query = query.replace("[Date]", "date")
 
-    for old, new in sorted(_COLUMN_REPLACEMENTS.items(), key=lambda item: len(item[0]), reverse=True):
+    for old, new in _COLUMN_REPLACEMENTS_SORTED:
         query = re.sub(rf"\b{old}\b", new, query, flags=re.IGNORECASE)
 
     return query

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/pagination.html" import pager %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/items_list.css') }}">
@@ -106,5 +107,6 @@
         </tbody>
     </table>
     </div>
+    {{ pager(pagination, 'invoices.list_invoices', {'search': search, 'month': selected_month, 'year': selected_year}) }}
 </div>
 {% endblock %}

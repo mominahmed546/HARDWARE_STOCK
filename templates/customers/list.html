@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/pagination.html" import pager %}
 
 {% block title %}Customers - Hardware Stock Management{% endblock %}
 {% block page_title %}Customers{% endblock %}
@@ -47,5 +48,6 @@
             {% endfor %}
         </tbody>
     </table>
+    {{ pager(pagination, 'customers.list_customers', {'search': search}) }}
 </div>
 {% endblock %}

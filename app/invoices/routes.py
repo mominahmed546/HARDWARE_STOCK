@@ -20,11 +20,11 @@ from app.payments import (
     list_invoice_payments,
     paid_ratio_sql,
     pay_invoice_remaining,
-    payments_join_sql,
     normalize_payment_method,
     refresh_invoice_settlement,
     remaining_due,
 )
+from app.perf import pagination_meta, parse_page, parse_page_size
 from app.validators import (
     ValidationErrors,
     clean_date,
@@ -212,20 +212,19 @@ def _load_invoice_record(cursor, invoice_id):
             COALESCE(i.TotalAmount, 0) AS TotalAmount,
             COALESCE(i.PreviousBalance, 0) AS PreviousBalance,
             COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus,
-            COALESCE(pay.PaidAmount, 0) AS PaidAmount,
-            COALESCE(pay.PaidAmount, 0) AS CashReceived,
+            COALESCE(i.CashReceived, 0) AS PaidAmount,
+            COALESCE(i.CashReceived, 0) AS CashReceived,
             GREATEST(
                 COALESCE(i.PreviousBalance, 0)
                     + COALESCE(i.TotalAmount, 0)
-                    - COALESCE(pay.PaidAmount, 0),
+                    - COALESCE(i.CashReceived, 0),
                 0
             ) AS NetBalance,
-            GREATEST(COALESCE(i.TotalAmount, 0) - COALESCE(pay.PaidAmount, 0), 0) AS RemainingAmount,
+            GREATEST(COALESCE(i.TotalAmount, 0) - COALESCE(i.CashReceived, 0), 0) AS RemainingAmount,
             c.CustomerName,
             c.ContactNo
         FROM Invoices i
         JOIN Customers c ON c.CustomerID = i.CustomerID
-        {payments_join_sql("i")}
         WHERE i.InvoiceID = ? AND {owner_sql("i")}
         """,
         (invoice_id,),
@@ -371,11 +370,10 @@ def _other_invoices_unpaid_total(cursor, customer_id, exclude_invoice_id=None):
     cursor.execute(
         f"""
         SELECT COALESCE(
-            SUM(GREATEST(COALESCE(i.TotalAmount, 0) - COALESCE(pay.PaidAmount, 0), 0)),
+            SUM(GREATEST(COALESCE(i.TotalAmount, 0) - COALESCE(i.CashReceived, 0), 0)),
             0
         ) AS UnpaidTotal
         FROM Invoices i
-        {payments_join_sql("i")}
         WHERE i.CustomerID = ? {exclude_filter} AND {owner_sql("i")}
         """,
         params,
@@ -413,12 +411,11 @@ def _load_invoice_form_data(cursor, extra_item_ids=None, exclude_invoice_id=None
                 i.CustomerID,
                 SUM(
                     GREATEST(
-                        COALESCE(i.TotalAmount, 0) - COALESCE(pay.PaidAmount, 0),
+                        COALESCE(i.TotalAmount, 0) - COALESCE(i.CashReceived, 0),
                         0
                     )
                 ) AS UnpaidTotal
             FROM Invoices i
-            {payments_join_sql("i")}
             {unpaid_filter}
             {"AND" if unpaid_filter else "WHERE"} {owner_sql("i")}
             GROUP BY i.CustomerID
@@ -1097,60 +1094,123 @@ def list_invoices():
         search = request.args.get("search", "")
         years = _invoice_list_years(cursor)
         selected_month, selected_year = _invoice_list_period_from_request(years)
-        line_cost = sold_line_cost_sql("d")
-        paid_ratio = paid_ratio_sql("i", "pay")
+        page = parse_page(request.args.get("page"))
+        page_size = parse_page_size(request.args.get("page_size"))
 
-        query = f"""
+        where_sql = f"WHERE {owner_sql('i')}"
+        params = []
+
+        if search:
+            where_sql += " AND (CAST(i.InvoiceID AS VARCHAR(20)) LIKE ? OR c.CustomerName LIKE ?)"
+            params.extend([f"%{search}%", f"%{search}%"])
+
+        if selected_month:
+            month_start = date(selected_year, selected_month, 1)
+            month_end = (
+                date(selected_year + 1, 1, 1)
+                if selected_month == 12
+                else date(selected_year, selected_month + 1, 1)
+            )
+            where_sql += " AND i.[Date] >= ? AND i.[Date] < ?"
+            params.extend([month_start, month_end])
+
+        cursor.execute(
+            f"""
+            SELECT COUNT(*) AS TotalCount
+            FROM Invoices i
+            JOIN Customers c ON i.CustomerID = c.CustomerID
+            {where_sql}
+            """,
+            params or (),
+        )
+        total = int(cursor.fetchone().TotalCount or 0)
+        pagination = pagination_meta(total, page, page_size)
+
+        # Page of invoices only — CashReceived avoids a global InvoicePayments
+        # aggregate; profit/returns are loaded for this page's IDs below.
+        cursor.execute(
+            f"""
             SELECT
                 i.InvoiceID,
                 i.[Date] AS InvoiceDate,
                 i.TotalAmount,
                 COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus,
-                COALESCE(pay.PaidAmount, 0) AS PaidAmount,
-                GREATEST(COALESCE(i.TotalAmount, 0) - COALESCE(pay.PaidAmount, 0), 0) AS RemainingAmount,
-                c.CustomerName,
-                ISNULL(
-                    SUM(
-                        (COALESCE(d.Qty, 0) * COALESCE(d.Rate, 0) - ({line_cost}))
-                        * ({paid_ratio})
-                    ),
-                    0
-                ) AS Profit
-                ,
-                COALESCE(sr.ReturnCount, 0) AS ReturnCount,
-                COALESCE(sr.ReturnTotal, 0) AS ReturnTotal
+                COALESCE(i.CashReceived, 0) AS PaidAmount,
+                GREATEST(COALESCE(i.TotalAmount, 0) - COALESCE(i.CashReceived, 0), 0) AS RemainingAmount,
+                c.CustomerName
             FROM Invoices i
             JOIN Customers c ON i.CustomerID = c.CustomerID
-            LEFT JOIN InvoiceDetails d ON i.InvoiceID = d.InvoiceID
-            LEFT JOIN Item it ON d.ItemID = it.ItemID
-            LEFT JOIN (
-                SELECT InvoiceID, COUNT(*) AS ReturnCount, COALESCE(SUM(TotalAmount), 0) AS ReturnTotal
-                FROM SalesReturns
-                GROUP BY InvoiceID
-            ) sr ON sr.InvoiceID = i.InvoiceID
-            {purchase_unit_cost_join("d")}
-            {payments_join_sql("i")}
-            WHERE {owner_sql("i")}
-        """
-        params = []
-
-        if search:
-            query += " AND (CAST(i.InvoiceID AS VARCHAR(20)) LIKE ? OR c.CustomerName LIKE ?)"
-            params.extend([f"%{search}%", f"%{search}%"])
-
-        if selected_month:
-            query += " AND YEAR(i.[Date]) = ? AND MONTH(i.[Date]) = ?"
-            params.extend([selected_year, selected_month])
-
-        query += """
-            GROUP BY
-                i.InvoiceID, i.[Date], i.TotalAmount, i.PaymentStatus,
-                pay.PaidAmount, c.CustomerName, sr.ReturnCount, sr.ReturnTotal
+            {where_sql}
             ORDER BY i.InvoiceID DESC
-        """
+            LIMIT ? OFFSET ?
+            """,
+            list(params) + [pagination["page_size"], pagination["offset"]],
+        )
+        invoice_rows = cursor.fetchall()
+        invoice_ids = [int(row.InvoiceID) for row in invoice_rows]
 
-        cursor.execute(query, params or ())
-        invoices = cursor.fetchall()
+        returns_by_id = {}
+        profit_by_id = {}
+        if invoice_ids:
+            placeholders = ",".join("?" for _ in invoice_ids)
+            cursor.execute(
+                f"""
+                SELECT
+                    InvoiceID,
+                    COUNT(*) AS ReturnCount,
+                    COALESCE(SUM(TotalAmount), 0) AS ReturnTotal
+                FROM SalesReturns
+                WHERE InvoiceID IN ({placeholders})
+                GROUP BY InvoiceID
+                """,
+                invoice_ids,
+            )
+            for row in cursor.fetchall():
+                returns_by_id[int(row.InvoiceID)] = row
+
+            line_cost = sold_line_cost_sql("d")
+            paid_ratio = paid_ratio_sql("i", None)
+            cursor.execute(
+                f"""
+                SELECT
+                    i.InvoiceID,
+                    ISNULL(
+                        SUM(
+                            (COALESCE(d.Qty, 0) * COALESCE(d.Rate, 0) - ({line_cost}))
+                            * ({paid_ratio})
+                        ),
+                        0
+                    ) AS Profit
+                FROM Invoices i
+                LEFT JOIN InvoiceDetails d ON i.InvoiceID = d.InvoiceID
+                LEFT JOIN Item it ON d.ItemID = it.ItemID
+                {purchase_unit_cost_join("d")}
+                WHERE i.InvoiceID IN ({placeholders})
+                GROUP BY i.InvoiceID
+                """,
+                invoice_ids,
+            )
+            for row in cursor.fetchall():
+                profit_by_id[int(row.InvoiceID)] = float(row.Profit or 0)
+
+        invoices = []
+        for row in invoice_rows:
+            inv_id = int(row.InvoiceID)
+            ret = returns_by_id.get(inv_id)
+            invoices.append(
+                {
+                    "InvoiceID": inv_id,
+                    "InvoiceDate": row.InvoiceDate,
+                    "CustomerName": row.CustomerName,
+                    "TotalAmount": row.TotalAmount,
+                    "PaidAmount": row.PaidAmount,
+                    "RemainingAmount": row.RemainingAmount,
+                    "PaymentStatus": row.PaymentStatus,
+                    "ReturnCount": int(ret.ReturnCount) if ret else 0,
+                    "ReturnTotal": float(ret.ReturnTotal) if ret else 0.0,
+                    "Profit": profit_by_id.get(inv_id, 0.0),
+                }
+            )
 
         return render_template(
             "invoices/list.html",
@@ -1160,6 +1220,7 @@ def list_invoices():
             years=years,
             selected_month=selected_month,
             selected_year=selected_year,
+            pagination=pagination,
         )
 
     except Exception as e:

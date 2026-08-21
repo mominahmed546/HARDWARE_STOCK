@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/pagination.html" import pager %}
 
 {% block title %}Ledger - Hardware Stock Management{% endblock %}
 {% block page_title %}Account Ledger{% endblock %}
@@ -68,5 +69,6 @@
             {% endfor %}
         </tbody>
     </table>
+    {{ pager(pagination, 'ledger.list_ledger', {'search': search}) }}
 </div>
 {% endblock %}

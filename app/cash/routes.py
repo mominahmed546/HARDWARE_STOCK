@@ -16,6 +16,7 @@ from app.payments import (
     save_cash_openings,
 )
 from app.profit.routes import _year_total_profit
+from app.perf import day_bounds, through_exclusive
 from app.tenancy import owner_sql
 from app.validators import ValidationErrors, clean_positive_decimal
 
@@ -84,15 +85,17 @@ def _purchase_payment_split(cursor, where_sql="", params=()):
 
 
 def _balances_through(cursor, through_date, cash_opening, bank_opening):
+    # Half-open upper bound keeps PaymentDate indexes usable (no CAST).
+    until = through_exclusive(through_date)
     cash_received, bank_received, _ = _payment_split(
         cursor,
-        "WHERE CAST(p.PaymentDate AS DATE) <= ?",
-        (through_date,),
+        "WHERE p.PaymentDate < ?",
+        (until,),
     )
     cash_paid, bank_paid, _ = _purchase_payment_split(
         cursor,
-        "WHERE CAST(pp.PaymentDate AS DATE) <= ?",
-        (through_date,),
+        "WHERE pp.PaymentDate < ?",
+        (until,),
     )
     return cash_opening + cash_received - cash_paid, bank_opening + bank_received - bank_paid
 
@@ -190,6 +193,7 @@ def _buy_suggestions(cursor, budget, threshold=LOW_STOCK_THRESHOLD, limit=40):
 
 
 def _daily_receipts(cursor, selected_date):
+    day_start, day_end = day_bounds(selected_date)
     cursor.execute(
         f"""
         SELECT
@@ -203,16 +207,20 @@ def _daily_receipts(cursor, selected_date):
         FROM InvoicePayments p
         JOIN Invoices i ON i.InvoiceID = p.InvoiceID
         JOIN Customers c ON c.CustomerID = i.CustomerID
-        WHERE CAST(p.PaymentDate AS DATE) = ? AND {owner_sql("i")}
+        WHERE p.PaymentDate >= ? AND p.PaymentDate < ? AND {owner_sql("i")}
         ORDER BY p.PaymentDate ASC, p.PaymentID ASC
         """,
-        (selected_date,),
+        (day_start, day_end),
     )
     return cursor.fetchall()
 
 
 def _month_day_rows(cursor, year, month, cash_opening, bank_opening):
     period_start = date(year, month, 1)
+    if month == 12:
+        period_end = date(year + 1, 1, 1)
+    else:
+        period_end = date(year, month + 1, 1)
     day_before = period_start - timedelta(days=1)
     running_cash, running_bank = _balances_through(cursor, day_before, cash_opening, bank_opening)
 
@@ -224,12 +232,12 @@ def _month_day_rows(cursor, year, month, cash_opening, bank_opening):
             ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Cash' THEN Amount ELSE 0 END), 0) AS CashAmount,
             ISNULL(SUM(Amount), 0) AS TotalAmount
         FROM InvoicePayments
-        WHERE YEAR(PaymentDate) = ? AND MONTH(PaymentDate) = ?
+        WHERE PaymentDate >= ? AND PaymentDate < ?
           AND InvoiceID IN (SELECT InvoiceID FROM Invoices WHERE {owner_sql()})
         GROUP BY CAST(PaymentDate AS DATE)
         ORDER BY SaleDate
         """,
-        (year, month),
+        (period_start, period_end),
     )
     by_date = {}
     for row in cursor.fetchall():
@@ -247,12 +255,12 @@ def _month_day_rows(cursor, year, month, cash_opening, bank_opening):
             ISNULL(SUM(pp.Amount), 0) AS TotalAmount
         FROM PurchasePayments pp
         JOIN Purchases p ON p.PurchaseID = pp.PurchaseID
-        WHERE YEAR(pp.PaymentDate) = ? AND MONTH(pp.PaymentDate) = ?
+        WHERE pp.PaymentDate >= ? AND pp.PaymentDate < ?
           AND {owner_sql("p")}
         GROUP BY CAST(pp.PaymentDate AS DATE)
         ORDER BY PurchaseDate
         """,
-        (year, month),
+        (period_start, period_end),
     )
     purchases_by_date = {}
     for row in cursor.fetchall():
@@ -378,20 +386,23 @@ def _report_context(cursor, view, selected_date, selected_year, selected_month):
     if view == "monthly":
         last_day = monthrange(selected_year, selected_month)[1]
         through_date = date(selected_year, selected_month, last_day)
+        month_start = date(selected_year, selected_month, 1)
+        month_end = date(selected_year + 1, 1, 1) if selected_month == 12 else date(selected_year, selected_month + 1, 1)
         period_cash, period_bank, period_total = _payment_split(
             cursor,
-            "WHERE YEAR(p.PaymentDate) = ? AND MONTH(p.PaymentDate) = ?",
-            (selected_year, selected_month),
+            "WHERE p.PaymentDate >= ? AND p.PaymentDate < ?",
+            (month_start, month_end),
         )
         receipts = []
         day_rows = _month_day_rows(cursor, selected_year, selected_month, cash_opening, bank_opening)
         period_label = f"{MONTHS[selected_month - 1]} {selected_year}"
     else:
         through_date = selected_date
+        day_start, day_end = day_bounds(selected_date)
         period_cash, period_bank, period_total = _payment_split(
             cursor,
-            "WHERE CAST(p.PaymentDate AS DATE) = ?",
-            (selected_date,),
+            "WHERE p.PaymentDate >= ? AND p.PaymentDate < ?",
+            (day_start, day_end),
         )
         receipts = _daily_receipts(cursor, selected_date)
         day_rows = []

@@ -3,6 +3,7 @@ from flask_login import login_required
 
 from app import app
 from app.db import get_db_connection
+from app.perf import pagination_meta, parse_page, parse_page_size
 from app.tenancy import next_table_id, owner_sql, request_user_id
 from app.validators import ValidationErrors, clean_string
 
@@ -25,17 +26,33 @@ def list_categories():
         cursor = db.cursor()
 
         search = request.args.get("search", "")
+        page = parse_page(request.args.get("page"))
+        page_size = parse_page_size(request.args.get("page_size"))
 
-        query = f"SELECT * FROM Category WHERE {owner_sql()}"
+        where_sql = f"WHERE {owner_sql()}"
         params = []
 
         if search:
-            query += " AND CategoryName LIKE ?"
+            where_sql += " AND CategoryName LIKE ?"
             params.append(f"%{search}%")
 
-        query += " ORDER BY CategoryName"
+        cursor.execute(
+            f"SELECT COUNT(*) AS TotalCount FROM Category {where_sql}",
+            params or (),
+        )
+        pagination = pagination_meta(int(cursor.fetchone().TotalCount or 0), page, page_size)
 
-        cursor.execute(query, params or ())
+        query = f"""
+            SELECT *
+            FROM Category
+            {where_sql}
+            ORDER BY CategoryName
+            LIMIT ? OFFSET ?
+        """
+        cursor.execute(
+            query,
+            params + [pagination["page_size"], pagination["offset"]],
+        )
         categories = cursor.fetchall()
         cursor.close()
 
@@ -43,6 +60,7 @@ def list_categories():
             "categories/list.html",
             categories=categories,
             search=search,
+            pagination=pagination,
         )
 
     except Exception as e:

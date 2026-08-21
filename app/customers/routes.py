@@ -7,6 +7,7 @@ from flask_login import login_required
 from app import app
 
 from app.db import get_db_connection
+from app.perf import pagination_meta, parse_page, parse_page_size
 from app.tenancy import owner_sql, request_user_id
 
 from app.validators import ValidationErrors, clean_string, clean_phone, clean_positive_decimal
@@ -14,12 +15,16 @@ from app.validators import ValidationErrors, clean_string, clean_phone, clean_po
 
 
 customers_bp = Blueprint('customers', __name__, url_prefix='/customers')
+_CUSTOMERS_SCHEMA_READY = False
 
 
 
 
 
 def _ensure_previous_balance_column(db, cursor):
+    global _CUSTOMERS_SCHEMA_READY
+    if _CUSTOMERS_SCHEMA_READY:
+        return
     cursor.execute(
         """
         ALTER TABLE Customers
@@ -27,6 +32,7 @@ def _ensure_previous_balance_column(db, cursor):
         """
     )
     db.commit()
+    _CUSTOMERS_SCHEMA_READY = True
 
 
 def _ensure_invoice_payment_status_column(db, cursor):
@@ -81,8 +87,21 @@ def list_customers():
 
 
         search = request.args.get('search', '')
+        page = parse_page(request.args.get("page"))
+        page_size = parse_page_size(request.args.get("page_size"))
 
+        where_sql = f"WHERE {owner_sql()}"
+        params = []
 
+        if search:
+            where_sql += " AND CustomerName LIKE ?"
+            params.append(f"%{search}%")
+
+        cursor.execute(
+            f"SELECT COUNT(*) AS TotalCount FROM Customers {where_sql}",
+            params or (),
+        )
+        pagination = pagination_meta(int(cursor.fetchone().TotalCount or 0), page, page_size)
 
         query = f"""
             SELECT
@@ -91,26 +110,15 @@ def list_customers():
                 ContactNo,
                 COALESCE(PreviousBalance, 0) AS PreviousBalance
             FROM Customers
-            WHERE {owner_sql()}
+            {where_sql}
+            ORDER BY CustomerName
+            LIMIT ? OFFSET ?
         """
 
-        params = []
-
-
-
-        if search:
-
-            query += " AND CustomerName LIKE ?"
-
-            params.append(f"%{search}%")
-
-
-
-        query += " ORDER BY CustomerName"
-
-
-
-        cursor.execute(query, params or ())
+        cursor.execute(
+            query,
+            params + [pagination["page_size"], pagination["offset"]],
+        )
 
         customers = cursor.fetchall()
 
@@ -124,7 +132,9 @@ def list_customers():
 
             customers=customers,
 
-            search=search
+            search=search,
+
+            pagination=pagination,
 
         )
 

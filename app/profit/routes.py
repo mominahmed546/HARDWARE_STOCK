@@ -8,7 +8,7 @@ from app import app
 from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
 from app.db import get_db_connection
 from app.tenancy import owner_sql
-from app.payments import ensure_invoice_payments_table, paid_ratio_sql, payments_join_sql
+from app.payments import ensure_invoice_payments_table, paid_ratio_sql
 
 profit_bp = Blueprint("profit", __name__, url_prefix="/profit")
 
@@ -65,8 +65,11 @@ def _monthly_profit_data(cursor, selected_year):
 
     # Revenue/cost/profit scale with cash received on each invoice.
     # Unpaid = 0, partial = paid/total, fully paid = 100%.
+    # Use CashReceived so we skip the global InvoicePayments aggregate join.
     line_cost = sold_line_cost_sql("id")
-    paid_ratio = paid_ratio_sql("i", "pay")
+    paid_ratio = paid_ratio_sql("i", None)
+    year_start = date(int(selected_year), 1, 1)
+    year_end = date(int(selected_year) + 1, 1, 1)
     cursor.execute(
         f"""
         SELECT
@@ -79,12 +82,11 @@ def _monthly_profit_data(cursor, selected_year):
         JOIN InvoiceDetails id ON id.InvoiceID = i.InvoiceID
         LEFT JOIN Item it ON it.ItemID = id.ItemID
         {purchase_unit_cost_join("id")}
-        {payments_join_sql("i")}
-        WHERE YEAR(i.[Date]) = ? AND {owner_sql("i")}
+        WHERE i.[Date] >= ? AND i.[Date] < ? AND {owner_sql("i")}
         GROUP BY MONTH(i.[Date])
         ORDER BY SalesMonth
         """,
-        (selected_year,),
+        (year_start, year_end),
     )
     rows_by_month = {row.SalesMonth: row for row in cursor.fetchall()}
 

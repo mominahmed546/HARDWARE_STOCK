@@ -30,8 +30,10 @@ app.config.from_object(config_map.get(_env_name, config_map["development"]))
 app.teardown_appcontext(close_db_connection)
 
 from app.compression import init_compression
+from app.perf import register_perf_hooks
 
 init_compression(app)
+register_perf_hooks(app)
 
 
 @app.template_filter("date_dmy")

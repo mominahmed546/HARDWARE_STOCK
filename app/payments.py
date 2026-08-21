@@ -125,6 +125,10 @@ def _reset_previous_balance_clean_slate(cursor):
 
 
 def payments_join_sql(invoice_alias="i"):
+    """Aggregate InvoicePayments — prefer CashReceived / paid_ratio_sql(..., None)
+    on list and report routes; keep this for single-invoice detail paths that
+    must read live payment rows before settlement columns are refreshed.
+    """
     return f"""
         LEFT JOIN (
             SELECT InvoiceID, SUM(Amount) AS PaidAmount
@@ -174,6 +178,10 @@ def normalize_payment_method(value):
     return "Cash"
 
 
+# Users already known to have a CashAccounts row in this worker.
+_CASH_ACCOUNT_USERS: set[int] = set()
+
+
 def ensure_cash_accounts(db, cursor):
     schema_changed = False
     if not _SCHEMA_READY["cash_accounts_schema"]:
@@ -195,7 +203,7 @@ def ensure_cash_accounts(db, cursor):
 
     user_id = request_user_id()
     inserted = 0
-    if user_id:
+    if user_id and user_id not in _CASH_ACCOUNT_USERS:
         cursor.execute(
             """
             INSERT INTO CashAccounts (AccountID, UserID, CashOpening, BankOpening)
@@ -205,6 +213,7 @@ def ensure_cash_accounts(db, cursor):
             (user_id, user_id, user_id),
         )
         inserted = int(cursor.rowcount or 0)
+        _CASH_ACCOUNT_USERS.add(user_id)
     if schema_changed or inserted:
         db.commit()
 

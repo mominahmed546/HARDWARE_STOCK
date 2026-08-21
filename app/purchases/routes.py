@@ -9,6 +9,7 @@ from flask_login import login_required
 from app import app
 
 from app.db import get_db_connection
+from app.perf import pagination_meta, parse_page, parse_page_size
 from app.payments import (
     add_purchase_payment,
     clear_purchase_payments,
@@ -445,6 +446,8 @@ def list_purchases():
         cash_adjust_errors = ValidationErrors()
 
         search = request.args.get("search", "")
+        page = parse_page(request.args.get("page"))
+        page_size = parse_page_size(request.args.get("page_size"))
 
         if request.method == "POST" and request.form.get("action") == "set_current_cash":
             target_cash = clean_positive_decimal(
@@ -489,44 +492,10 @@ def list_purchases():
 
 
 
-        query = f"""
-
-            SELECT
-                COALESCE(p.SupplierID, 0) AS SupplierID,
-                COALESCE(s.SupplierName, 'N/A') AS SupplierName,
-                MIN(p.PurchaseDate) AS FirstPurchaseDate,
-                MAX(p.PurchaseDate) AS LastPurchaseDate,
-                COUNT(DISTINCT p.PurchaseID) AS PurchaseCount,
-                SUM(ISNULL(p.TotalAmount, 0)) AS TotalAmount,
-                SUM(ISNULL(details.ItemLineCount, 0)) AS ItemLineCount,
-                SUM(ISNULL(details.TotalQty, 0)) AS TotalQty
-
-            FROM Purchases p
-
-            LEFT JOIN Supplier s ON p.SupplierID = s.SupplierID
-
-            LEFT JOIN (
-                SELECT
-                    pd.PurchaseID,
-                    COUNT(*) AS ItemLineCount,
-                    SUM(ISNULL(pd.Qty, 0)) AS TotalQty
-                FROM PurchaseDetails pd
-                GROUP BY pd.PurchaseID
-            ) details ON details.PurchaseID = p.PurchaseID
-
-            WHERE {owner_sql("p")}
-
-        """
-
-
-
+        where_sql = f"WHERE {owner_sql('p')}"
         params = []
-
-
-
         if search:
-
-            query += """
+            where_sql += """
                 AND (
                     CAST(p.PurchaseID AS VARCHAR(20)) LIKE ?
                     OR s.SupplierName LIKE ?
@@ -539,19 +508,53 @@ def list_purchases():
                     OR CONVERT(VARCHAR(10), p.PurchaseDate, 103) LIKE ?
                 )
             """
-
             params.extend([f"%{search}%", f"%{search}%", f"%{search}%", f"%{search}%"])
 
+        cursor.execute(
+            f"""
+            SELECT COUNT(*) AS TotalCount
+            FROM (
+                SELECT COALESCE(p.SupplierID, 0) AS SupplierID
+                FROM Purchases p
+                LEFT JOIN Supplier s ON p.SupplierID = s.SupplierID
+                {where_sql}
+                GROUP BY COALESCE(p.SupplierID, 0), COALESCE(s.SupplierName, 'N/A')
+            ) supplier_groups
+            """,
+            params or (),
+        )
+        pagination = pagination_meta(int(cursor.fetchone().TotalCount or 0), page, page_size)
 
-
-        query += """
+        query = f"""
+            SELECT
+                COALESCE(p.SupplierID, 0) AS SupplierID,
+                COALESCE(s.SupplierName, 'N/A') AS SupplierName,
+                MIN(p.PurchaseDate) AS FirstPurchaseDate,
+                MAX(p.PurchaseDate) AS LastPurchaseDate,
+                COUNT(DISTINCT p.PurchaseID) AS PurchaseCount,
+                SUM(ISNULL(p.TotalAmount, 0)) AS TotalAmount,
+                SUM(ISNULL(details.ItemLineCount, 0)) AS ItemLineCount,
+                SUM(ISNULL(details.TotalQty, 0)) AS TotalQty
+            FROM Purchases p
+            LEFT JOIN Supplier s ON p.SupplierID = s.SupplierID
+            LEFT JOIN (
+                SELECT
+                    pd.PurchaseID,
+                    COUNT(*) AS ItemLineCount,
+                    SUM(ISNULL(pd.Qty, 0)) AS TotalQty
+                FROM PurchaseDetails pd
+                GROUP BY pd.PurchaseID
+            ) details ON details.PurchaseID = p.PurchaseID
+            {where_sql}
             GROUP BY COALESCE(p.SupplierID, 0), COALESCE(s.SupplierName, 'N/A')
             ORDER BY MAX(p.PurchaseDate) DESC, COALESCE(s.SupplierName, 'N/A')
+            LIMIT ? OFFSET ?
         """
 
-
-
-        cursor.execute(query, params or ())
+        cursor.execute(
+            query,
+            params + [pagination["page_size"], pagination["offset"]],
+        )
 
         purchases = cursor.fetchall()
 
@@ -596,6 +599,7 @@ def list_purchases():
             total_cash_purchases=total_cash_purchases,
             total_bank_purchases=total_bank_purchases,
             cash_adjust_errors=cash_adjust_errors.errors,
+            pagination=pagination,
 
         )
 
