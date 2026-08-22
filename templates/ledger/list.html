@@ -60,6 +60,9 @@
                 <td>
                     <a href="{{ url_for('ledger.customer_ledger', id=row.CustomerID) }}" class="btn btn-sm btn-info">Open Ledger</a>
                     <a href="{{ url_for('ledger.add_ledger_entry', customer_id=row.CustomerID) }}" class="btn btn-sm btn-secondary">Add Entry</a>
+                    <form method="POST" action="{{ url_for('ledger.delete_customer', id=row.CustomerID) }}" style="display:inline;">
+                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this customer and their ledger entries? Invoices must be removed first if any exist.')">Delete</button>
+                    </form>
                 </td>
             </tr>
             {% else %}

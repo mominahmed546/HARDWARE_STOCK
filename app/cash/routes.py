@@ -732,18 +732,22 @@ def buy_suggestions():
             cash_in_hand,
             bank_balance=bank_balance,
         )
-        suggestions, spent = _buy_suggestions(cursor, cash_excluding_profit)
+        # Budget is total purchase capital (cash + bank, profit excluded).
+        # Transfers between cash and bank must not wipe suggestions.
+        purchase_budget = float(cash_excluding_profit or 0) + float(bank_excluding_profit or 0)
+        suggestions, spent = _buy_suggestions(cursor, purchase_budget)
         return render_template(
             "cash/buy_suggestions.html",
             cash_in_hand=cash_in_hand,
             bank_balance=bank_balance,
             cash_excluding_profit=cash_excluding_profit,
             bank_excluding_profit=bank_excluding_profit,
+            purchase_budget=purchase_budget,
             profit_in_cash=profit_in_cash,
             profit_in_bank=profit_in_bank,
             suggestions=suggestions,
             spent=spent,
-            remaining=max(cash_excluding_profit - spent, 0.0),
+            remaining=max(purchase_budget - spent, 0.0),
             threshold=LOW_STOCK_THRESHOLD,
         )
     except Exception as e:
@@ -754,6 +758,7 @@ def buy_suggestions():
             bank_balance=0,
             cash_excluding_profit=0,
             bank_excluding_profit=0,
+            purchase_budget=0,
             profit_in_cash=0,
             profit_in_bank=0,
             suggestions=[],

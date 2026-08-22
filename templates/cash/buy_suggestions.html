@@ -3,7 +3,7 @@
 {% block title %}Buy Suggestions - Hardware Stock Management{% endblock %}
 {% block page_title %}What to buy{% endblock %}
 {% block page_subtitle %}
-<p>Low-stock items you can restock using cash for purchases (excluding profit)</p>
+<p>Low-stock items you can restock using cash and bank for purchases (excluding profit)</p>
 {% endblock %}
 
 {% block extra_css %}
@@ -42,6 +42,10 @@
             <div class="report-card-value bank-value">Rs {{ "{:,.2f}".format(bank_excluding_profit|default(0)) }}</div>
         </div>
         <div class="report-card">
+            <div class="report-card-label">Total for purchases (cash + bank)</div>
+            <div class="report-card-value capital-value">Rs {{ "{:,.2f}".format(purchase_budget|default(0)) }}</div>
+        </div>
+        <div class="report-card">
             <div class="report-card-label">Profit sitting in cash</div>
             <div class="report-card-value profit-value">Rs {{ "{:,.2f}".format(profit_in_cash|default(0)) }}</div>
         </div>
@@ -61,7 +65,7 @@
             <h2>Suggested buys (stock under {{ threshold }})</h2>
         </div>
         <p class="text-muted" style="margin:0 0 1rem;">
-            Suggestions use each item’s purchase rate and only spend from cash for purchases.
+            Suggestions use each item’s purchase rate and spend from total purchase capital (cash + bank, profit excluded).
             Estimated spend: Rs {{ "{:,.2f}".format(spent|default(0)) }}
             &nbsp;|&nbsp; Left in capital: Rs {{ "{:,.2f}".format(remaining|default(0)) }}
         </p>
@@ -89,8 +93,8 @@
                 {% else %}
                 <tr>
                     <td colspan="6">
-                        {% if cash_excluding_profit|default(0) <= 0 %}
-                        No purchase capital available. Collect more cash from sales (cost portion), or lower purchase payments.
+                        {% if purchase_budget|default(0) <= 0 %}
+                        No purchase capital available in cash or bank. Collect more from sales (cost portion), or lower purchase payments.
                         {% else %}
                         No low-stock items with a purchase rate that fit this budget.
                         {% endif %}
