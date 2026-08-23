@@ -16,13 +16,9 @@ from app.payments import (
 from app.purchases.routes import _ensure_purchase_payment_method_column, normalize_purchase_payment_method
 from app.tenancy import next_owner_no, next_table_id, owner_sql, request_user_id
 from app.items.import_utils import (
-    build_brands_export_xlsx,
-    build_brands_template_xlsx,
     build_items_template_xlsx,
     import_items,
-    parse_brands_xlsx,
     parse_items_xlsx,
-    update_item_brands,
 )
 from app.validators import (
     ValidationErrors,
@@ -314,6 +310,26 @@ def _items_list_where_sql(search, category_id, qty_filter):
     if qty_filter:
         where_sql += QTY_FILTERS[qty_filter][1]
     return where_sql, params
+
+
+def _fetch_items_for_brand_set(search, category_id, qty_filter):
+    where_sql, params = _items_list_where_sql(search, category_id, qty_filter)
+    return execute_query(
+        app,
+        f"""
+        SELECT
+            i.ItemID,
+            COALESCE(i.ItemNo, i.ItemID) AS ItemNo,
+            i.ItemName,
+            i.Brand,
+            c.CategoryName
+        FROM Item i
+        LEFT JOIN Category c ON i.CategoryID = c.CategoryID
+        {where_sql}
+        ORDER BY COALESCE(i.ItemNo, i.ItemID), i.ItemID
+        """,
+        tuple(params) if params else None,
+    )
 
 
 def _fetch_items_for_pdf(search, category_id, qty_filter):
@@ -775,47 +791,11 @@ def download_items_template():
     )
 
 
-@items_bp.route("/brands/export")
+@items_bp.route("/set-brand", methods=["GET", "POST"])
 @login_required
-def export_brands_sheet():
-    """Download all items with ItemName + Category; fill Brand column and re-upload."""
-    try:
-        export_file = build_brands_export_xlsx(app)
-        filename = f"items_brands_{date.today().strftime('%Y%m%d')}.xlsx"
-        return send_file(
-            export_file,
-            as_attachment=True,
-            download_name=filename,
-            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-    except Exception as e:
-        flash(f"Error exporting brands sheet: {str(e)}", "danger")
-        return redirect(url_for("items.list_items"))
-
-
-@items_bp.route("/brands/template")
-@login_required
-def download_brands_template():
-    template_file = build_brands_template_xlsx()
-    return send_file(
-        template_file,
-        as_attachment=True,
-        download_name="items_brands_template.xlsx",
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-
-
-@items_bp.route("/brands/upload", methods=["POST"])
-@login_required
-def upload_brands():
-    upload_file = request.files.get("file")
-    if not upload_file or not upload_file.filename:
-        flash("Please select an Excel file to upload.", "danger")
-        return redirect(url_for("items.list_items"))
-
-    if not upload_file.filename.lower().endswith(".xlsx"):
-        flash("Only .xlsx files are supported.", "danger")
-        return redirect(url_for("items.list_items"))
+def set_brand_manually():
+    search, category_id, qty_filter = _items_list_filters()
+    categories = execute_query(app, f"SELECT CategoryID, CategoryName FROM Category WHERE {owner_sql()} ORDER BY CategoryName")
 
     try:
         db = get_db_connection(app)
@@ -824,23 +804,71 @@ def upload_brands():
             _ensure_item_brand_column(db, cursor)
         finally:
             cursor.close()
-
-        valid_rows, row_errors = parse_brands_xlsx(upload_file.stream)
-        updated, skipped, import_errors = update_item_brands(app, valid_rows)
-        row_errors.extend(import_errors)
-
-        flash(f"Brand update complete: {updated} item(s) updated.", "success")
-        if skipped:
-            flash(f"{skipped} row(s) skipped (duplicate names — add Category column).", "warning")
-        if row_errors:
-            preview = "; ".join(row_errors[:5])
-            extra = f" (+{len(row_errors) - 5} more)" if len(row_errors) > 5 else ""
-            flash(f"{len(row_errors)} issue(s): {preview}{extra}", "danger")
     except Exception as e:
-        app.logger.exception("Brand bulk update failed")
-        flash(f"Brand update failed: {str(e)}", "danger")
+        app.logger.exception("Error preparing brand column")
+        flash(f"Error loading items: {str(e)}", "danger")
+        return redirect(url_for("items.list_items"))
 
-    return redirect(url_for("items.list_items"))
+    if request.method == "POST":
+        errors = ValidationErrors()
+        brand = clean_string(request.form.get("brand"), "brand", errors, max_len=100, label="Brand")
+        item_ids_raw = request.form.getlist("item_ids")
+        item_ids = []
+        for raw in item_ids_raw:
+            try:
+                item_ids.append(int(raw))
+            except (TypeError, ValueError):
+                errors.add("item_ids", "Invalid item selection.")
+                break
+
+        if not item_ids and errors.valid:
+            errors.add("item_ids", "Select at least one item.")
+
+        if not errors.valid:
+            flash(errors.first(), "danger")
+            items = _fetch_items_for_brand_set(search, category_id, qty_filter)
+            return render_template(
+                "items/set_brand.html",
+                items=items,
+                categories=categories,
+                search=search,
+                category_id=category_id,
+                qty_filter=qty_filter,
+                qty_filters=QTY_FILTERS,
+                brand=brand if isinstance(brand, str) else request.form.get("brand", ""),
+                selected_ids=set(item_ids),
+            )
+
+        try:
+            placeholders = ", ".join("?" * len(item_ids))
+            updated = execute_update(
+                app,
+                f"""
+                UPDATE Item
+                SET Brand = ?
+                WHERE ItemID IN ({placeholders})
+                  AND {owner_sql()}
+                """,
+                tuple([brand] + item_ids),
+            )
+            flash(f'Brand "{brand}" set on {updated} item(s).', "success")
+            return redirect(url_for("items.list_items"))
+        except Exception as e:
+            app.logger.exception("Manual brand update failed")
+            flash(f"Brand update failed: {str(e)}", "danger")
+
+    items = _fetch_items_for_brand_set(search, category_id, qty_filter)
+    return render_template(
+        "items/set_brand.html",
+        items=items,
+        categories=categories,
+        search=search,
+        category_id=category_id,
+        qty_filter=qty_filter,
+        qty_filters=QTY_FILTERS,
+        brand="",
+        selected_ids=set(),
+    )
 
 
 @items_bp.route("/create", methods=["GET", "POST"])
