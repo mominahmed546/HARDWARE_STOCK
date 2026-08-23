@@ -15,7 +15,11 @@ from app.payments import (
 )
 from app.purchases.routes import _ensure_purchase_payment_method_column, normalize_purchase_payment_method
 from app.tenancy import next_owner_no, next_table_id, owner_sql, request_user_id
-from app.items.import_utils import build_items_template_xlsx, import_items, parse_items_xlsx
+from app.items.import_utils import (
+    build_items_template_xlsx,
+    import_items,
+    parse_items_xlsx,
+)
 from app.validators import (
     ValidationErrors,
     clean_date,
@@ -306,6 +310,26 @@ def _items_list_where_sql(search, category_id, qty_filter):
     if qty_filter:
         where_sql += QTY_FILTERS[qty_filter][1]
     return where_sql, params
+
+
+def _fetch_items_for_brand_set(search, category_id, qty_filter):
+    where_sql, params = _items_list_where_sql(search, category_id, qty_filter)
+    return execute_query(
+        app,
+        f"""
+        SELECT
+            i.ItemID,
+            COALESCE(i.ItemNo, i.ItemID) AS ItemNo,
+            i.ItemName,
+            i.Brand,
+            c.CategoryName
+        FROM Item i
+        LEFT JOIN Category c ON i.CategoryID = c.CategoryID
+        {where_sql}
+        ORDER BY COALESCE(i.ItemNo, i.ItemID), i.ItemID
+        """,
+        tuple(params) if params else None,
+    )
 
 
 def _fetch_items_for_pdf(search, category_id, qty_filter):
@@ -764,6 +788,86 @@ def download_items_template():
         as_attachment=True,
         download_name="items_import_template.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@items_bp.route("/set-brand", methods=["GET", "POST"])
+@login_required
+def set_brand_manually():
+    search, category_id, qty_filter = _items_list_filters()
+    categories = execute_query(app, f"SELECT CategoryID, CategoryName FROM Category WHERE {owner_sql()} ORDER BY CategoryName")
+
+    try:
+        db = get_db_connection(app)
+        cursor = db.cursor()
+        try:
+            _ensure_item_brand_column(db, cursor)
+        finally:
+            cursor.close()
+    except Exception as e:
+        app.logger.exception("Error preparing brand column")
+        flash(f"Error loading items: {str(e)}", "danger")
+        return redirect(url_for("items.list_items"))
+
+    if request.method == "POST":
+        errors = ValidationErrors()
+        brand = clean_string(request.form.get("brand"), "brand", errors, max_len=100, label="Brand")
+        item_ids_raw = request.form.getlist("item_ids")
+        item_ids = []
+        for raw in item_ids_raw:
+            try:
+                item_ids.append(int(raw))
+            except (TypeError, ValueError):
+                errors.add("item_ids", "Invalid item selection.")
+                break
+
+        if not item_ids and errors.valid:
+            errors.add("item_ids", "Select at least one item.")
+
+        if not errors.valid:
+            flash(errors.first(), "danger")
+            items = _fetch_items_for_brand_set(search, category_id, qty_filter)
+            return render_template(
+                "items/set_brand.html",
+                items=items,
+                categories=categories,
+                search=search,
+                category_id=category_id,
+                qty_filter=qty_filter,
+                qty_filters=QTY_FILTERS,
+                brand=brand if isinstance(brand, str) else request.form.get("brand", ""),
+                selected_ids=set(item_ids),
+            )
+
+        try:
+            placeholders = ", ".join("?" * len(item_ids))
+            updated = execute_update(
+                app,
+                f"""
+                UPDATE Item
+                SET Brand = ?
+                WHERE ItemID IN ({placeholders})
+                  AND {owner_sql()}
+                """,
+                tuple([brand] + item_ids),
+            )
+            flash(f'Brand "{brand}" set on {updated} item(s).', "success")
+            return redirect(url_for("items.list_items"))
+        except Exception as e:
+            app.logger.exception("Manual brand update failed")
+            flash(f"Brand update failed: {str(e)}", "danger")
+
+    items = _fetch_items_for_brand_set(search, category_id, qty_filter)
+    return render_template(
+        "items/set_brand.html",
+        items=items,
+        categories=categories,
+        search=search,
+        category_id=category_id,
+        qty_filter=qty_filter,
+        qty_filters=QTY_FILTERS,
+        brand="",
+        selected_ids=set(),
     )
 
 

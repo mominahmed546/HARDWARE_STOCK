@@ -44,6 +44,7 @@
             </form>
         </div>
         <div class="list-header-actions" style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <a href="{{ url_for('items.set_brand_manually') }}" class="btn btn-secondary">Set Brand Manually</a>
             <a href="{{ url_for('items.list_items_pdf', search=search, category_id=category_id, qty_filter=qty_filter) }}"
                class="btn btn-secondary">Download PDF</a>
             <a href="{{ url_for('items.create_item') }}" class="btn btn-success">+ New Item</a>

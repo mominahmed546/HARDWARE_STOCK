@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+
+{% block title %}Set Brand Manually - Hardware Stock Management{% endblock %}
+{% block page_title %}Set brand manually{% endblock %}
+{% block page_subtitle %}
+<p>Enter a brand name, tick the products that belong to it, then save. Only the brand field is updated.</p>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/items_list.css') }}">
+<style>
+    .brand-set-toolbar {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-bottom: 1.25rem;
+    }
+    .brand-set-panel {
+        background: white;
+        padding: 1.25rem 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);
+        margin-bottom: 1.25rem;
+    }
+    .brand-set-panel label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 0.35rem;
+        color: #1e293b;
+    }
+    .brand-set-panel input[type="text"] {
+        width: 100%;
+        max-width: 420px;
+        padding: 0.65rem 0.75rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        font-size: 1rem;
+    }
+    .brand-check-col {
+        width: 44px;
+        text-align: center;
+    }
+    .brand-current {
+        color: #64748b;
+        font-size: 0.88rem;
+    }
+    .brand-set-actions {
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-top: 1rem;
+    }
+    .brand-set-count {
+        color: #64748b;
+        font-size: 0.92rem;
+    }
+    [data-theme="dark"] .brand-set-panel {
+        background: #0f172a;
+    }
+    [data-theme="dark"] .brand-set-panel label {
+        color: #e2e8f0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="brand-set-toolbar">
+        <a href="{{ url_for('items.list_items') }}" class="btn btn-secondary">Back to Items</a>
+    </div>
+
+    <div class="list-header">
+        <div class="search-bar">
+            <form method="GET" action="{{ url_for('items.set_brand_manually') }}" class="search-form">
+                <input type="text" name="search" placeholder="Search items..." value="{{ search }}">
+                <select name="category_id" onchange="this.form.submit()">
+                    <option value="">All categories</option>
+                    {% for category in categories %}
+                    <option value="{{ category.CategoryID }}" {% if category_id|string == category.CategoryID|string %}selected{% endif %}>
+                        {{ category.CategoryName }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <select name="qty_filter" onchange="this.form.submit()">
+                    <option value="">All quantities</option>
+                    {% for value, option in qty_filters.items() %}
+                    <option value="{{ value }}" {% if qty_filter == value %}selected{% endif %}>
+                        {{ option[0] }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-primary">Search</button>
+            </form>
+        </div>
+        <div class="brand-set-count">
+            {{ items|length }} item{{ 's' if items|length != 1 else '' }} shown
+        </div>
+    </div>
+
+    <form method="POST" action="{{ url_for('items.set_brand_manually', search=search, category_id=category_id, qty_filter=qty_filter) }}" id="brand-set-form">
+        <div class="brand-set-panel">
+            <label for="brand">Brand name</label>
+            <input type="text" id="brand" name="brand" value="{{ brand or '' }}" maxlength="100" required
+                   placeholder="e.g. Dorma, Hafele, Ozone">
+        </div>
+
+        <div class="table-wrap">
+            <table class="data-table items-table">
+                <thead>
+                    <tr>
+                        <th class="brand-check-col">
+                            <input type="checkbox" id="select-all" title="Select all visible">
+                        </th>
+                        <th>ID</th>
+                        <th>Item Name</th>
+                        <th>Current Brand</th>
+                        <th>Category</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    <tr>
+                        <td class="brand-check-col">
+                            <input type="checkbox" name="item_ids" value="{{ item.ItemID }}" class="item-check"
+                                   {% if item.ItemID in selected_ids %}checked{% endif %}>
+                        </td>
+                        <td>{{ item.ItemNo or item.ItemID }}</td>
+                        <td>{{ item.ItemName }}</td>
+                        <td class="brand-current">{{ item.Brand or '—' }}</td>
+                        <td>{{ item.CategoryName or 'N/A' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5">No items match your filters.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="brand-set-actions">
+            <button type="submit" class="btn btn-primary"
+                    onclick="return confirm('Set this brand on the selected items?')">
+                Save brand on selected items
+            </button>
+            <span class="brand-set-count"><span id="selected-count">0</span> selected</span>
+        </div>
+    </form>
+</div>
+
+<script>
+(function () {
+    const selectAll = document.getElementById('select-all');
+    const checks = document.querySelectorAll('.item-check');
+    const countEl = document.getElementById('selected-count');
+
+    function updateCount() {
+        const selected = document.querySelectorAll('.item-check:checked').length;
+        countEl.textContent = selected;
+        if (selectAll) {
+            selectAll.checked = checks.length > 0 && selected === checks.length;
+            selectAll.indeterminate = selected > 0 && selected < checks.length;
+        }
+    }
+
+    if (selectAll) {
+        selectAll.addEventListener('change', function () {
+            checks.forEach(function (cb) { cb.checked = selectAll.checked; });
+            updateCount();
+        });
+    }
+
+    checks.forEach(function (cb) {
+        cb.addEventListener('change', updateCount);
+    });
+
+    updateCount();
+})();
+</script>
+{% endblock %}
