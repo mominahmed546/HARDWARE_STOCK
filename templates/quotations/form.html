@@ -16,7 +16,7 @@
 {% set lines = quotation_lines or [{'description': '', 'width': '', 'height': '', 'quantity': '1', 'rate': '0', 'sqft': ''}] %}
 <div class="container quotation-page">
     <div class="card">
-        <form method="POST" class="form quotation-form" data-validate novalidate>
+        <form method="POST" class="form quotation-form" data-validate data-enter-nav novalidate>
             <div class="quotation-grid">
                 <div class="form-group">
                     <label for="quotation_date">Date</label>
@@ -213,6 +213,53 @@
     const nameInput = document.getElementById('customer_name');
     const contactInput = document.getElementById('contact_no');
     const advanceInput = document.getElementById('advance');
+    const quotationForm = document.querySelector('.quotation-form');
+
+    function setupEnterNavigation(form) {
+        function focusableFields() {
+            return Array.from(form.querySelectorAll(
+                'input:not([type="hidden"]):not([type="button"]):not([type="submit"]), select, textarea'
+            )).filter(function (field) {
+                return !field.disabled && field.tabIndex !== -1;
+            });
+        }
+
+        form.addEventListener('keydown', function (event) {
+            if (event.key !== 'Enter' || event.isComposing) {
+                return;
+            }
+
+            const target = event.target;
+            if (!form.contains(target) || target.tagName === 'BUTTON') {
+                return;
+            }
+
+            // Notes and Shift+Enter in item descriptions keep a normal new line.
+            if (target.tagName === 'TEXTAREA') {
+                if (target.id === 'notes' || event.shiftKey) {
+                    return;
+                }
+            }
+
+            event.preventDefault();
+
+            const fields = focusableFields();
+            const index = fields.indexOf(target);
+            if (index === -1) {
+                return;
+            }
+
+            const next = fields[index + 1];
+            if (!next) {
+                return;
+            }
+
+            next.focus();
+            if (typeof next.select === 'function' && next.type !== 'date') {
+                next.select();
+            }
+        });
+    }
 
     function money(value) {
         return 'Rs ' + value.toFixed(2);
@@ -340,6 +387,9 @@
     });
 
     advanceInput.addEventListener('input', updateTotals);
+    if (quotationForm) {
+        setupEnterNavigation(quotationForm);
+    }
     body.querySelectorAll('.quotation-item-row').forEach(bindRow);
     syncRemoveButtons();
     updateTotals();
