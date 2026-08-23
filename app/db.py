@@ -1,6 +1,7 @@
 import os
 import re
 import threading
+from functools import lru_cache
 
 from psycopg_pool import ConnectionPool
 from flask import g
@@ -229,7 +230,8 @@ def _replace_identifiers(query):
     return query
 
 
-def _translate_sql(query):
+@lru_cache(maxsize=512)
+def _translate_sql_cached(query):
     query = _replace_identifiers(query)
     query = query.replace("?", "%s")
     query = re.sub(r"\bISNULL\s*\(", "COALESCE(", query, flags=re.IGNORECASE)
@@ -250,6 +252,10 @@ def _translate_sql(query):
     )
     query = re.sub(r"SELECT\s+TOP\s+(\d+)\s+(.*)", _translate_top, query, flags=re.IGNORECASE | re.DOTALL)
     return query
+
+
+def _translate_sql(query):
+    return _translate_sql_cached(query)
 
 
 _user_columns_ready = False

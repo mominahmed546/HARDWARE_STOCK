@@ -5,12 +5,19 @@ unpaid = 0%, partial = amount_paid / invoice_total, paid = 100%.
 """
 
 from datetime import datetime
+import time
+
+from flask_login import current_user
 
 _SCHEMA_READY = {
     "invoice_payments": False,
     "cash_accounts_schema": False,
     "purchase_payments": False,
 }
+
+# Short-lived per-account cache for drawer balance aggregates used on list pages.
+_BALANCE_CACHE_TTL = 20.0
+_balance_cache = {}
 
 
 def _ensure_schema_migrations_table(cursor):
@@ -40,44 +47,81 @@ def _mark_migration_applied(cursor, name):
     )
 
 
+def _cache_user_key():
+    try:
+        if current_user.is_authenticated:
+            return int(current_user.id)
+    except Exception:
+        pass
+    return 0
+
+
+def invalidate_balance_cache(user_id=None):
+    """Drop cached cash/bank aggregates after payments change."""
+    if user_id is None:
+        user_id = _cache_user_key()
+    _balance_cache.pop(("invoice_receipts", user_id), None)
+    _balance_cache.pop(("purchase_payments", user_id), None)
+
+
+def _cached_pair(cache_key, loader):
+    user_id = _cache_user_key()
+    key = (cache_key, user_id)
+    now = time.monotonic()
+    hit = _balance_cache.get(key)
+    if hit and (now - hit[0]) < _BALANCE_CACHE_TTL:
+        return hit[1]
+    value = loader()
+    _balance_cache[key] = (now, value)
+    return value
+
+
 def invoice_receipt_totals(cursor):
     """Cash/bank received from invoice payments for the current account."""
-    from app.tenancy import owner_sql
 
-    cursor.execute(
-        f"""
-        SELECT
-            COALESCE(SUM(CASE WHEN COALESCE(ip.PaymentMethod, 'Cash') = 'Cash' THEN ip.Amount ELSE 0 END), 0) AS CashAmount,
-            COALESCE(SUM(CASE WHEN COALESCE(ip.PaymentMethod, 'Cash') = 'Bank' THEN ip.Amount ELSE 0 END), 0) AS BankAmount
-        FROM InvoicePayments ip
-        INNER JOIN Invoices i ON i.InvoiceID = ip.InvoiceID
-        WHERE {owner_sql("i")}
-        """
-    )
-    row = cursor.fetchone()
-    if not row:
-        return 0.0, 0.0
-    return float(row.CashAmount or 0), float(row.BankAmount or 0)
+    def _load():
+        from app.tenancy import owner_sql
+
+        cursor.execute(
+            f"""
+            SELECT
+                COALESCE(SUM(CASE WHEN COALESCE(ip.PaymentMethod, 'Cash') = 'Cash' THEN ip.Amount ELSE 0 END), 0) AS CashAmount,
+                COALESCE(SUM(CASE WHEN COALESCE(ip.PaymentMethod, 'Cash') = 'Bank' THEN ip.Amount ELSE 0 END), 0) AS BankAmount
+            FROM InvoicePayments ip
+            INNER JOIN Invoices i ON i.InvoiceID = ip.InvoiceID
+            WHERE {owner_sql("i")}
+            """
+        )
+        row = cursor.fetchone()
+        if not row:
+            return 0.0, 0.0
+        return float(row.CashAmount or 0), float(row.BankAmount or 0)
+
+    return _cached_pair("invoice_receipts", _load)
 
 
 def purchase_payment_totals(cursor):
     """Cash/bank paid out on purchases for the current account."""
-    from app.tenancy import owner_sql
 
-    cursor.execute(
-        f"""
-        SELECT
-            COALESCE(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Cash' THEN pp.Amount ELSE 0 END), 0) AS CashPaid,
-            COALESCE(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Bank' THEN pp.Amount ELSE 0 END), 0) AS BankPaid
-        FROM PurchasePayments pp
-        INNER JOIN Purchases p ON p.PurchaseID = pp.PurchaseID
-        WHERE {owner_sql("p")}
-        """
-    )
-    row = cursor.fetchone()
-    if not row:
-        return 0.0, 0.0
-    return float(row.CashPaid or 0), float(row.BankPaid or 0)
+    def _load():
+        from app.tenancy import owner_sql
+
+        cursor.execute(
+            f"""
+            SELECT
+                COALESCE(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Cash' THEN pp.Amount ELSE 0 END), 0) AS CashPaid,
+                COALESCE(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Bank' THEN pp.Amount ELSE 0 END), 0) AS BankPaid
+            FROM PurchasePayments pp
+            INNER JOIN Purchases p ON p.PurchaseID = pp.PurchaseID
+            WHERE {owner_sql("p")}
+            """
+        )
+        row = cursor.fetchone()
+        if not row:
+            return 0.0, 0.0
+        return float(row.CashPaid or 0), float(row.BankPaid or 0)
+
+    return _cached_pair("purchase_payments", _load)
 
 
 def ensure_invoice_payments_table(db, cursor):
@@ -382,6 +426,7 @@ def save_cash_openings(cursor, cash_opening, bank_opening):
         """,
         (float(cash_opening or 0), float(bank_opening or 0)),
     )
+    invalidate_balance_cache()
 
 
 def remaining_due(total_amount, paid_amount, epsilon=0.005):
@@ -417,6 +462,7 @@ def list_invoice_payments(cursor, invoice_id):
 
 
 def refresh_invoice_settlement(cursor, invoice_id):
+    invalidate_balance_cache()
     cursor.execute(
         """
         SELECT
@@ -590,6 +636,7 @@ def list_purchase_payments(cursor, purchase_id):
 
 
 def refresh_purchase_settlement(cursor, purchase_id):
+    invalidate_balance_cache()
     cursor.execute(
         """
         SELECT COALESCE(TotalAmount, 0) AS TotalAmount

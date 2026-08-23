@@ -5,7 +5,7 @@ from flask import Blueprint, abort, flash, redirect, render_template, request, s
 from flask_login import login_required
 
 from app import app
-from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
+from app.cogs import list_sold_line_cost_sql, purchase_unit_cost_join, sold_line_cost_sql
 from app.db import get_db_connection
 from app.wa_api import is_configured as wa_api_configured
 from app.wa_api import send_file_bytes as wa_send_file
@@ -1174,7 +1174,8 @@ def list_invoices():
             for row in cursor.fetchall():
                 returns_by_id[int(row.InvoiceID)] = row
 
-            line_cost = sold_line_cost_sql("d")
+            # List page: use Item.PurchaseRate only — skip all-history purchase avg join.
+            line_cost = list_sold_line_cost_sql("d")
             paid_ratio = paid_ratio_sql("i", None)
             cursor.execute(
                 f"""
@@ -1190,7 +1191,6 @@ def list_invoices():
                 FROM Invoices i
                 LEFT JOIN InvoiceDetails d ON i.InvoiceID = d.InvoiceID
                 LEFT JOIN Item it ON d.ItemID = it.ItemID
-                {purchase_unit_cost_join("d")}
                 WHERE i.InvoiceID IN ({placeholders})
                 GROUP BY i.InvoiceID
                 """,

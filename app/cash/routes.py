@@ -101,8 +101,8 @@ def _balances_through(cursor, through_date, cash_opening, bank_opening):
 
 
 def _accrual_profit_for_year(cursor, year):
-    """Total profit for the year, matching the Monthly Profit report total."""
-    return get_year_total_profit(cursor, year)
+    """Total profit for the year (fast path for cash/dashboard capital split)."""
+    return get_year_total_profit(cursor, year, fast=True)
 
 
 def _cash_excluding_profit(cursor, through_date, cash_opening, cash_in_hand=None, bank_balance=None):
