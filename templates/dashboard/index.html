@@ -119,7 +119,7 @@
         </div>
 
         <div class="pos-panel">
-            <div class="pos-panel-header low">Low stock (&lt; 10)</div>
+            <div class="pos-panel-header low">Low stock (&lt; {{ low_stock_threshold|default(6) }})</div>
             <div class="pos-table-wrap">
                 <table class="pos-table">
                     <thead>

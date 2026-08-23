@@ -17,12 +17,12 @@ from app.payments import (
 )
 from app.profit.routes import get_year_total_profit
 from app.perf import day_bounds, through_exclusive
+from app.stock_constants import LOW_STOCK_THRESHOLD
 from app.tenancy import owner_sql
 from app.validators import ValidationErrors, clean_positive_decimal
 
 cash_bp = Blueprint("cash", __name__, url_prefix="/cash")
 
-LOW_STOCK_THRESHOLD = 10
 MONTHS = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
