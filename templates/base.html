@@ -206,9 +206,15 @@
             if (!loader) return;
 
             var loaderTimeout = null;
+            var loaderShowDelay = null;
             var LOADER_FAILSAFE_MS = 20000;
+            var LOADER_SHOW_DELAY_MS = 350;
 
             function hideLoader() {
+                if (loaderShowDelay) {
+                    window.clearTimeout(loaderShowDelay);
+                    loaderShowDelay = null;
+                }
                 if (loaderTimeout) {
                     window.clearTimeout(loaderTimeout);
                     loaderTimeout = null;
@@ -219,9 +225,12 @@
 
             function showLoader() {
                 hideLoader();
-                loader.classList.add('visible');
-                loader.setAttribute('aria-hidden', 'false');
-                loaderTimeout = window.setTimeout(hideLoader, LOADER_FAILSAFE_MS);
+                loaderShowDelay = window.setTimeout(function () {
+                    loaderShowDelay = null;
+                    loader.classList.add('visible');
+                    loader.setAttribute('aria-hidden', 'false');
+                    loaderTimeout = window.setTimeout(hideLoader, LOADER_FAILSAFE_MS);
+                }, LOADER_SHOW_DELAY_MS);
             }
 
             document.addEventListener('click', function (event) {

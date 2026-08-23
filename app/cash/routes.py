@@ -15,7 +15,7 @@ from app.payments import (
     get_cash_openings,
     save_cash_openings,
 )
-from app.profit.routes import _year_total_profit
+from app.profit.routes import get_year_total_profit
 from app.perf import day_bounds, through_exclusive
 from app.tenancy import owner_sql
 from app.validators import ValidationErrors, clean_positive_decimal
@@ -102,7 +102,7 @@ def _balances_through(cursor, through_date, cash_opening, bank_opening):
 
 def _accrual_profit_for_year(cursor, year):
     """Total profit for the year, matching the Monthly Profit report total."""
-    return _year_total_profit(cursor, year)
+    return get_year_total_profit(cursor, year)
 
 
 def _cash_excluding_profit(cursor, through_date, cash_opening, cash_in_hand=None, bank_balance=None):

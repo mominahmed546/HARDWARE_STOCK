@@ -1,3 +1,4 @@
+import time
 from datetime import date
 from io import BytesIO
 
@@ -7,10 +8,13 @@ from flask_login import login_required
 from app import app
 from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
 from app.db import get_db_connection
-from app.tenancy import owner_sql
+from app.tenancy import owner_sql, request_user_id
 from app.payments import ensure_invoice_payments_table, paid_ratio_sql
 
 profit_bp = Blueprint("profit", __name__, url_prefix="/profit")
+
+_YEAR_PROFIT_CACHE = {}
+YEAR_PROFIT_CACHE_TTL = 120.0
 
 MONTHS = [
     "January", "February", "March", "April", "May", "June",
@@ -23,14 +27,23 @@ def _pdf_escape(value):
 
 
 def _year_total_profit(cursor, selected_year):
-    """Single-number year profit matching the Monthly Profit report total.
+    """Single-number year profit matching the Monthly Profit report total."""
+    return get_year_total_profit(cursor, selected_year, use_cache=False)
 
-    Skips the years list and per-month breakdown used by the full report page.
-    Uses Invoices.CashReceived for the paid ratio so we avoid aggregating all
-    InvoicePayments on every dashboard/cash load.
-    """
-    year_start = date(int(selected_year), 1, 1)
-    year_end = date(int(selected_year) + 1, 1, 1)
+
+def get_year_total_profit(cursor, selected_year, *, use_cache=True):
+    """Year profit with a short-lived per-account cache for dashboard/cash pages."""
+    user_id = request_user_id()
+    year = int(selected_year)
+    if use_cache and user_id:
+        key = (user_id, year)
+        now = time.monotonic()
+        cached = _YEAR_PROFIT_CACHE.get(key)
+        if cached and (now - cached[0]) < YEAR_PROFIT_CACHE_TTL:
+            return cached[1]
+
+    year_start = date(year, 1, 1)
+    year_end = date(year + 1, 1, 1)
     line_cost = sold_line_cost_sql("id")
     paid_ratio = paid_ratio_sql("i", None)
     cursor.execute(
@@ -47,7 +60,10 @@ def _year_total_profit(cursor, selected_year):
         (year_start, year_end),
     )
     row = cursor.fetchone()
-    return max(float(row.Profit or 0) if row else 0.0, 0.0)
+    profit = max(float(row.Profit or 0) if row else 0.0, 0.0)
+    if use_cache and user_id:
+        _YEAR_PROFIT_CACHE[(user_id, year)] = (time.monotonic(), profit)
+    return profit
 
 
 def _monthly_profit_data(cursor, selected_year):
