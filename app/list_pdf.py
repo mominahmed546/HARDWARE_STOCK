@@ -13,8 +13,22 @@ BOTTOM_MARGIN = 52
 SR_COL_W = 22
 
 
+def pdf_safe_text(value):
+    text = str(value or "")
+    for src, dst in (
+        ("\u2014", "-"),
+        ("\u2013", "-"),
+        ("\u2018", "'"),
+        ("\u2019", "'"),
+        ("\u201c", '"'),
+        ("\u201d", '"'),
+    ):
+        text = text.replace(src, dst)
+    return text
+
+
 def pdf_escape(value):
-    return str(value).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    return pdf_safe_text(value).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
 def wrap_pdf_text(text_str, max_chars):
@@ -88,7 +102,14 @@ def assemble_multipage_pdf(page_streams, page_width=PAGE_WIDTH, page_height=PAGE
     return pdf
 
 
-def build_tabular_list_pdf(title, columns, rows, subtitle_lines=None, summary_rows=None):
+def build_tabular_list_pdf(
+    title,
+    columns,
+    rows,
+    subtitle_lines=None,
+    summary_rows=None,
+    summary_value_from_index=-2,
+):
     """
     Build a multi-page Euroglass tabular list PDF.
 
@@ -99,6 +120,8 @@ def build_tabular_list_pdf(title, columns, rows, subtitle_lines=None, summary_ro
       - align ('left' | 'center' | 'right'), default 'center'
       - wrap (int | None): word-wrap threshold for left-aligned text
     summary_rows: optional list of (label, value) footer rows; value aligns to last column.
+    summary_value_from_index: col_bounds index (supports negatives) for the left edge of
+        the summary value area; defaults to the second-to-last column.
     """
     table_x = X_LEFT
     col_bounds = [table_x + SR_COL_W]
@@ -232,7 +255,11 @@ def build_tabular_list_pdf(title, columns, rows, subtitle_lines=None, summary_ro
         if y - row_h_footer * len(summary_rows) < BOTTOM_MARGIN:
             new_page()
         y -= 8
-        value_split_x = col_bounds[-2] if len(col_bounds) >= 2 else table_x + TABLE_W / 2
+        split_idx = summary_value_from_index
+        if split_idx < 0:
+            split_idx = len(col_bounds) + split_idx
+        split_idx = max(1, min(split_idx, len(col_bounds) - 1))
+        value_split_x = col_bounds[split_idx]
         for label, value in summary_rows:
             filled_rect(table_x, y - row_h_footer + 4, TABLE_W, row_h_footer, 0.88, 0.88, 0.88)
             line(value_split_x, y - row_h_footer + 4, value_split_x, y + 4)
