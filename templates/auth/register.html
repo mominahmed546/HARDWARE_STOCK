@@ -21,19 +21,19 @@
             </div>
 
             <div class="form-group">
-                <label for="email">Email</label>
+                <label for="email">Email <span style="color:var(--text-muted);font-weight:400;">(optional)</span></label>
                 <input type="email" id="email" name="email"
                        value="{{ fd.get('email', '') }}"
-                       maxlength="120" required
+                       maxlength="120"
                        class="{% if errors and errors.get('email') %}is-invalid{% endif %}">
                 {{ field_error(errors, 'email') }}
             </div>
 
             <div class="form-group">
-                <label for="phone">Phone</label>
+                <label for="phone">Phone <span style="color:var(--text-muted);font-weight:400;">(optional)</span></label>
                 <input type="tel" id="phone" name="phone"
                        value="{{ fd.get('phone', '') }}"
-                       maxlength="20" required
+                       maxlength="20"
                        class="{% if errors and errors.get('phone') %}is-invalid{% endif %}">
                 {{ field_error(errors, 'phone') }}
             </div>
