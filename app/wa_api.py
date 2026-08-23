@@ -108,6 +108,25 @@ def send_document(to_raw, media_id, file_name, caption=""):
     return result, None
 
 
+def send_text(to_raw, body_text):
+    """Send a plain text WhatsApp message. Returns (result, error)."""
+    if not is_configured():
+        return None, "WA_TOKEN and WA_PHONE_ID are not set. Add them in Render → Environment."
+    to = _normalise(to_raw)
+    if not to:
+        return None, "Invalid phone number."
+    body = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "text",
+        "text": {"preview_url": False, "body": body_text},
+    }
+    result, err = _api("POST", f"/{_phone_id()}/messages", body)
+    if err:
+        return None, err
+    return result, None
+
+
 def send_file_bytes(to_raw, file_bytes, mime_type, file_name, caption=""):
     """Upload file_bytes then send as a document. Returns (result, error)."""
     if not is_configured():

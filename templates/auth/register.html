@@ -9,6 +9,9 @@
 <div class="container">
     <div class="card">
         <h2>Create New Account</h2>
+        <p style="color: var(--text-muted); margin-top: -0.5rem;">
+            Provide an <strong>email or phone number</strong> so you can recover your password later.
+        </p>
 
         <form method="POST" class="form" data-validate novalidate>
             <div class="form-group">
@@ -21,7 +24,7 @@
             </div>
 
             <div class="form-group">
-                <label for="email">Email <span style="color:var(--text-muted);font-weight:400;">(optional)</span></label>
+                <label for="email">Email <span style="color:var(--text-muted);font-weight:400;">(email or phone required)</span></label>
                 <input type="email" id="email" name="email"
                        value="{{ fd.get('email', '') }}"
                        maxlength="120"
@@ -30,7 +33,7 @@
             </div>
 
             <div class="form-group">
-                <label for="phone">Phone <span style="color:var(--text-muted);font-weight:400;">(optional)</span></label>
+                <label for="phone">Phone <span style="color:var(--text-muted);font-weight:400;">(email or phone required)</span></label>
                 <input type="tel" id="phone" name="phone"
                        value="{{ fd.get('phone', '') }}"
                        maxlength="20"

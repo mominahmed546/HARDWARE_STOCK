@@ -59,3 +59,22 @@ def send_password_reset_email(app, to_address, username, reset_url):
         "If you did not request this, you can safely ignore this email.\n"
     )
     send_email(app, to_address, subject, body)
+
+
+def send_password_reset_whatsapp(to_phone, username, reset_url):
+    """Send password reset link via WhatsApp. Returns (ok, error_message)."""
+    from app.wa_api import is_configured, send_text
+
+    if not is_configured():
+        return False, "WhatsApp is not configured on this server."
+
+    body = (
+        f"Hello {username},\n\n"
+        "Password reset for your Euroglass Hardware Stock account.\n\n"
+        f"Open this link within 1 hour to set a new password:\n{reset_url}\n\n"
+        "If you did not request this, ignore this message."
+    )
+    _result, err = send_text(to_phone, body)
+    if err:
+        return False, err
+    return True, None
