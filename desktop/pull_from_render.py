@@ -1,17 +1,13 @@
 """
-Pull your Render (online) account into the local offline SQLite database.
+Pull your cloud (Supabase/Render Postgres) account into local offline SQLite.
 
-After this branch is deployed to Render:
+No Google login in this app — only username/password.
+If you only have the database URL, use --no-password to pick a user from the DB
+and set a new offline password.
 
-  python desktop/pull_from_render.py --url https://YOUR-APP.onrender.com
+  python desktop/pull_from_render.py --database-url "postgresql://..." --no-password
 
-Or pull straight from the Render Postgres URL (works even before redeploy):
-
-  python desktop/pull_from_render.py --database-url "postgresql://..."
-
-Use the same username/password as the website.
-
-WARNING: This REPLACES local offline data with the cloud copy for that account.
+WARNING: Replaces local offline data with the cloud copy for that account.
 """
 
 from __future__ import annotations
@@ -91,7 +87,6 @@ def _normalize_row(row: dict) -> dict:
     out = {}
     for key, value in row.items():
         out[_to_snake(key)] = value
-    # Common alias from PascalCase-folded Postgres tables
     if "lineamount" in out and "line_amount" not in out:
         out["line_amount"] = out.pop("lineamount")
     if "salesreturnid" in out and "sales_return_id" not in out:
@@ -223,8 +218,7 @@ def export_via_http(base_url: str, username: str, password: str) -> dict:
         raise SystemExit(
             f"Could not reach {url}\n"
             f"  {exc}\n"
-            "If the site is waking up, wait a minute and retry.\n"
-            "Or use --database-url with your Render External Database URL."
+            "Use --database-url with your Supabase/Postgres URI instead."
         ) from exc
 
     if not payload.get("ok"):
@@ -243,14 +237,17 @@ def _convert_value(value):
 
 
 def _convert_rows(rows) -> list[dict]:
-    out = []
-    for row in rows:
-        item = {k: _convert_value(v) for k, v in dict(row).items()}
-        out.append(item)
-    return out
+    return [{k: _convert_value(v) for k, v in dict(row).items()} for row in rows]
 
 
-def export_via_database_url(database_url: str, username: str, password: str) -> dict:
+def export_via_database_url(
+    database_url: str,
+    username: str | None = None,
+    password: str | None = None,
+    *,
+    skip_password: bool = False,
+    new_local_password: str | None = None,
+) -> dict:
     try:
         import psycopg
         from psycopg.rows import dict_row
@@ -262,7 +259,7 @@ def export_via_database_url(database_url: str, username: str, password: str) -> 
 
     from hmac import compare_digest
 
-    from werkzeug.security import check_password_hash
+    from werkzeug.security import check_password_hash, generate_password_hash
 
     url = database_url.strip()
     if url.startswith("postgres://"):
@@ -282,21 +279,48 @@ def export_via_database_url(database_url: str, username: str, password: str) -> 
     with psycopg.connect(url) as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
-                "SELECT user_id, username, password, email, phone "
-                "FROM users WHERE username = %s",
-                (username,),
+                "SELECT user_id, username, password, email, phone FROM users "
+                "ORDER BY user_id"
             )
-            user = cur.fetchone()
-            if not user or not verify(user["password"], password):
-                raise SystemExit("Invalid username or password on the Render database.")
+            all_users = list(cur.fetchall())
+            if not all_users:
+                raise SystemExit("No users found in the database.")
 
+            user = None
+            if username:
+                for row in all_users:
+                    if str(row["username"]).lower() == username.lower():
+                        user = row
+                        break
+                if user is None:
+                    names = ", ".join(str(u["username"]) for u in all_users)
+                    raise SystemExit(f"Username '{username}' not found. Users: {names}")
+                if not skip_password:
+                    if not password or not verify(user["password"], password):
+                        raise SystemExit("Invalid username or password.")
+            else:
+                print("\nAccounts found in the database:")
+                for i, row in enumerate(all_users, start=1):
+                    email = row.get("email") or "-"
+                    print(f"  {i}. {row['username']}  (email: {email})")
+                choice = input("\nEnter number to import: ").strip()
+                try:
+                    user = all_users[int(choice) - 1]
+                except (ValueError, IndexError) as exc:
+                    raise SystemExit("Invalid selection.") from exc
+
+            username = str(user["username"])
             user_id = int(user["user_id"])
+            stored_password = user["password"]
+            if new_local_password:
+                stored_password = generate_password_hash(new_local_password)
+
             tables: dict[str, list] = {
                 "Users": [
                     {
                         "user_id": user_id,
-                        "username": user["username"],
-                        "password": user["password"],
+                        "username": username,
+                        "password": stored_password,
                         "email": user.get("email"),
                         "phone": user.get("phone"),
                     }
@@ -416,58 +440,97 @@ def export_via_database_url(database_url: str, username: str, password: str) -> 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Download your Render account into the offline SQLite database."
+        description="Download cloud account data into the offline SQLite database."
     )
-    parser.add_argument(
-        "--url",
-        default=os.environ.get("SYNC_REMOTE_URL") or "",
-        help="Render site URL, e.g. https://hardware-stock.onrender.com",
-    )
+    parser.add_argument("--url", default=os.environ.get("SYNC_REMOTE_URL") or "")
     parser.add_argument(
         "--database-url",
-        default=os.environ.get("RENDER_DATABASE_URL") or "",
-        help="Render External Database URL (postgres). Use if API is not deployed yet.",
+        default=os.environ.get("RENDER_DATABASE_URL")
+        or os.environ.get("DATABASE_URL")
+        or "",
     )
     parser.add_argument("--username", default=os.environ.get("SYNC_USERNAME") or "")
     parser.add_argument("--password", default=os.environ.get("SYNC_PASSWORD") or "")
     parser.add_argument(
-        "--yes",
+        "--no-password",
         action="store_true",
-        help="Skip confirmation (local DB will be replaced).",
+        help="With --database-url: pick a user from the DB; no app password needed.",
     )
+    parser.add_argument(
+        "--set-password",
+        default="",
+        help="New offline login password for the imported account.",
+    )
+    parser.add_argument("--yes", action="store_true")
     args = parser.parse_args(argv)
 
-    username = args.username or input("Render username: ").strip()
-    password = args.password or getpass.getpass("Render password: ")
-    if not username or not password:
-        print("Username and password are required.", file=sys.stderr)
-        return 1
+    db_url = (args.database_url or "").strip()
+    use_db = bool(db_url) and not db_url.lower().startswith("sqlite:")
+
+    username = (args.username or "").strip() or None
+    password = args.password or None
+    new_local_password = (args.set_password or "").strip() or None
+    skip_password = bool(args.no_password) or (use_db and not password and not username)
+
+    if use_db and skip_password:
+        print(
+            "This stock app has no Google login — only username/password.\n"
+            "Because you have the database URL, we can import without the old password.\n"
+        )
+        if not new_local_password:
+            new_local_password = getpass.getpass(
+                "Choose a NEW password for offline login: "
+            ).strip()
+            confirm_pw = getpass.getpass("Confirm new password: ").strip()
+            if not new_local_password or new_local_password != confirm_pw:
+                print("Passwords missing or did not match.", file=sys.stderr)
+                return 1
+    else:
+        if not username:
+            username = input("App username: ").strip() or None
+        if not skip_password and not password:
+            password = getpass.getpass("App password: ")
+        if not username:
+            print("Username is required.", file=sys.stderr)
+            return 1
+        if not skip_password and not password:
+            print(
+                "Password required, or use --no-password with --database-url.",
+                file=sys.stderr,
+            )
+            return 1
 
     db_file = database_path()
     print(f"Local database: {db_file}")
-    print("This will REPLACE all local offline data with your Render account.")
+    print("This will REPLACE all local offline data with your cloud account.")
     if not args.yes:
         confirm = input("Type YES to continue: ").strip()
         if confirm != "YES":
             print("Cancelled.")
             return 1
 
-    db_url = (args.database_url or "").strip()
-    if db_url and not db_url.lower().startswith("sqlite:"):
-        print("Pulling directly from Render Postgres...")
-        export = export_via_database_url(db_url, username, password)
+    if use_db:
+        print("Pulling from Postgres (Supabase/Render)...")
+        export = export_via_database_url(
+            db_url,
+            username,
+            password,
+            skip_password=skip_password,
+            new_local_password=new_local_password,
+        )
         method = "database_url"
+        username = export.get("username") or username
     elif args.url:
+        if not username or not password:
+            print("Username and password are required for --url.", file=sys.stderr)
+            return 1
         print(f"Pulling via {args.url.rstrip('/')}/api/sync/export ...")
         export = export_via_http(args.url, username, password)
         method = "http"
     else:
         print(
-            "Provide either:\n"
-            "  --url https://YOUR-APP.onrender.com\n"
-            "or\n"
-            '  --database-url "postgresql://..." '
-            "(Render → your Postgres → External Database URL)",
+            "Provide --database-url \"postgresql://...\" (from Supabase Connect)\n"
+            "or --url https://YOUR-APP.onrender.com",
             file=sys.stderr,
         )
         return 1
@@ -475,7 +538,7 @@ def main(argv: list[str] | None = None) -> int:
     result = apply_export_to_local(export, db_file)
     state = load_sync_state()
     state["last_sync_at"] = datetime.now(timezone.utc).isoformat()
-    state["last_status"] = "pulled_from_render"
+    state["last_status"] = "pulled_from_cloud"
     state["last_message"] = f"Imported via {method}"
     state["remote_url"] = args.url or state.get("remote_url") or ""
     state["counts"] = result["counts"]
@@ -486,9 +549,12 @@ def main(argv: list[str] | None = None) -> int:
         if count:
             print(f"  {name}: {count}")
     print()
-    print("Next:")
-    print("  python desktop\\launcher.py")
-    print(f"Then log in with the SAME username/password as on Render ({username}).")
+    print("Next:  python desktop\\launcher.py")
+    print(f"Username: {username}")
+    if new_local_password:
+        print("Password: (the NEW offline password you chose)")
+    else:
+        print("Password: your usual app password")
     return 0
 
 
