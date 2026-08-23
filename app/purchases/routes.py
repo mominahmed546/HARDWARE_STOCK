@@ -37,6 +37,8 @@ from app.validators import (
 
     clean_string,
 
+    clean_optional_string,
+
     clean_positive_int,
 
     clean_positive_decimal,
@@ -109,6 +111,7 @@ def _validate_purchase_form(form, errors):
     data = {
         "purchase_date": clean_date(form.get("purchase_date"), "purchase_date", errors, label="Purchase date"),
         "supplier_id": clean_select_id(form.get("supplier_id"), "supplier_id", errors, label="Supplier"),
+        "brand": clean_optional_string(form.get("brand"), "brand", errors, max_len=100, label="Brand"),
         "item_mode": item_mode,
         "quantity": clean_positive_int(form.get("quantity"), "quantity", errors, min_val=1, label="Quantity"),
         "purchase_rate": clean_positive_decimal(form.get("purchase_rate"), "purchase_rate", errors, label="Purchase rate"),
@@ -144,6 +147,7 @@ def _load_purchase_form_data(cursor):
                 MIN(i.ItemID)
             ) AS ItemID,
             MIN(i.ItemName) AS ItemName,
+            MAX(i.Brand) AS Brand,
             i.CategoryID,
             c.CategoryName,
             MAX(i.PurchaseRate) AS PurchaseRate,
@@ -184,8 +188,11 @@ def create_purchase():
 
 
     try:
+        from app.items.routes import _ensure_item_brand_column
+
         _ensure_purchase_payment_method_column(db, cursor)
         ensure_purchase_payments_table(db, cursor)
+        _ensure_item_brand_column(db, cursor)
 
         suppliers, items, categories = _load_purchase_form_data(cursor)
 
@@ -248,10 +255,11 @@ def create_purchase():
                 cursor.execute(
                     f"""
                     UPDATE Item
-                    SET Qty = Qty + ?, PurchaseRate = ?, SaleRate = ?
+                    SET Qty = Qty + ?, PurchaseRate = ?, SaleRate = ?,
+                        Brand = COALESCE(?, Brand)
                     WHERE ItemID = ? AND {owner_sql()}
                     """,
-                    (data["quantity"], data["purchase_rate"], data["sale_rate"], item_id),
+                    (data["quantity"], data["purchase_rate"], data["sale_rate"], data.get("brand"), item_id),
                 )
             else:
                 item_name = data["item_name"]
@@ -275,23 +283,25 @@ def create_purchase():
                     cursor.execute(
                         f"""
                         UPDATE Item
-                        SET Qty = Qty + ?, PurchaseRate = ?, SaleRate = ?
+                        SET Qty = Qty + ?, PurchaseRate = ?, SaleRate = ?,
+                            Brand = COALESCE(?, Brand)
                         WHERE ItemID = ? AND {owner_sql()}
                         """,
-                        (data["quantity"], data["purchase_rate"], data["sale_rate"], item_id),
+                        (data["quantity"], data["purchase_rate"], data["sale_rate"], data.get("brand"), item_id),
                     )
                 else:
                     next_item_id = next_table_id(cursor, "Item", "ItemID")
                     next_item_no = next_owner_no(cursor, "Item", "ItemNo")
                     cursor.execute(
                         """
-                        INSERT INTO Item (ItemID, ItemNo, ItemName, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO Item (ItemID, ItemNo, ItemName, Brand, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             next_item_id,
                             next_item_no,
                             item_name,
+                            data.get("brand"),
                             data["category_id"],
                             data["purchase_rate"],
                             data["sale_rate"],

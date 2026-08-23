@@ -80,8 +80,9 @@
                     <option value="{{ item.ItemID }}"
                             data-purchase-rate="{{ item.PurchaseRate }}"
                             data-sale-rate="{{ item.SaleRate }}"
+                            data-brand="{{ item.Brand or '' }}"
                             {% if fd.get('item_id')|string == item.ItemID|string %}selected{% endif %}>
-                        {{ item.ItemName }} - {{ item.CategoryName or 'N/A' }} (Current Qty: {{ item.Qty }})
+                        {{ item.ItemName }}{% if item.Brand %} ({{ item.Brand }}){% endif %} - {{ item.CategoryName or 'N/A' }} (Current Qty: {{ item.Qty }})
                     </option>
                     {% endfor %}
                 </select>
@@ -110,6 +111,15 @@
                     {% endfor %}
                 </select>
                 {{ field_error(errors, 'category_id') }}
+            </div>
+
+            <div class="form-group">
+                <label for="brand">Brand</label>
+                <input type="text" id="brand" name="brand"
+                       value="{{ fd.get('brand', '') }}"
+                       maxlength="100" placeholder="Optional"
+                       class="{% if errors and errors.get('brand') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'brand') }}
             </div>
 
             <div class="form-group">
@@ -152,6 +162,7 @@
     const categorySelect = document.getElementById('category_id');
     const purchaseRate = document.getElementById('purchase_rate');
     const saleRate = document.getElementById('sale_rate');
+    const brandInput = document.getElementById('brand');
 
     function syncItemMode() {
         const isExisting = itemMode.value === 'existing';
@@ -167,9 +178,13 @@
         itemName.disabled = isExisting;
         categorySelect.required = !isExisting;
         categorySelect.disabled = isExisting;
+
+        if (isExisting) {
+            fillFromExistingItem();
+        }
     }
 
-    function fillRatesFromExistingItem() {
+    function fillFromExistingItem() {
         const selected = itemSelect.options[itemSelect.selectedIndex];
         if (!selected) {
             return;
@@ -177,6 +192,7 @@
 
         const existingPurchaseRate = selected.getAttribute('data-purchase-rate');
         const existingSaleRate = selected.getAttribute('data-sale-rate');
+        const existingBrand = selected.getAttribute('data-brand');
 
         if (existingPurchaseRate) {
             purchaseRate.value = existingPurchaseRate;
@@ -185,10 +201,14 @@
         if (existingSaleRate) {
             saleRate.value = existingSaleRate;
         }
+
+        if (existingBrand !== null && brandInput) {
+            brandInput.value = existingBrand || '';
+        }
     }
 
     itemMode.addEventListener('change', syncItemMode);
-    itemSelect.addEventListener('change', fillRatesFromExistingItem);
+    itemSelect.addEventListener('change', fillFromExistingItem);
     syncItemMode();
 </script>
 {% endblock %}
