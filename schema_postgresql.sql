@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS item (
     item_id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(user_id),
     item_name VARCHAR(100) NOT NULL,
+    brand VARCHAR(100),
     category_id INTEGER REFERENCES category(category_id),
     purchase_rate NUMERIC(10, 2) DEFAULT 0,
     sale_rate NUMERIC(10, 2) DEFAULT 0,

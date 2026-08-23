@@ -21,11 +21,28 @@ from app.validators import (
     clean_select_id,
     clean_string,
     clean_optional_select_id,
+    clean_optional_string,
     clean_positive_decimal,
     clean_positive_int,
 )
 
 items_bp = Blueprint("items", __name__, url_prefix="/items")
+
+_BRAND_COLUMN_READY = False
+
+
+def _ensure_item_brand_column(db, cursor):
+    global _BRAND_COLUMN_READY
+    if _BRAND_COLUMN_READY:
+        return
+    cursor.execute(
+        """
+        ALTER TABLE Item
+        ADD COLUMN IF NOT EXISTS Brand VARCHAR(100)
+        """
+    )
+    db.commit()
+    _BRAND_COLUMN_READY = True
 
 QTY_FILTERS = {
     "lt10": ("Qty less than 10", " AND COALESCE(i.Qty, 0) < 10"),
@@ -38,6 +55,7 @@ QTY_FILTERS = {
 def _validate_item_form(form, errors, *, as_purchase=False):
     data = {
         "item_name": clean_string(form.get("item_name"), "item_name", errors, max_len=100, label="Item name"),
+        "brand": clean_optional_string(form.get("brand"), "brand", errors, max_len=100, label="Brand"),
         "category_id": clean_select_id(form.get("category_id"), "category_id", errors, label="Category")
         if as_purchase
         else clean_optional_select_id(form.get("category_id"), "category_id", errors, label="Category"),
@@ -79,10 +97,11 @@ def _resolve_or_create_item(cursor, data):
         cursor.execute(
             f"""
             UPDATE Item
-            SET Qty = Qty + ?, PurchaseRate = ?, SaleRate = ?
+            SET Qty = Qty + ?, PurchaseRate = ?, SaleRate = ?,
+                Brand = COALESCE(?, Brand)
             WHERE ItemID = ? AND {owner_sql()}
             """,
-            (data["qty"], data["purchase_rate"], data["sale_rate"], item_id),
+            (data["qty"], data["purchase_rate"], data["sale_rate"], data.get("brand"), item_id),
         )
         return item_id, item_name
 
@@ -90,13 +109,14 @@ def _resolve_or_create_item(cursor, data):
     next_item_no = next_owner_no(cursor, "Item", "ItemNo")
     cursor.execute(
         """
-        INSERT INTO Item (ItemID, ItemNo, ItemName, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO Item (ItemID, ItemNo, ItemName, Brand, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             next_item_id,
             next_item_no,
             item_name,
+            data.get("brand"),
             data["category_id"],
             data["purchase_rate"],
             data["sale_rate"],
@@ -247,6 +267,13 @@ def _duplicate_item_groups(app):
 @login_required
 def list_items():
     try:
+        db = get_db_connection(app)
+        cursor = db.cursor()
+        try:
+            _ensure_item_brand_column(db, cursor)
+        finally:
+            cursor.close()
+
         search = request.args.get("search", "", type=str)
         category_id = request.args.get("category_id", "", type=str)
         qty_filter = request.args.get("qty_filter", "", type=str)
@@ -282,6 +309,7 @@ def list_items():
                 i.ItemID,
                 COALESCE(i.ItemNo, i.ItemID) AS ItemNo,
                 i.ItemName,
+                i.Brand,
                 i.CategoryID,
                 i.PurchaseRate,
                 i.SaleRate,
@@ -426,6 +454,7 @@ def create_item():
         try:
             db = get_db_connection(app)
             cursor = db.cursor()
+            _ensure_item_brand_column(db, cursor)
             _ensure_purchase_payment_method_column(db, cursor)
             ensure_purchase_payments_table(db, cursor)
             cursor.execute(
@@ -478,6 +507,13 @@ def edit_item(id):
     form_data = {}
 
     try:
+        db = get_db_connection(app)
+        cursor = db.cursor()
+        try:
+            _ensure_item_brand_column(db, cursor)
+        finally:
+            cursor.close()
+
         item = execute_query_one(app, f"SELECT * FROM Item WHERE ItemID = ? AND {owner_sql()}", (id,))
 
         if not item:
@@ -508,12 +544,13 @@ def edit_item(id):
                 app,
                 f"""
                 UPDATE Item
-                SET ItemName = ?, CategoryID = ?, PurchaseRate = ?,
+                SET ItemName = ?, Brand = ?, CategoryID = ?, PurchaseRate = ?,
                     SaleRate = ?, Qty = ?
                 WHERE ItemID = ? AND {owner_sql()}
                 """,
                 (
                     data["item_name"],
+                    data.get("brand"),
                     data["category_id"],
                     data["purchase_rate"],
                     data["sale_rate"],

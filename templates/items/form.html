@@ -62,6 +62,15 @@
             </div>
 
             <div class="form-group">
+                <label for="brand">Brand</label>
+                <input type="text" id="brand" name="brand"
+                       value="{{ fd.get('brand', item.Brand if item else '') }}"
+                       maxlength="100" placeholder="Optional"
+                       class="{% if errors and errors.get('brand') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'brand') }}
+            </div>
+
+            <div class="form-group">
                 <label for="category_id">Category</label>
                 <select id="category_id" name="category_id" {% if not item %}required{% endif %}
                         class="{% if errors and errors.get('category_id') %}is-invalid{% endif %}">
