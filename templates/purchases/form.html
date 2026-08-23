@@ -140,7 +140,7 @@
 
             <div class="form-group">
                 <label for="sale_rate">Sale Rate</label>
-                <input type="number" step="0.01" id="sale_rate" name="sale_rate" min="0"
+                <input type="number" step="5" id="sale_rate" name="sale_rate" min="0"
                        value="{{ fd.get('sale_rate', '0') }}" required
                        class="{% if errors and errors.get('sale_rate') %}is-invalid{% endif %}">
                 {{ field_error(errors, 'sale_rate') }}
