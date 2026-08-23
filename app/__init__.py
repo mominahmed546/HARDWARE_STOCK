@@ -94,6 +94,7 @@ def bind_account_data():
     if (
         endpoint.startswith("static")
         or endpoint.startswith("auth.")
+        or endpoint.startswith("sync_api.")
         or endpoint in {"index"}
     ):
         return
@@ -157,6 +158,7 @@ from app.ledger.routes import ledger_bp
 from app.profit.routes import profit_bp
 from app.cash.routes import cash_bp
 from app.quotations.routes import quotations_bp
+from app.sync_api import sync_api_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(dashboard_bp)
@@ -171,6 +173,7 @@ app.register_blueprint(ledger_bp)
 app.register_blueprint(profit_bp)
 app.register_blueprint(cash_bp)
 app.register_blueprint(quotations_bp)
+app.register_blueprint(sync_api_bp)
 
 
 @app.route("/")

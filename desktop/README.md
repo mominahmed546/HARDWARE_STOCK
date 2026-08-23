@@ -1,8 +1,7 @@
-"""
 # Euroglass Hardware — Offline Windows App
 
 Run the same Flask stock app on a PC **without internet**, using a local
-SQLite database. Your live site on Render stays as-is; cloud sync is Phase 2.
+SQLite database. Your live site on Render stays as-is.
 
 ## Quick start (development)
 
@@ -13,13 +12,39 @@ pip install -r requirements.txt -r requirements-desktop.txt
 python desktop/launcher.py
 ```
 
-- Database file: `%LOCALAPPDATA%\\EuroglassHardware\\euroglass_stock.db` (Windows)
+- Database file: `%LOCALAPPDATA%\EuroglassHardware\euroglass_stock.db` (Windows)
   or `~/.euroglasshardware/euroglass_stock.db` (Linux/macOS)
 - First launch creates tables from `schema_sqlite.sql`
-- Register a local account (email **or** phone), then use the app offline
 
-If `pywebview` cannot open a window (headless Linux), the server still starts —
-open the printed `http://127.0.0.1:PORT/` URL in a browser.
+## Sync your Render (online) data into the offline app
+
+**Option A — after this PR is deployed on Render** (uses your website login):
+
+```bat
+cd C:\Users\DELL\Desktop\HARDWARE_STOCK
+git pull
+python desktop\pull_from_render.py --url https://YOUR-APP.onrender.com
+```
+
+Enter your **Render website** username and password when asked. Type `YES` to replace local data.
+
+**Option B — right now, without waiting for deploy** (uses Render database URL):
+
+1. Open [Render Dashboard](https://dashboard.render.com) → your **Postgres** database
+2. Copy **External Database URL**
+3. Run:
+
+```bat
+python desktop\pull_from_render.py --database-url "postgresql://..."
+```
+
+Then:
+
+```bat
+python desktop\launcher.py
+```
+
+Log in with the **same** username/password as on the website.
 
 ## Build Windows `.exe`
 
@@ -27,26 +52,23 @@ On a **Windows** machine with Python 3.11+:
 
 ```bat
 pip install -r requirements.txt -r requirements-desktop.txt
-pyinstaller desktop\\euroglass.spec
+pyinstaller desktop\euroglass.spec
 ```
 
-Output: `dist\\EuroglassHardware.exe` (double-click to run).
-
-Optional env vars:
+Output: `dist\EuroglassHardware.exe`
 
 | Variable | Purpose |
 |----------|---------|
-| `SYNC_REMOTE_URL` | Future sync target, e.g. `https://hardware-stock.onrender.com` |
+| `SYNC_REMOTE_URL` | Render site URL for sync |
+| `RENDER_DATABASE_URL` | External Postgres URL (optional pull method) |
 | `DESKTOP_PORT` | Fixed local port (default: random free port) |
-| `SECRET_KEY` | Flask session secret (set a unique value for installs you care about) |
+| `SECRET_KEY` | Flask session secret |
 
-## Online + offline (optimal plan)
+## Online + offline
 
 | Mode | Database | Status |
 |------|----------|--------|
 | Render (online) | Postgres | Unchanged |
-| Windows app | Local SQLite | Phase 1 (this branch) |
-| Sync both ways | API + conflict rules | Phase 2 (stub in `desktop/sync.py`) |
-
-Phase 2 will push/pull changes between the local DB and Render so both stay aligned.
-"""
+| Windows app | Local SQLite | Works offline |
+| Pull Render → PC | `pull_from_render.py` | Supported |
+| Push PC → Render | — | Next step |

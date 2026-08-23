@@ -1,12 +1,18 @@
 """
 Sync foundation: local Windows DB ↔ Render (cloud) Postgres.
 
-Phase 1 ships the offline app + local SQLite.
-Phase 2 fills in push/pull against a cloud sync API.
+Pull your Render account into the offline app:
 
-Environment (optional, for when sync is enabled):
-  SYNC_REMOTE_URL   e.g. https://hardware-stock.onrender.com
-  SYNC_API_TOKEN    account token (future)
+  python desktop/pull_from_render.py --url https://YOUR-APP.onrender.com
+
+Or (no redeploy needed) with the Render External Database URL:
+
+  python desktop/pull_from_render.py --database-url "postgresql://..."
+
+Environment (optional):
+  SYNC_REMOTE_URL       e.g. https://hardware-stock.onrender.com
+  RENDER_DATABASE_URL   External Postgres URL from Render
+  SYNC_USERNAME / SYNC_PASSWORD
 """
 
 from __future__ import annotations
@@ -14,7 +20,6 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timezone
-from pathlib import Path
 
 from desktop.paths import sync_state_path
 
@@ -26,7 +31,9 @@ def load_sync_state() -> dict:
             "last_sync_at": None,
             "last_status": "never",
             "remote_url": os.environ.get("SYNC_REMOTE_URL") or "",
-            "notes": "Sync not configured yet. Local offline DB is primary until sync is enabled.",
+            "notes": (
+                "Run: python desktop/pull_from_render.py --url https://YOUR-APP.onrender.com"
+            ),
         }
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -47,29 +54,23 @@ def remote_configured() -> bool:
 
 def sync_now() -> dict:
     """
-    Attempt a sync cycle.
-
-    Phase 1: records intent and returns a clear 'not implemented' status
-    so the UI/docs can explain next steps without failing the desktop app.
+    Record sync intent. Full pull is done via desktop/pull_from_render.py
+    (needs username/password interactively).
     """
     state = load_sync_state()
     state["last_sync_at"] = datetime.now(timezone.utc).isoformat()
     if not remote_configured():
         state["last_status"] = "skipped_no_remote"
         state["last_message"] = (
-            "Set SYNC_REMOTE_URL to your Render site to enable cloud sync later."
+            "Set SYNC_REMOTE_URL or run desktop/pull_from_render.py --url ..."
         )
         save_sync_state(state)
         return state
 
-    # Phase 2 will:
-    # 1) push local changes since last_sync_at
-    # 2) pull remote changes
-    # 3) apply conflict rules (latest-wins / field-level)
-    state["last_status"] = "pending_implementation"
+    state["last_status"] = "use_pull_script"
     state["last_message"] = (
-        "Cloud sync API is not deployed yet. Offline local database works; "
-        "sync with Render will be added in the next phase."
+        "Run: python desktop/pull_from_render.py --url "
+        f"{state.get('remote_url') or os.environ.get('SYNC_REMOTE_URL')}"
     )
     save_sync_state(state)
     return state
