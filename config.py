@@ -3,6 +3,25 @@ import os
 from datetime import timedelta
 
 
+def _desktop_mode_enabled() -> bool:
+    flag = (os.environ.get("DESKTOP_MODE") or "").strip().lower()
+    if flag in {"1", "true", "yes", "on"}:
+        return True
+    url = (os.environ.get("DATABASE_URL") or "").strip().lower()
+    return url.startswith("sqlite:")
+
+
+def _default_database_url() -> str:
+    if _desktop_mode_enabled():
+        try:
+            from desktop.paths import default_sqlite_url
+
+            return default_sqlite_url()
+        except Exception:
+            return "sqlite:///euroglass_stock.db"
+    return "postgresql://postgres:postgres@localhost:5432/project2_db"
+
+
 class Config:
     """Base configuration"""
 
@@ -17,11 +36,10 @@ class Config:
     # deploy's updated assets show up within an hour, not stuck forever).
     SEND_FILE_MAX_AGE_DEFAULT = timedelta(hours=1)
 
-    # PostgreSQL
-    DATABASE_URL = os.environ.get(
-        "DATABASE_URL",
-        "postgresql://postgres:postgres@localhost:5432/project2_db"
-    )
+    DESKTOP_MODE = _desktop_mode_enabled()
+
+    # PostgreSQL (online) or sqlite:///... (offline Windows desktop)
+    DATABASE_URL = os.environ.get("DATABASE_URL") or _default_database_url()
 
     # Outgoing email (used for password-reset links). Leave unset to disable
     # sending and instead show the reset link directly (useful for local dev).
@@ -48,8 +66,16 @@ class TestingConfig(Config):
     TESTING = True
 
 
+class DesktopConfig(DevelopmentConfig):
+    """Offline Windows app: local SQLite, loose cookies, no HTTPS requirement."""
+
+    DESKTOP_MODE = True
+    SESSION_COOKIE_SECURE = False
+
+
 config_map = {
     "development": DevelopmentConfig,
     "production": ProductionConfig,
-    "testing": TestingConfig
+    "testing": TestingConfig,
+    "desktop": DesktopConfig,
 }

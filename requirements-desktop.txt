@@ -1,0 +1,7 @@
+# Desktop / offline Windows packaging extras.
+# Install on top of requirements.txt:
+#   pip install -r requirements.txt -r requirements-desktop.txt
+
+pywebview>=5.0
+pyinstaller>=6.0
+Pillow>=10.0

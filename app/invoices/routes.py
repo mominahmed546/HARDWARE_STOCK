@@ -235,6 +235,11 @@ def _load_invoice_record(cursor, invoice_id):
 
 def _ensure_invoice_date_is_timestamp(db, cursor):
     """Migrate the date column from DATE to TIMESTAMP WITH TIME ZONE if needed."""
+    from app.db import using_sqlite
+
+    if using_sqlite():
+        # SQLite has flexible typing; leave the column as-is.
+        return
     cursor.execute(
         """
         SELECT data_type FROM information_schema.columns

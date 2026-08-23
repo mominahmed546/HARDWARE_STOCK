@@ -33,9 +33,22 @@ _ready = False
 _ddl_attempted = False
 
 
+def _sqlite_mode():
+    try:
+        from app.db import using_sqlite
+
+        return using_sqlite()
+    except Exception:
+        return False
+
+
 def owner_sql(alias=None):
     """SQL predicate that limits a query to the account bound on this connection."""
     column = f"{alias}.UserID" if alias else "UserID"
+    if _sqlite_mode():
+        from app.db import bound_user_id
+
+        return f"{column} = {int(bound_user_id())}"
     return f"{column} = {_SETTING}"
 
 
@@ -64,6 +77,11 @@ def request_user_id():
 def bind_current_account(db):
     """Add owner columns if needed, then pin this connection to the current account."""
     global _ready, _ddl_attempted
+    from app.db import set_bound_user_id
+
+    uid = request_user_id()
+    set_bound_user_id(uid)
+
     cursor = db.cursor()
     try:
         # Run heavy DDL at most once per worker. Retries on every request made
@@ -76,12 +94,13 @@ def bind_current_account(db):
                 _ready = True
             except Exception:
                 db.rollback()
-                # Keep serving pages; set_config below still scopes queries.
+                # Keep serving pages; set_config / bound id below still scopes queries.
                 _ready = False
-        cursor.execute(
-            "SELECT set_config('app.user_id', ?, false)",
-            (str(request_user_id()),),
-        )
+        if not _sqlite_mode():
+            cursor.execute(
+                "SELECT set_config('app.user_id', ?, false)",
+                (str(uid),),
+            )
     except Exception:
         db.rollback()
         raise
@@ -132,10 +151,11 @@ def _ensure_isolation(cursor):
 
     for table in OWNER_TABLES:
         _try_run(cursor, f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS UserID INTEGER")
-        _try_run(
-            cursor,
-            f"ALTER TABLE {table} ALTER COLUMN UserID SET DEFAULT {_SETTING}",
-        )
+        if not _sqlite_mode():
+            _try_run(
+                cursor,
+                f"ALTER TABLE {table} ALTER COLUMN UserID SET DEFAULT {_SETTING}",
+            )
 
     owner_id = None
     try:
@@ -168,6 +188,8 @@ def _ensure_isolation(cursor):
 
 
 def _disable_row_security(cursor, table):
+    if _sqlite_mode():
+        return
     policy = f"{table.lower()}_owner"
     _try_run(cursor, f"DROP POLICY IF EXISTS {policy} ON {table}")
     _try_run(cursor, f"ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY")
@@ -208,6 +230,15 @@ def _backfill_stock_history(cursor):
 
 
 def _fix_quotation_numbers(cursor):
+    if _sqlite_mode():
+        _try_run(
+            cursor,
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_quotations_user_no
+            ON Quotations (UserID, QuotationNo)
+            """,
+        )
+        return
     try:
         cursor.execute(
             """

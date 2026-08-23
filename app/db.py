@@ -1,14 +1,72 @@
 import os
 import re
+import sqlite3
 import threading
 from functools import lru_cache
+from pathlib import Path
+from urllib.parse import unquote, urlparse
 
-from psycopg_pool import ConnectionPool
 from flask import g
 
 # =====================================================
 # CONNECTION
 # =====================================================
+
+_bound_user = threading.local()
+_sqlite_schema_ready = False
+_sqlite_schema_lock = threading.Lock()
+
+
+def set_bound_user_id(user_id):
+    """Pin the current request's account id (used by SQLite owner_sql)."""
+    _bound_user.value = int(user_id or 0)
+
+
+def bound_user_id():
+    return int(getattr(_bound_user, "value", 0) or 0)
+
+
+def _database_url(app=None):
+    if app is not None:
+        url = app.config.get("DATABASE_URL")
+        if url:
+            return url
+    return os.environ.get("DATABASE_URL") or ""
+
+
+def using_sqlite(app=None):
+    url = (_database_url(app) or "").strip().lower()
+    if url.startswith("sqlite:"):
+        return True
+    flag = (os.environ.get("DESKTOP_MODE") or "").strip().lower()
+    if flag in {"1", "true", "yes", "on"}:
+        return True
+    if app is not None and app.config.get("DESKTOP_MODE"):
+        return True
+    return False
+
+
+def _sqlite_path_from_url(url):
+    """Parse sqlite:///path or sqlite:////abs/path into a filesystem path."""
+    raw = (url or "").strip()
+    if not raw:
+        raise RuntimeError("SQLite DATABASE_URL is empty.")
+    if raw.startswith("sqlite:////"):
+        return unquote(raw[len("sqlite:///"):])
+    if raw.startswith("sqlite:///"):
+        rest = unquote(raw[len("sqlite:///"):])
+        if len(rest) >= 2 and rest[1] == ":":
+            # Windows drive letter: C:/Users/...
+            return rest
+        return rest
+    parsed = urlparse(raw)
+    if parsed.scheme != "sqlite":
+        raise RuntimeError(f"Not a sqlite URL: {raw}")
+    path = unquote(parsed.path or "")
+    if parsed.netloc and parsed.netloc not in {".", "localhost"}:
+        path = f"/{parsed.netloc}{path}"
+    return path or ":memory:"
+
 
 _COLUMN_REPLACEMENTS = {
     "Users": "users",
@@ -127,22 +185,30 @@ class AttrRow(tuple):
 
 
 class CursorWrapper:
-    def __init__(self, cursor):
+    def __init__(self, cursor, sqlite=False):
         self._cursor = cursor
+        self._sqlite = sqlite
 
     def execute(self, query, params=None):
-        self._cursor.execute(_translate_sql(query), params or ())
+        translated = _translate_sql(query, sqlite=self._sqlite)
+        try:
+            self._cursor.execute(translated, params or ())
+        except Exception as exc:
+            if self._sqlite and _ignore_sqlite_schema_error(translated, exc):
+                return self
+            raise
         return self
 
     def fetchone(self):
         row = self._cursor.fetchone()
         if row is None:
             return None
-        return AttrRow(row, [column.name for column in self._cursor.description])
+        columns = _cursor_column_names(self._cursor)
+        return AttrRow(row, columns)
 
     def fetchall(self):
         rows = self._cursor.fetchall()
-        columns = [column.name for column in self._cursor.description]
+        columns = _cursor_column_names(self._cursor)
         return [AttrRow(row, columns) for row in rows]
 
     @property
@@ -153,13 +219,37 @@ class CursorWrapper:
         self._cursor.close()
 
 
+def _cursor_column_names(cursor):
+    if not cursor.description:
+        return []
+    names = []
+    for column in cursor.description:
+        # psycopg: column.name; sqlite3: column[0]
+        name = getattr(column, "name", None)
+        if name is None:
+            name = column[0]
+        names.append(name)
+    return names
+
+
+def _ignore_sqlite_schema_error(sql, exc):
+    """Self-healing ALTER/CREATE that already applied should not fail pages."""
+    msg = str(exc).lower()
+    if "duplicate column" in msg:
+        return True
+    if "already exists" in msg:
+        return True
+    return False
+
+
 class ConnectionWrapper:
-    def __init__(self, connection, pool=None):
+    def __init__(self, connection, pool=None, sqlite=False):
         self._connection = connection
         self._pool = pool
+        self._sqlite = sqlite
 
     def cursor(self):
-        return CursorWrapper(self._connection.cursor())
+        return CursorWrapper(self._connection.cursor(), sqlite=self._sqlite)
 
     def commit(self):
         self._connection.commit()
@@ -231,16 +321,12 @@ def _replace_identifiers(query):
 
 
 @lru_cache(maxsize=512)
-def _translate_sql_cached(query):
+def _translate_sql_cached(query, sqlite=False):
     query = _replace_identifiers(query)
-    query = query.replace("?", "%s")
     query = re.sub(r"\bISNULL\s*\(", "COALESCE(", query, flags=re.IGNORECASE)
-    query = re.sub(r"\bLTRIM\s*\(\s*RTRIM\s*\(([^()]+)\)\s*\)", _replace_ltrim_rtrim, query, flags=re.IGNORECASE)
-    query = re.sub(r"\bYEAR\s*\(([^()]+)\)", r"EXTRACT(YEAR FROM \1)::int", query, flags=re.IGNORECASE)
-    query = re.sub(r"\bMONTH\s*\(([^()]+)\)", r"EXTRACT(MONTH FROM \1)::int", query, flags=re.IGNORECASE)
     query = re.sub(
-        r"CONVERT\s*\(\s*VARCHAR\s*\(\s*10\s*\)\s*,\s*([^,]+)\s*,\s*103\s*\)",
-        r"TO_CHAR(\1, 'DD/MM/YYYY')",
+        r"\bLTRIM\s*\(\s*RTRIM\s*\(([^()]+)\)\s*\)",
+        _replace_ltrim_rtrim if not sqlite else (lambda m: f"TRIM({m.group(1)})"),
         query,
         flags=re.IGNORECASE,
     )
@@ -251,11 +337,69 @@ def _translate_sql_cached(query):
         flags=re.IGNORECASE | re.DOTALL,
     )
     query = re.sub(r"SELECT\s+TOP\s+(\d+)\s+(.*)", _translate_top, query, flags=re.IGNORECASE | re.DOTALL)
+
+    if sqlite:
+        # Keep "?" placeholders for sqlite3.
+        query = re.sub(
+            r"\bADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\b",
+            "ADD COLUMN",
+            query,
+            flags=re.IGNORECASE,
+        )
+        query = re.sub(
+            r"\bYEAR\s*\(([^()]+)\)",
+            r"CAST(strftime('%Y', \1) AS INTEGER)",
+            query,
+            flags=re.IGNORECASE,
+        )
+        query = re.sub(
+            r"\bMONTH\s*\(([^()]+)\)",
+            r"CAST(strftime('%m', \1) AS INTEGER)",
+            query,
+            flags=re.IGNORECASE,
+        )
+        query = re.sub(
+            r"CONVERT\s*\(\s*VARCHAR\s*\(\s*10\s*\)\s*,\s*([^,]+)\s*,\s*103\s*\)",
+            r"strftime('%d/%m/%Y', \1)",
+            query,
+            flags=re.IGNORECASE,
+        )
+        query = re.sub(r"\bILIKE\b", "LIKE", query, flags=re.IGNORECASE)
+        query = re.sub(r"\bBTRIM\s*\(", "TRIM(", query, flags=re.IGNORECASE)
+        # Some SQLite builds omit GREATEST/LEAST; MAX/MIN are the multi-arg equivalents.
+        query = re.sub(r"\bGREATEST\s*\(", "MAX(", query, flags=re.IGNORECASE)
+        query = re.sub(r"\bLEAST\s*\(", "MIN(", query, flags=re.IGNORECASE)
+        query = re.sub(
+            r"\bTIMESTAMP\s+WITHOUT\s+TIME\s+ZONE\b",
+            "TIMESTAMP",
+            query,
+            flags=re.IGNORECASE,
+        )
+        query = re.sub(
+            r"\bSERIAL\s+PRIMARY\s+KEY\b",
+            "INTEGER PRIMARY KEY AUTOINCREMENT",
+            query,
+            flags=re.IGNORECASE,
+        )
+        query = re.sub(r"\bSERIAL\b", "INTEGER", query, flags=re.IGNORECASE)
+        # Strip Postgres casts like COUNT(*)::int
+        query = re.sub(r"::[a-zA-Z_]\w*", "", query)
+        return query
+
+    query = query.replace("?", "%s")
+    query = re.sub(r"\bYEAR\s*\(([^()]+)\)", r"EXTRACT(YEAR FROM \1)::int", query, flags=re.IGNORECASE)
+    query = re.sub(r"\bMONTH\s*\(([^()]+)\)", r"EXTRACT(MONTH FROM \1)::int", query, flags=re.IGNORECASE)
+    query = re.sub(
+        r"CONVERT\s*\(\s*VARCHAR\s*\(\s*10\s*\)\s*,\s*([^,]+)\s*,\s*103\s*\)",
+        r"TO_CHAR(\1, 'DD/MM/YYYY')",
+        query,
+        flags=re.IGNORECASE,
+    )
     return query
 
 
-def _translate_sql(query):
-    return _translate_sql_cached(query)
+def _translate_sql(query, sqlite=False):
+    return _translate_sql_cached(query, bool(sqlite))
 
 
 _user_columns_ready = False
@@ -293,25 +437,80 @@ def _ensure_user_contact_columns(db):
         db.rollback()
 
 
+def _schema_sqlite_path():
+    try:
+        from desktop.paths import bundle_dir
+
+        candidate = bundle_dir() / "schema_sqlite.sql"
+        if candidate.exists():
+            return candidate
+    except Exception:
+        pass
+    return Path(__file__).resolve().parents[1] / "schema_sqlite.sql"
+
+
+def _ensure_sqlite_schema(connection):
+    """Create core tables on first desktop launch."""
+    global _sqlite_schema_ready
+    if _sqlite_schema_ready:
+        return
+    with _sqlite_schema_lock:
+        if _sqlite_schema_ready:
+            return
+        cur = connection.cursor()
+        try:
+            cur.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+            )
+            if cur.fetchone():
+                _sqlite_schema_ready = True
+                return
+            schema_file = _schema_sqlite_path()
+            if not schema_file.exists():
+                raise RuntimeError(f"Missing SQLite schema file: {schema_file}")
+            connection.executescript(schema_file.read_text(encoding="utf-8"))
+            connection.commit()
+            _sqlite_schema_ready = True
+        finally:
+            cur.close()
+
+
+def _connect_sqlite(app):
+    database_url = _database_url(app)
+    if not database_url or not str(database_url).lower().startswith("sqlite:"):
+        try:
+            from desktop.paths import default_sqlite_url
+
+            database_url = default_sqlite_url()
+        except Exception:
+            database_url = "sqlite:///euroglass_stock.db"
+        if app is not None:
+            app.config["DATABASE_URL"] = database_url
+
+    path = _sqlite_path_from_url(database_url)
+    if path != ":memory:":
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+
+    connection = sqlite3.connect(path, check_same_thread=False, timeout=30)
+    connection.row_factory = None
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("PRAGMA journal_mode = WAL")
+    _ensure_sqlite_schema(connection)
+    return ConnectionWrapper(connection, pool=None, sqlite=True)
+
+
 _pool = None
 _pool_lock = threading.Lock()
 
 
 def _get_pool(app):
-    """Lazily create one small connection pool per process.
-
-    Opening a brand new physical connection (TCP + TLS + Postgres auth
-    handshake) on every single request - as this used to do - adds real,
-    fixed latency before any query even runs, especially against a managed
-    Postgres host. A pool keeps a handful of connections warm and hands
-    them out per request instead, so most requests reuse an already-open
-    connection. The lock only guards the one-time creation (gunicorn
-    threaded workers could otherwise race and create two pools on startup).
-    """
+    """Lazily create one small connection pool per process (Postgres only)."""
     global _pool
     if _pool is None:
         with _pool_lock:
             if _pool is None:
+                from psycopg_pool import ConnectionPool
+
                 database_url = app.config.get("DATABASE_URL") or os.environ.get("DATABASE_URL")
                 if not database_url:
                     raise RuntimeError("DATABASE_URL is not configured.")
@@ -335,9 +534,12 @@ def _get_pool(app):
 
 
 def get_db_connection(app):
-    if 'db' not in g:
-        pool = _get_pool(app)
-        g.db = ConnectionWrapper(pool.getconn(), pool=pool)
+    if "db" not in g:
+        if using_sqlite(app):
+            g.db = _connect_sqlite(app)
+        else:
+            pool = _get_pool(app)
+            g.db = ConnectionWrapper(pool.getconn(), pool=pool, sqlite=False)
         _ensure_user_contact_columns(g.db)
 
     return g.db

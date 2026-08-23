@@ -11,6 +11,13 @@ from config import config_map
 from app.db import get_db_connection, close_db_connection
 
 _base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+try:
+    from desktop.paths import bundle_dir, is_frozen
+
+    if is_frozen():
+        _base_dir = str(bundle_dir())
+except Exception:
+    pass
 app = Flask(
     __name__,
     template_folder=os.path.join(_base_dir, "templates"),
@@ -18,13 +25,21 @@ app = Flask(
 )
 _env_name = os.environ.get("FLASK_ENV") or os.environ.get("APP_ENV")
 if not _env_name:
-    # Render always sets RENDER=true on deployed services; use that as the
-    # production signal so a live deploy gets ProductionConfig (secure
-    # cookies, and DEBUG=False so Jinja caches compiled templates instead of
-    # re-checking/recompiling them from disk on every request) without
-    # requiring an extra env var, while a plain local checkout still
-    # defaults to development.
-    _env_name = "production" if os.environ.get("RENDER") else "development"
+    desktop_flag = (os.environ.get("DESKTOP_MODE") or "").strip().lower()
+    if desktop_flag in {"1", "true", "yes", "on"}:
+        _env_name = "desktop"
+    elif (os.environ.get("DATABASE_URL") or "").strip().lower().startswith("sqlite:"):
+        _env_name = "desktop"
+    elif os.environ.get("RENDER"):
+        # Render always sets RENDER=true on deployed services; use that as the
+        # production signal so a live deploy gets ProductionConfig (secure
+        # cookies, and DEBUG=False so Jinja caches compiled templates instead of
+        # re-checking/recompiling them from disk on every request) without
+        # requiring an extra env var, while a plain local checkout still
+        # defaults to development.
+        _env_name = "production"
+    else:
+        _env_name = "development"
 app.config.from_object(config_map.get(_env_name, config_map["development"]))
 
 app.teardown_appcontext(close_db_connection)
