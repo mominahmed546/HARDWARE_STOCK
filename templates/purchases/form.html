@@ -132,7 +132,7 @@
 
             <div class="form-group">
                 <label for="purchase_rate">Purchase Rate</label>
-                <input type="number" step="0.01" id="purchase_rate" name="purchase_rate" min="0"
+                <input type="number" step="5" id="purchase_rate" name="purchase_rate" min="0"
                        value="{{ fd.get('purchase_rate', '0') }}" required
                        class="{% if errors and errors.get('purchase_rate') %}is-invalid{% endif %}">
                 {{ field_error(errors, 'purchase_rate') }}
