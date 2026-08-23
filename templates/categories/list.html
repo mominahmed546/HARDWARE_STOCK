@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% from "macros/pagination.html" import pager %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/items_list.css') }}">
+{% endblock %}
+
 {% block title %}Categories - Hardware Stock Management{% endblock %}
 {% block page_title %}Categories{% endblock %}
 
@@ -16,7 +20,8 @@
         <a href="{{ url_for('categories.create_category') }}" class="btn btn-success">+ New Category</a>
     </div>
     
-    <table class="data-table">
+    <div class="table-wrap">
+    <table class="data-table items-table">
         <thead>
             <tr>
                 <th>ID</th>
@@ -39,6 +44,7 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
     {{ pager(pagination, 'categories.list_categories', {'search': search}) }}
 </div>
 {% endblock %}
