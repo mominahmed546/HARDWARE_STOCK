@@ -43,7 +43,11 @@
                 <button type="submit" class="btn btn-primary">Search</button>
             </form>
         </div>
-        <a href="{{ url_for('items.create_item') }}" class="btn btn-success">+ New Item</a>
+        <div class="list-header-actions" style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <a href="{{ url_for('items.list_items_pdf', search=search, category_id=category_id, qty_filter=qty_filter) }}"
+               class="btn btn-secondary">Download PDF</a>
+            <a href="{{ url_for('items.create_item') }}" class="btn btn-success">+ New Item</a>
+        </div>
     </div>
 
     <div class="table-wrap">
