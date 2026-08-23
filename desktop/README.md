@@ -1,54 +1,71 @@
 # Euroglass Hardware — Offline Windows App
 
 Run the same Flask stock app on a PC **without internet**, using a local
-SQLite database. Your live site on Render stays as-is.
+SQLite database. Your live site (Render + Supabase Postgres) stays as-is.
 
-## Quick start (development)
+## Quick start
 
-From the project root:
-
-```bash
+```bat
+cd C:\Users\DELL\Desktop\HARDWARE_STOCK
 pip install -r requirements.txt -r requirements-desktop.txt
-python desktop/launcher.py
+python desktop\launcher.py
 ```
 
-- Database file: `%LOCALAPPDATA%\EuroglassHardware\euroglass_stock.db` (Windows)
-  or `~/.euroglasshardware/euroglass_stock.db` (Linux/macOS)
-- First launch creates tables from `schema_sqlite.sql`
+Local DB: `%LOCALAPPDATA%\EuroglassHardware\euroglass_stock.db`
 
-## Sync your Render (online) data into the offline app
+## Bidirectional sync (PC ↔ cloud)
 
-**Option A — after this PR is deployed on Render** (uses your website login):
+Uses your **Supabase / Postgres URI** and your **app username/password**.
 
 ```bat
 cd C:\Users\DELL\Desktop\HARDWARE_STOCK
 git pull
-python desktop\pull_from_render.py --url https://YOUR-APP.onrender.com
+
+python desktop\sync_db.py --database-url "postgresql://postgres:PASSWORD@db.XXXX.supabase.co:5432/postgres" --mode sync
 ```
 
-Enter your **Render website** username and password when asked. Type `YES` to replace local data.
+| Mode | What it does |
+|------|----------------|
+| `--mode sync` | **Both ways** (default). Merges local + cloud, then writes the result to **both** |
+| `--mode pull` | Cloud → PC only (cloud wins) |
+| `--mode push` | PC → cloud only (local wins) |
 
-**Option B — right now, without waiting for deploy** (uses Render database URL):
+Conflict option for `--mode sync`:
 
-1. Open [Render Dashboard](https://dashboard.render.com) → your **Postgres** database
-2. Copy **External Database URL**
-3. Run:
+- `--prefer local` (default) — if the same row changed on both sides, keep **PC**
+- `--prefer remote` — keep **cloud**
+
+Example (cloud wins on conflicts):
 
 ```bat
-python desktop\pull_from_render.py --database-url "postgresql://..."
+python desktop\sync_db.py --database-url "postgresql://..." --mode sync --prefer remote
 ```
 
-Then:
+After sync:
 
 ```bat
 python desktop\launcher.py
 ```
 
-Log in with the **same** username/password as on the website.
+Log in with the same app username/password.
+
+## First-time: get data onto the PC
+
+If the PC is empty, run sync once (or pull):
+
+```bat
+python desktop\sync_db.py --database-url "postgresql://..." --mode pull
+```
+
+Then work offline. When you have internet again:
+
+```bat
+python desktop\sync_db.py --database-url "postgresql://..." --mode sync
+```
+
+That uploads PC changes and downloads any new cloud changes.
 
 ## Build Windows `.exe`
-
-On a **Windows** machine with Python 3.11+:
 
 ```bat
 pip install -r requirements.txt -r requirements-desktop.txt
@@ -57,18 +74,8 @@ pyinstaller desktop\euroglass.spec
 
 Output: `dist\EuroglassHardware.exe`
 
-| Variable | Purpose |
-|----------|---------|
-| `SYNC_REMOTE_URL` | Render site URL for sync |
-| `RENDER_DATABASE_URL` | External Postgres URL (optional pull method) |
-| `DESKTOP_PORT` | Fixed local port (default: random free port) |
-| `SECRET_KEY` | Flask session secret |
+## Notes
 
-## Online + offline
-
-| Mode | Database | Status |
-|------|----------|--------|
-| Render (online) | Postgres | Unchanged |
-| Windows app | Local SQLite | Works offline |
-| Pull Render → PC | `pull_from_render.py` | Supported |
-| Push PC → Render | — | Next step |
+- Sync is **per app account** (your login).
+- Keep your database URI private.
+- If the live Render site uses this same Supabase DB, push/sync updates what the website shows.

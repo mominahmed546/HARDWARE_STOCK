@@ -1,18 +1,11 @@
 """
-Sync foundation: local Windows DB ↔ Render (cloud) Postgres.
+Sync helpers for the offline Windows app ↔ cloud Postgres.
 
-Pull your Render account into the offline app:
+Use the CLI for real sync:
 
-  python desktop/pull_from_render.py --url https://YOUR-APP.onrender.com
+  python desktop/sync_db.py --database-url "postgresql://..." --mode sync
 
-Or (no redeploy needed) with the Render External Database URL:
-
-  python desktop/pull_from_render.py --database-url "postgresql://..."
-
-Environment (optional):
-  SYNC_REMOTE_URL       e.g. https://hardware-stock.onrender.com
-  RENDER_DATABASE_URL   External Postgres URL from Render
-  SYNC_USERNAME / SYNC_PASSWORD
+Modes: sync (both ways), pull (cloud→PC), push (PC→cloud)
 """
 
 from __future__ import annotations
@@ -32,7 +25,7 @@ def load_sync_state() -> dict:
             "last_status": "never",
             "remote_url": os.environ.get("SYNC_REMOTE_URL") or "",
             "notes": (
-                "Run: python desktop/pull_from_render.py --url https://YOUR-APP.onrender.com"
+                'Run: python desktop/sync_db.py --database-url "postgresql://..." --mode sync'
             ),
         }
     try:
@@ -53,24 +46,11 @@ def remote_configured() -> bool:
 
 
 def sync_now() -> dict:
-    """
-    Record sync intent. Full pull is done via desktop/pull_from_render.py
-    (needs username/password interactively).
-    """
     state = load_sync_state()
     state["last_sync_at"] = datetime.now(timezone.utc).isoformat()
-    if not remote_configured():
-        state["last_status"] = "skipped_no_remote"
-        state["last_message"] = (
-            "Set SYNC_REMOTE_URL or run desktop/pull_from_render.py --url ..."
-        )
-        save_sync_state(state)
-        return state
-
-    state["last_status"] = "use_pull_script"
+    state["last_status"] = "use_cli"
     state["last_message"] = (
-        "Run: python desktop/pull_from_render.py --url "
-        f"{state.get('remote_url') or os.environ.get('SYNC_REMOTE_URL')}"
+        'Run: python desktop/sync_db.py --database-url "postgresql://..." --mode sync'
     )
     save_sync_state(state)
     return state
