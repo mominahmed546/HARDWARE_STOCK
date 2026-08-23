@@ -199,6 +199,23 @@ def _check_duplicate_item_name(item_name, errors, exclude_item_id=None):
         )
 
 
+def _count_duplicate_item_groups(app):
+    row = execute_query_one(
+        app,
+        f"""
+        SELECT COUNT(*) AS GroupCount
+        FROM (
+            SELECT 1
+            FROM Item
+            WHERE {owner_sql()}
+            GROUP BY LOWER(LTRIM(RTRIM(ItemName)))
+            HAVING COUNT(*) > 1
+        ) dupes
+        """,
+    )
+    return int(row.GroupCount or 0) if row else 0
+
+
 def _find_duplicate_item_names(app):
     """Normalized (lower/trimmed) names that have more than one Item row
     for the current account. Pre-existing duplicates from before the
@@ -215,6 +232,35 @@ def _find_duplicate_item_names(app):
         """,
     )
     return [row.NormName for row in rows]
+
+
+def _supplier_names_for_items(app, item_ids):
+    """Batch-load supplier names for a page of items (avoids per-row subqueries)."""
+    if not item_ids:
+        return {}
+    placeholders = ",".join("?" for _ in item_ids)
+    rows = execute_query(
+        app,
+        f"""
+        SELECT
+            pd.ItemID,
+            STRING_AGG(sname, ', ' ORDER BY sname) AS SupplierName
+        FROM (
+            SELECT DISTINCT pd.ItemID, s.SupplierName AS sname
+            FROM PurchaseDetails pd
+            INNER JOIN Purchases p ON p.PurchaseID = pd.PurchaseID
+            LEFT JOIN Supplier s ON s.SupplierID = p.SupplierID
+            WHERE pd.ItemID IN ({placeholders})
+              AND {owner_sql("p")}
+              AND {owner_sql("s")}
+              AND s.SupplierName IS NOT NULL
+              AND BTRIM(s.SupplierName) <> ''
+        ) pd
+        GROUP BY pd.ItemID
+        """,
+        tuple(item_ids),
+    )
+    return {int(row.ItemID): row.SupplierName for row in rows}
 
 
 def _duplicate_item_groups(app):
@@ -635,34 +681,40 @@ def list_items():
                 i.PurchaseRate,
                 i.SaleRate,
                 i.Qty,
-                c.CategoryName,
-                (
-                    SELECT STRING_AGG(sname, ', ' ORDER BY sname)
-                    FROM (
-                        SELECT DISTINCT s.SupplierName AS sname
-                        FROM PurchaseDetails pd
-                        INNER JOIN Purchases p ON p.PurchaseID = pd.PurchaseID
-                        LEFT JOIN Supplier s ON s.SupplierID = p.SupplierID
-                        WHERE pd.ItemID = i.ItemID
-                          AND {owner_sql("p")}
-                          AND {owner_sql("s")}
-                          AND s.SupplierName IS NOT NULL
-                          AND BTRIM(s.SupplierName) <> ''
-                    ) suppliers
-                ) AS SupplierName
+                c.CategoryName
             FROM Item i
             LEFT JOIN Category c ON i.CategoryID = c.CategoryID
             {where_sql}
             ORDER BY COALESCE(i.ItemNo, i.ItemID), i.ItemID
             LIMIT ? OFFSET ?
         """
-        items = execute_query(
+        item_rows = execute_query(
             app,
             query,
             tuple(params + [pagination["page_size"], pagination["offset"]]),
         )
+        suppliers_by_id = _supplier_names_for_items(
+            app,
+            [int(row.ItemID) for row in item_rows],
+        )
+        items = []
+        for row in item_rows:
+            items.append(
+                {
+                    "ItemID": row.ItemID,
+                    "ItemNo": row.ItemNo,
+                    "ItemName": row.ItemName,
+                    "Brand": row.Brand,
+                    "CategoryID": row.CategoryID,
+                    "PurchaseRate": row.PurchaseRate,
+                    "SaleRate": row.SaleRate,
+                    "Qty": row.Qty,
+                    "CategoryName": row.CategoryName,
+                    "SupplierName": suppliers_by_id.get(int(row.ItemID)),
+                }
+            )
         categories = execute_query(app, f"SELECT CategoryID, CategoryName FROM Category WHERE {owner_sql()} ORDER BY CategoryName")
-        duplicate_groups_count = len(_find_duplicate_item_names(app))
+        duplicate_groups_count = _count_duplicate_item_groups(app)
 
         return render_template(
             "items/list.html",

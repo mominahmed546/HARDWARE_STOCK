@@ -30,6 +30,7 @@ CHILD_TABLES = (
 
 _SETTING = "NULLIF(current_setting('app.user_id', true), '')::int"
 _ready = False
+_ddl_attempted = False
 
 
 def owner_sql(alias=None):
@@ -62,16 +63,20 @@ def request_user_id():
 
 def bind_current_account(db):
     """Add owner columns if needed, then pin this connection to the current account."""
-    global _ready
+    global _ready, _ddl_attempted
     cursor = db.cursor()
     try:
-        if not _ready:
+        # Run heavy DDL at most once per worker. Retries on every request made
+        # cold starts and transient failures feel like the whole app is stuck.
+        if not _ready and not _ddl_attempted:
+            _ddl_attempted = True
             try:
                 _ensure_isolation(cursor)
                 db.commit()
                 _ready = True
             except Exception:
                 db.rollback()
+                # Keep serving pages; set_config below still scopes queries.
                 _ready = False
         cursor.execute(
             "SELECT set_config('app.user_id', ?, false)",

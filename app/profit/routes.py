@@ -31,21 +31,29 @@ def _year_total_profit(cursor, selected_year):
     return get_year_total_profit(cursor, selected_year, use_cache=False)
 
 
-def get_year_total_profit(cursor, selected_year, *, use_cache=True):
-    """Year profit with a short-lived per-account cache for dashboard/cash pages."""
+def get_year_total_profit(cursor, selected_year, *, use_cache=True, fast=False):
+    """Year profit with a short-lived per-account cache for dashboard/cash pages.
+
+    fast=True skips the all-history purchase-cost average join and uses
+    Item.PurchaseRate only — accurate enough for cash-capital split and much
+    cheaper on large purchase histories.
+    """
+    from app.cogs import list_sold_line_cost_sql, purchase_unit_cost_join, sold_line_cost_sql
+
     user_id = request_user_id()
     year = int(selected_year)
+    cache_key = (user_id, year, bool(fast))
     if use_cache and user_id:
-        key = (user_id, year)
         now = time.monotonic()
-        cached = _YEAR_PROFIT_CACHE.get(key)
+        cached = _YEAR_PROFIT_CACHE.get(cache_key)
         if cached and (now - cached[0]) < YEAR_PROFIT_CACHE_TTL:
             return cached[1]
 
     year_start = date(year, 1, 1)
     year_end = date(year + 1, 1, 1)
-    line_cost = sold_line_cost_sql("id")
+    line_cost = list_sold_line_cost_sql("id") if fast else sold_line_cost_sql("id")
     paid_ratio = paid_ratio_sql("i", None)
+    cost_join = "" if fast else purchase_unit_cost_join("id")
     cursor.execute(
         f"""
         SELECT
@@ -54,7 +62,7 @@ def get_year_total_profit(cursor, selected_year, *, use_cache=True):
         FROM Invoices i
         JOIN InvoiceDetails id ON id.InvoiceID = i.InvoiceID
         LEFT JOIN Item it ON it.ItemID = id.ItemID
-        {purchase_unit_cost_join("id")}
+        {cost_join}
         WHERE i.[Date] >= ? AND i.[Date] < ? AND {owner_sql("i")}
         """,
         (year_start, year_end),
@@ -62,7 +70,7 @@ def get_year_total_profit(cursor, selected_year, *, use_cache=True):
     row = cursor.fetchone()
     profit = max(float(row.Profit or 0) if row else 0.0, 0.0)
     if use_cache and user_id:
-        _YEAR_PROFIT_CACHE[(user_id, year)] = (time.monotonic(), profit)
+        _YEAR_PROFIT_CACHE[cache_key] = (time.monotonic(), profit)
     return profit
 
 

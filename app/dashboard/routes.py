@@ -91,25 +91,15 @@ def dashboard():
             SELECT
                 (SELECT COALESCE(SUM(TotalAmount), 0) FROM Invoices WHERE {owner_sql()}) AS TotalSales,
                 (SELECT COALESCE(SUM(TotalAmount), 0) FROM Purchases WHERE {owner_sql()}) AS TotalPurchases,
-                (SELECT COUNT(*) FROM Customers WHERE {owner_sql()}) AS TotalCustomers,
-                (
-                    SELECT COUNT(*)
-                    FROM (
-                        SELECT 1
-                        FROM Item
-                        WHERE {owner_sql()}
-                        GROUP BY LOWER(BTRIM(ItemName)), CategoryID
-                    ) grouped_items
-                ) AS ItemCount
+                (SELECT COUNT(*) FROM Customers WHERE {owner_sql()}) AS TotalCustomers
             """
         )
         summary = cursor.fetchone()
         total_sales = float(summary.TotalSales or 0)
         total_purchases = float(summary.TotalPurchases or 0)
         total_customers = int(summary.TotalCustomers or 0)
-        total_items = int(summary.ItemCount or 0)
 
-        # One Item scan for out-of-stock + low-stock panels.
+        # One Item scan: product count + out-of-stock + low-stock panels.
         cursor.execute(
             f"""
             WITH grouped AS (
@@ -119,6 +109,9 @@ def dashboard():
                 FROM Item
                 WHERE {owner_sql()}
                 GROUP BY LOWER(BTRIM(ItemName)), CategoryID
+            ),
+            stats AS (
+                SELECT COUNT(*)::int AS ItemCount FROM grouped
             ),
             out_stock AS (
                 SELECT 'out' AS kind, ItemName, Qty
@@ -130,10 +123,13 @@ def dashboard():
             low_stock AS (
                 SELECT 'low' AS kind, ItemName, Qty
                 FROM grouped
-                WHERE Qty > 0 AND Qty < 10
+                WHERE Qty > 0 AND Qty < 6
                 ORDER BY Qty ASC, ItemName ASC
                 LIMIT 5
             )
+            SELECT 'meta' AS kind, CAST((SELECT ItemCount FROM stats) AS TEXT) AS ItemName,
+                   (SELECT ItemCount FROM stats) AS Qty
+            UNION ALL
             SELECT kind, ItemName, Qty FROM out_stock
             UNION ALL
             SELECT kind, ItemName, Qty FROM low_stock
@@ -141,8 +137,11 @@ def dashboard():
         )
         out_of_stock_items = []
         low_stock_items = []
+        total_items = 0
         for row in cursor.fetchall():
-            if row.kind == "out":
+            if row.kind == "meta":
+                total_items = int(row.Qty or 0)
+            elif row.kind == "out":
                 out_of_stock_items.append(row)
             else:
                 low_stock_items.append(row)

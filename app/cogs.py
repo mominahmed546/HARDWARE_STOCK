@@ -46,3 +46,20 @@ def sold_line_cost_sql(detail_alias="id"):
             ELSE {_UNIT_COST}
         END
     """
+
+
+def list_sold_line_cost_sql(detail_alias="id"):
+    """Fast list-page COGS using Item.PurchaseRate only (no all-history purchase scan)."""
+    qty = f"{detail_alias}.Qty"
+    sale_rate = f"COALESCE({detail_alias}.Rate, 0)"
+    line_sale = f"({sale_rate} * {qty})"
+    unit = f"COALESCE(NULLIF(it.PurchaseRate, 0), 0)"
+    return f"""
+        CASE
+            WHEN {unit} <= 0 THEN 0
+            WHEN COALESCE({qty}, 0) <= 1 THEN COALESCE({qty}, 0) * {unit}
+            WHEN ABS({unit} - {sale_rate}) <= ABS({unit} - {line_sale})
+                THEN {qty} * {unit}
+            ELSE {unit}
+        END
+    """
