@@ -36,10 +36,8 @@ def _get_serializer():
     return URLSafeTimedSerializer(app.config['SECRET_KEY'])
 
 
-def generate_reset_token(user_id, email):
-    return _get_serializer().dumps(
-        {'user_id': user_id, 'email': email}, salt=RESET_TOKEN_SALT
-    )
+def generate_reset_token(user_id):
+    return _get_serializer().dumps({'user_id': user_id}, salt=RESET_TOKEN_SALT)
 
 
 def verify_reset_token(token, max_age=RESET_TOKEN_MAX_AGE):
@@ -75,7 +73,55 @@ def _verify_password(stored_password, password):
     return False, False
 
 
+def _normalize_email(value):
+    return (value or "").strip().lower()
 
+
+def _normalize_phone(value):
+    return (value or "").strip()
+
+
+def _user_matches_recovery(user_row, email, phone):
+    stored_email = _normalize_email(getattr(user_row, "Email", None))
+    stored_phone = _normalize_phone(getattr(user_row, "Phone", None))
+    provided_email = _normalize_email(email)
+    provided_phone = _normalize_phone(phone)
+
+    if stored_email and provided_email != stored_email:
+        return False
+    if stored_phone and provided_phone != stored_phone:
+        return False
+    return True
+
+
+def _recovery_field_errors(user_row, email, phone, errors):
+    stored_email = _normalize_email(getattr(user_row, "Email", None))
+    stored_phone = _normalize_phone(getattr(user_row, "Phone", None))
+    if stored_email and not _normalize_email(email):
+        errors.add("email", "Email is required for this account.")
+    if stored_phone and not _normalize_phone(phone):
+        errors.add("phone", "Phone number is required for this account.")
+
+
+def _deliver_password_reset(user_row, reset_url):
+    stored_email = _normalize_email(getattr(user_row, "Email", None))
+    username = getattr(user_row, "Username", None) or getattr(user_row, "UserName", "")
+
+    if stored_email and is_email_configured(app):
+        send_password_reset_email(app, stored_email, username, reset_url)
+        flash(
+            "If the details you entered match our records, a password reset "
+            "link has been sent to the registered email address.",
+            "success",
+        )
+        return redirect(url_for("auth.login"))
+
+    flash(
+        "Your account has no email on file (or email is not configured). "
+        f"Use this link to reset your password (valid for 1 hour): {reset_url}",
+        "warning",
+    )
+    return redirect(url_for("auth.login"))
 
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
@@ -190,9 +236,9 @@ def register():
 
         username = clean_username(request.form.get('username'), errors)
 
-        email = clean_email(request.form.get('email'), 'email', errors)
+        email = clean_email(request.form.get('email'), 'email', errors, required=False)
 
-        phone = clean_phone(request.form.get('phone'), 'phone', errors, required=True)
+        phone = clean_phone(request.form.get('phone'), 'phone', errors, required=False)
 
         password = clean_password(request.form.get('password'), errors)
 
@@ -228,17 +274,18 @@ def register():
 
 
 
-            cursor.execute("SELECT UserID FROM Users WHERE Email = ?", (email,))
+            if email:
+                cursor.execute("SELECT UserID FROM Users WHERE Email = ?", (email,))
 
-            if cursor.fetchone():
+                if cursor.fetchone():
 
-                cursor.close()
+                    cursor.close()
 
-                errors.add('email', 'Email is already registered.')
+                    errors.add('email', 'Email is already registered.')
 
-                flash(errors.first(), 'danger')
+                    flash(errors.first(), 'danger')
 
-                return render_template('auth/register.html', errors=errors.errors, form_data=form_data)
+                    return render_template('auth/register.html', errors=errors.errors, form_data=form_data)
 
 
 
@@ -300,8 +347,20 @@ def forgot_password():
         form_data = request.form.to_dict()
 
         username = clean_username(request.form.get('username'), errors)
-        email = clean_email(request.form.get('email'), 'email', errors)
-        phone = clean_phone(request.form.get('phone'), 'phone', errors, required=True)
+        email = clean_email(request.form.get('email'), 'email', errors, required=False)
+        phone = clean_phone(request.form.get('phone'), 'phone', errors, required=False)
+
+        if errors.valid:
+            db = get_db_connection(app)
+            cursor = db.cursor()
+            cursor.execute(
+                "SELECT UserID, Username, Email, Phone FROM Users WHERE Username = ?",
+                (username,),
+            )
+            user_row = cursor.fetchone()
+            cursor.close()
+            if user_row:
+                _recovery_field_errors(user_row, email, phone, errors)
 
         if not errors.valid:
             flash(errors.first(), 'danger')
@@ -312,32 +371,22 @@ def forgot_password():
             cursor = db.cursor()
 
             cursor.execute(
-                "SELECT UserID, Username, Email FROM Users WHERE Username = ? AND Email = ? AND Phone = ?",
-                (username, email, phone)
+                "SELECT UserID, Username, Email, Phone FROM Users WHERE Username = ?",
+                (username,),
             )
             result = cursor.fetchone()
             cursor.close()
 
-            if result:
-                token = generate_reset_token(result[0], result[2])
+            if result and _user_matches_recovery(result, email, phone):
+                token = generate_reset_token(result.UserID)
                 reset_url = url_for('auth.reset_password', token=token, _external=True)
-
-                if is_email_configured(app):
-                    send_password_reset_email(app, result[2], result[1], reset_url)
-                else:
-                    # No SMTP configured (e.g. local development) - surface the
-                    # link directly instead of silently failing.
-                    flash(
-                        f'Email is not configured on this server. Use this link to reset your password: {reset_url}',
-                        'warning'
-                    )
-                    return redirect(url_for('auth.login'))
+                return _deliver_password_reset(result, reset_url)
 
             # Same message whether or not a match was found, to avoid leaking
             # which usernames/emails/phones are registered.
             flash(
-                'If the details you entered match our records, a password reset '
-                'link has been sent to the registered email address.',
+                'If the details you entered match our records, password reset '
+                'instructions will be provided or emailed.',
                 'success'
             )
             return redirect(url_for('auth.login'))
@@ -376,8 +425,8 @@ def reset_password(token):
             cursor = db.cursor()
 
             cursor.execute(
-                "UPDATE Users SET Password = ? WHERE UserID = ? AND Email = ?",
-                (generate_password_hash(password), data['user_id'], data['email'])
+                "UPDATE Users SET Password = ? WHERE UserID = ?",
+                (generate_password_hash(password), data['user_id'])
             )
             db.commit()
             cursor.close()
