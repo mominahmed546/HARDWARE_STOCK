@@ -1,3 +1,5 @@
+from datetime import date
+
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file
 
 from flask_login import login_required
@@ -5,10 +7,18 @@ from flask_login import login_required
 from app import app
 from app.db import execute_query, execute_query_one, execute_update, get_db_connection
 from app.perf import pagination_meta, parse_page, parse_page_size
+from app.payments import (
+    add_purchase_payment,
+    ensure_purchase_payments_table,
+    refresh_purchase_settlement,
+)
+from app.purchases.routes import _ensure_purchase_payment_method_column, normalize_purchase_payment_method
 from app.tenancy import next_owner_no, next_table_id, owner_sql, request_user_id
 from app.items.import_utils import build_items_template_xlsx, import_items, parse_items_xlsx
 from app.validators import (
     ValidationErrors,
+    clean_date,
+    clean_select_id,
     clean_string,
     clean_optional_select_id,
     clean_positive_decimal,
@@ -25,14 +35,117 @@ QTY_FILTERS = {
 }
 
 
-def _validate_item_form(form, errors):
-    return {
+def _validate_item_form(form, errors, *, as_purchase=False):
+    data = {
         "item_name": clean_string(form.get("item_name"), "item_name", errors, max_len=100, label="Item name"),
-        "category_id": clean_optional_select_id(form.get("category_id"), "category_id", errors, label="Category"),
+        "category_id": clean_select_id(form.get("category_id"), "category_id", errors, label="Category")
+        if as_purchase
+        else clean_optional_select_id(form.get("category_id"), "category_id", errors, label="Category"),
         "purchase_rate": clean_positive_decimal(form.get("purchase_rate"), "purchase_rate", errors, label="Purchase rate"),
         "sale_rate": clean_positive_decimal(form.get("sale_rate"), "sale_rate", errors, label="Sale rate"),
-        "qty": clean_positive_int(form.get("qty"), "qty", errors, min_val=0, label="Quantity"),
+        "qty": clean_positive_int(
+            form.get("qty"),
+            "qty",
+            errors,
+            min_val=1 if as_purchase else 0,
+            label="Quantity",
+        ),
     }
+    if as_purchase:
+        data["supplier_id"] = clean_select_id(form.get("supplier_id"), "supplier_id", errors, label="Supplier")
+        data["purchase_date"] = clean_date(form.get("purchase_date"), "purchase_date", errors, label="Purchase date")
+        data["payment_method"] = normalize_purchase_payment_method(form.get("payment_method"))
+    return data
+
+
+def _resolve_or_create_item(cursor, data):
+    """Find an existing item row or insert a new one; return (item_id, item_name)."""
+    item_name = data["item_name"]
+    cursor.execute(
+        f"""
+        SELECT TOP 1 ItemID, ItemName
+        FROM Item
+        WHERE LOWER(LTRIM(RTRIM(ItemName))) = LOWER(LTRIM(RTRIM(?)))
+          AND CategoryID = ?
+          AND {owner_sql()}
+        ORDER BY Qty DESC, ItemID ASC
+        """,
+        (item_name, data["category_id"]),
+    )
+    existing_item = cursor.fetchone()
+    if existing_item:
+        item_id = existing_item.ItemID
+        item_name = existing_item.ItemName
+        cursor.execute(
+            f"""
+            UPDATE Item
+            SET Qty = Qty + ?, PurchaseRate = ?, SaleRate = ?
+            WHERE ItemID = ? AND {owner_sql()}
+            """,
+            (data["qty"], data["purchase_rate"], data["sale_rate"], item_id),
+        )
+        return item_id, item_name
+
+    next_item_id = next_table_id(cursor, "Item", "ItemID")
+    next_item_no = next_owner_no(cursor, "Item", "ItemNo")
+    cursor.execute(
+        """
+        INSERT INTO Item (ItemID, ItemNo, ItemName, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            next_item_id,
+            next_item_no,
+            item_name,
+            data["category_id"],
+            data["purchase_rate"],
+            data["sale_rate"],
+            data["qty"],
+            request_user_id(),
+        ),
+    )
+    return next_item_id, item_name
+
+
+def _record_item_purchase(cursor, data):
+    item_id, item_name = _resolve_or_create_item(cursor, data)
+    total = float(data["qty"] or 0) * float(data["purchase_rate"] or 0)
+    next_purchase_id = next_table_id(cursor, "Purchases", "PurchaseID")
+    cursor.execute(
+        """
+        INSERT INTO Purchases (PurchaseID, PurchaseDate, SupplierID, TotalAmount, PaymentMethod, UserID)
+        OUTPUT INSERTED.PurchaseID
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            next_purchase_id,
+            data["purchase_date"],
+            data["supplier_id"],
+            total,
+            data["payment_method"],
+            request_user_id(),
+        ),
+    )
+    purchase_id = int(cursor.fetchone()[0])
+    cursor.execute(
+        """
+        INSERT INTO PurchaseDetails (PurchaseID, ItemID, Particulars, Qty, PurchaseRate)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (purchase_id, item_id, item_name, data["qty"], data["purchase_rate"]),
+    )
+    if data["payment_method"] in {"Cash", "Bank"} and total > 0:
+        add_purchase_payment(
+            cursor,
+            type("PurchaseObj", (), {"PurchaseID": purchase_id, "TotalAmount": total})(),
+            total,
+            data["purchase_date"],
+            notes="Paid on item purchase entry",
+            payment_method=data["payment_method"],
+        )
+    else:
+        refresh_purchase_settlement(cursor, purchase_id)
+    return item_id, purchase_id
 
 
 def _check_duplicate_item_name(item_name, errors, exclude_item_id=None):
@@ -293,13 +406,11 @@ def create_item():
     errors = ValidationErrors()
     form_data = {}
     categories = execute_query(app, f"SELECT CategoryID, CategoryName FROM Category WHERE {owner_sql()} ORDER BY CategoryName")
+    suppliers = execute_query(app, f"SELECT SupplierID, SupplierName FROM Supplier WHERE {owner_sql()} ORDER BY SupplierName")
 
     if request.method == "POST":
         form_data = request.form.to_dict()
-        data = _validate_item_form(request.form, errors)
-
-        if errors.valid:
-            _check_duplicate_item_name(data["item_name"], errors)
+        data = _validate_item_form(request.form, errors, as_purchase=True)
 
         if not errors.valid:
             flash(errors.first(), "danger")
@@ -307,6 +418,7 @@ def create_item():
                 "items/form.html",
                 item=None,
                 categories=categories,
+                suppliers=suppliers,
                 errors=errors.errors,
                 form_data=form_data,
             )
@@ -314,37 +426,46 @@ def create_item():
         try:
             db = get_db_connection(app)
             cursor = db.cursor()
-            next_id = next_table_id(cursor, "Item", "ItemID")
-            next_no = next_owner_no(cursor, "Item", "ItemNo")
+            _ensure_purchase_payment_method_column(db, cursor)
+            ensure_purchase_payments_table(db, cursor)
             cursor.execute(
-                """
-                INSERT INTO Item (ItemID, ItemNo, ItemName, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    next_id,
-                    next_no,
-                    data["item_name"],
-                    data["category_id"],
-                    data["purchase_rate"],
-                    data["sale_rate"],
-                    data["qty"],
-                    request_user_id(),
-                ),
+                f"SELECT SupplierID FROM Supplier WHERE SupplierID = ? AND {owner_sql()}",
+                (data["supplier_id"],),
             )
+            if not cursor.fetchone():
+                flash("Supplier not found.", "danger")
+                cursor.close()
+                return render_template(
+                    "items/form.html",
+                    item=None,
+                    categories=categories,
+                    suppliers=suppliers,
+                    errors=errors.errors,
+                    form_data=form_data,
+                )
+
+            _record_item_purchase(cursor, data)
             db.commit()
             cursor.close()
 
-            flash("Item created successfully", "success")
+            flash("Purchase recorded and item added to stock.", "success")
             return redirect(url_for("items.list_items"))
 
         except Exception as e:
+            app.logger.exception("Error creating item purchase")
             flash(f"Error creating item: {str(e)}", "danger")
+
+    if not form_data:
+        form_data = {
+            "purchase_date": date.today().isoformat(),
+            "payment_method": "Cash",
+        }
 
     return render_template(
         "items/form.html",
         item=None,
         categories=categories,
+        suppliers=suppliers,
         errors=errors.errors,
         form_data=form_data,
     )

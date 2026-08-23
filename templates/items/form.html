@@ -5,14 +5,53 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/items.css') }}">
 {% endblock %}
 
-{% block title %}{% if item %}Edit{% else %}Create{% endif %} Item - Hardware Stock Management{% endblock %}
-{% block page_title %}{% if item %}Edit{% else %}Create{% endif %} Item{% endblock %}
+{% block title %}{% if item %}Edit{% else %}Add{% endif %} Item - Hardware Stock Management{% endblock %}
+{% block page_title %}{% if item %}Edit Item{% else %}Add Item (Purchase){% endif %}{% endblock %}
+{% block page_subtitle %}
+{% if not item %}
+<p>Adding an item here records a purchase from the selected supplier and updates stock.</p>
+{% endif %}
+{% endblock %}
 
 {% block content %}
 {% set fd = form_data or {} %}
 <div class="container">
     <div class="card">
         <form method="POST" class="form" data-validate novalidate>
+            {% if not item %}
+            <div class="form-group">
+                <label for="purchase_date">Purchase Date</label>
+                <input type="date" id="purchase_date" name="purchase_date"
+                       value="{{ fd.get('purchase_date', '') }}" required
+                       class="{% if errors and errors.get('purchase_date') %}is-invalid{% endif %}">
+                {{ field_error(errors, 'purchase_date') }}
+            </div>
+
+            <div class="form-group">
+                <label for="supplier_id">Supplier</label>
+                <select id="supplier_id" name="supplier_id" required
+                        class="{% if errors and errors.get('supplier_id') %}is-invalid{% endif %}">
+                    <option value="">Select supplier</option>
+                    {% for supplier in suppliers or [] %}
+                    <option value="{{ supplier[0] }}"
+                        {% if fd.get('supplier_id')|string == supplier[0]|string %}selected{% endif %}>
+                        {{ supplier[1] }}
+                    </option>
+                    {% endfor %}
+                </select>
+                {{ field_error(errors, 'supplier_id') }}
+            </div>
+
+            <div class="form-group">
+                <label for="payment_method">Paid From</label>
+                <select id="payment_method" name="payment_method">
+                    <option value="Cash" {% if fd.get('payment_method', 'Cash') == 'Cash' %}selected{% endif %}>Cash in drawer</option>
+                    <option value="Bank" {% if fd.get('payment_method') == 'Bank' %}selected{% endif %}>Bank account</option>
+                    <option value="Credit" {% if fd.get('payment_method') == 'Credit' %}selected{% endif %}>Credit (unpaid)</option>
+                </select>
+            </div>
+            {% endif %}
+
             <div class="form-group">
                 <label for="item_name">Item Name</label>
                 <input type="text" id="item_name" name="item_name"
@@ -24,7 +63,7 @@
 
             <div class="form-group">
                 <label for="category_id">Category</label>
-                <select id="category_id" name="category_id"
+                <select id="category_id" name="category_id" {% if not item %}required{% endif %}
                         class="{% if errors and errors.get('category_id') %}is-invalid{% endif %}">
                     <option value="">Select category</option>
                     {% for category in categories %}
@@ -55,14 +94,16 @@
 
             <div class="form-group">
                 <label for="qty">Quantity</label>
-                <input type="number" min="0" id="qty" name="qty"
-                       value="{{ fd.get('qty', item.Qty if item else '0') }}" required
+                <input type="number" min="{% if item %}0{% else %}1{% endif %}" id="qty" name="qty"
+                       value="{{ fd.get('qty', item.Qty if item else '1') }}" required
                        class="{% if errors and errors.get('qty') %}is-invalid{% endif %}">
                 {{ field_error(errors, 'qty') }}
             </div>
 
             <div class="form-actions">
-                <button type="submit" class="btn btn-primary">{% if item %}Update{% else %}Create{% endif %}</button>
+                <button type="submit" class="btn btn-primary">
+                    {% if item %}Update Item{% else %}Save Purchase{% endif %}
+                </button>
                 <a href="{{ url_for('items.list_items') }}" class="btn btn-secondary">Cancel</a>
             </div>
         </form>
