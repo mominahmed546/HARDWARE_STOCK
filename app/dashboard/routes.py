@@ -13,6 +13,7 @@ from app.payments import (
     get_cash_openings,
 )
 from app.perf import day_bounds, through_exclusive
+from app.stock_constants import LOW_STOCK_THRESHOLD
 from app.tenancy import owner_sql
 
 dashboard_bp = Blueprint("dashboard", __name__)
@@ -71,6 +72,7 @@ def dashboard():
         "today_bank": 0,
         "cash_in_hand": 0,
         "bank_balance": 0,
+        "low_stock_threshold": LOW_STOCK_THRESHOLD,
         "cash_excluding_profit": 0,
         "bank_excluding_profit": 0,
         "profit_in_cash": 0,
@@ -130,7 +132,7 @@ def dashboard():
             low_stock AS (
                 SELECT 'low' AS kind, ItemName, Qty
                 FROM grouped
-                WHERE Qty > 0 AND Qty < 10
+                WHERE Qty > 0 AND Qty < {LOW_STOCK_THRESHOLD}
                 ORDER BY Qty ASC, ItemName ASC
                 LIMIT 5
             )
@@ -245,6 +247,7 @@ def dashboard():
             total_items=total_items,
             total_products=total_items,
             low_stock_items=low_stock_items,
+            low_stock_threshold=LOW_STOCK_THRESHOLD,
             out_of_stock_items=out_of_stock_items,
             recent_customers=recent_customers,
             today_cash=today_cash,
