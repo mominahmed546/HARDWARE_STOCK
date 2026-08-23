@@ -117,7 +117,7 @@
             {{ field_error(errors, 'height[]') }}
             {{ field_error(errors, 'sqft[]') }}
 
-            <div class="table-wrap">
+            <div class="quotation-table-wrap">
                 <table class="data-table quotation-items-table" id="quotation-items-table">
                     <thead>
                         <tr>
@@ -137,10 +137,9 @@
                         <tr class="quotation-item-row">
                             <td class="quotation-sr">{{ loop.index }}</td>
                             <td>
-                                <input type="text" name="description[]" maxlength="255"
-                                       value="{{ line.get('description', '') }}"
-                                       class="quotation-description {% if errors and errors.get('description[]') %}is-invalid{% endif %}"
-                                       placeholder="Item description">
+                                <textarea name="description[]" rows="3" maxlength="255"
+                                          class="quotation-description {% if errors and errors.get('description[]') %}is-invalid{% endif %}"
+                                          placeholder="Item description">{{ line.get('description', '') }}</textarea>
                             </td>
                             <td>
                                 <input type="number" name="width[]" min="0" step="0.01"

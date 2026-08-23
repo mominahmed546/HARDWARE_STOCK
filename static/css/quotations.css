@@ -22,7 +22,27 @@
     font-size: 0.9rem;
 }
 
+.quotation-table-wrap {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 0.5rem 0;
+    overflow-x: hidden;
+}
+
+.quotation-items-table {
+    table-layout: fixed;
+    width: 100%;
+}
+
+.quotation-items-table th,
+.quotation-items-table td {
+    padding: 0.55rem 0.45rem;
+    vertical-align: top;
+}
+
 .quotation-items-table input,
+.quotation-items-table textarea,
 .quotation-items-table select {
     width: 100%;
     min-width: 0;
@@ -31,6 +51,7 @@
     border-radius: 6px;
     background: var(--surface);
     color: var(--text);
+    box-sizing: border-box;
 }
 
 .quotation-items-table .quotation-width,
@@ -38,18 +59,64 @@
 .quotation-items-table .quotation-quantity,
 .quotation-items-table .quotation-rate,
 .quotation-items-table .quotation-sqft {
-    width: 5.5rem;
+    width: 100%;
+}
+
+.quotation-items-table th:nth-child(1),
+.quotation-items-table td:nth-child(1) {
+    width: 3.25rem;
+}
+
+.quotation-items-table th:nth-child(2),
+.quotation-items-table td:nth-child(2) {
+    width: 34%;
+}
+
+.quotation-items-table th:nth-child(3),
+.quotation-items-table td:nth-child(3),
+.quotation-items-table th:nth-child(4),
+.quotation-items-table td:nth-child(4),
+.quotation-items-table th:nth-child(5),
+.quotation-items-table td:nth-child(5),
+.quotation-items-table th:nth-child(6),
+.quotation-items-table td:nth-child(6),
+.quotation-items-table th:nth-child(7),
+.quotation-items-table td:nth-child(7) {
+    width: 4.75rem;
+}
+
+.quotation-items-table th:nth-child(8),
+.quotation-items-table td:nth-child(8) {
+    width: 6.5rem;
+}
+
+.quotation-items-table th:nth-child(9),
+.quotation-items-table td:nth-child(9) {
+    width: 5.75rem;
 }
 
 .quotation-sr {
-    width: 3.5rem;
     text-align: center;
     font-weight: 600;
     color: var(--text-muted);
 }
 
 .quotation-items-table .quotation-description {
-    min-width: 12rem;
+    min-height: 4.5rem;
+    resize: vertical;
+    line-height: 1.35;
+}
+
+.quotation-line-total {
+    white-space: nowrap;
+    font-weight: 600;
+    padding-top: 0.85rem !important;
+}
+
+.quotation-items-table .remove-quotation-item {
+    width: 100%;
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
 }
 
 .quotation-totals {
@@ -69,6 +136,15 @@
 @media (max-width: 900px) {
     .quotation-grid {
         grid-template-columns: 1fr;
+    }
+
+    .quotation-table-wrap {
+        overflow-x: auto;
+    }
+
+    .quotation-items-table {
+        table-layout: auto;
+        min-width: 760px;
     }
 }
 

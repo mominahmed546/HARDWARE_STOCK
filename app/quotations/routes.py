@@ -6,7 +6,7 @@ from flask_login import login_required
 from app import app
 from app.db import get_db_connection
 from app.perf import pagination_meta, parse_page, parse_page_size
-from app.quotations.excel import MAX_LINE_ROWS, build_quotation_xlsx, line_amount, sqft_for_line
+from app.quotations.excel import MAX_LINE_ROWS, build_quotation_xlsx, line_amount, quotation_download_name, sqft_for_line
 from app.tenancy import owner_sql, request_user_id
 from app.wa_api import is_configured as wa_api_configured
 from app.wa_api import send_file_bytes as wa_send_file
@@ -290,11 +290,12 @@ def _load_quotation_details(cursor, quotation_id):
 def _send_quotation_excel(quotation, details):
     header, lines = _quotation_header_payload(quotation, details)
     workbook = build_quotation_xlsx(header, lines)
+    download_name = quotation_download_name(header.get("customer_name") or quotation.CustomerName)
     return send_file(
         workbook,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
-        download_name="QUOTATION.xlsx",
+        download_name=download_name,
     )
 
 
@@ -709,7 +710,7 @@ def quotation_whatsapp(id):
                     _result, err = wa_send_file(
                         phone, xl_bytes,
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        "QUOTATION.xlsx", caption,
+                        quotation_download_name(quotation.CustomerName), caption,
                     )
                     if err:
                         flash(f"WhatsApp send failed: {err}", "danger")

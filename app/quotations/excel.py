@@ -1,10 +1,12 @@
 """Build a quotation-style Excel workbook from the Euroglass template."""
 
 import os
+import re
 from datetime import date, datetime
 from io import BytesIO
 
 from openpyxl import load_workbook
+from openpyxl.styles import Alignment
 
 TEMPLATE_PATH = os.path.join(
     os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
@@ -74,6 +76,29 @@ def _set_number(cell, value):
     cell.value = int(number) if number == int(number) else number
 
 
+def quotation_download_name(customer_name, extension="xlsx"):
+    """Safe download filename from the quotation Name field."""
+    base = str(customer_name or "").strip()
+    base = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "", base)
+    base = re.sub(r"\s+", "_", base).strip("._")
+    stem = base or "QUOTATION"
+    if len(stem) > 80:
+        stem = stem[:80].rstrip("_")
+    return f"{stem}.{extension.lstrip('.')}"
+
+
+def _set_description(cell, value, sheet, row_num):
+    text = str(value or "").strip()
+    cell.value = text or None
+    cell.alignment = Alignment(wrap_text=True, vertical="top")
+    if not text:
+        sheet.row_dimensions[row_num].height = 15
+        return
+    line_breaks = text.count("\n") + 1
+    wrapped_lines = max(line_breaks, (len(text) // 42) + 1)
+    sheet.row_dimensions[row_num].height = min(120, max(18, 15 * wrapped_lines))
+
+
 def build_quotation_xlsx(header, lines):
     """Return a BytesIO workbook named in quotation style."""
     if not os.path.exists(TEMPLATE_PATH):
@@ -85,6 +110,8 @@ def build_quotation_xlsx(header, lines):
 
     sheet = workbook["INVOICE"] if "INVOICE" in workbook.sheetnames else workbook.active
     sheet.title = "QUOTATION"
+    if sheet.column_dimensions["B"].width is None or sheet.column_dimensions["B"].width < 28:
+        sheet.column_dimensions["B"].width = 42
 
     sheet["C4"] = header.get("quotation_no")
     sheet["C5"] = _as_date(header.get("quotation_date"))
@@ -112,7 +139,7 @@ def build_quotation_xlsx(header, lines):
             sqft = line.get("sqft")
 
             sheet[f"A{row}"] = offset + 1
-            sheet[f"B{row}"] = line.get("description") or line.get("item_name") or ""
+            _set_description(sheet[f"B{row}"], line.get("description") or line.get("item_name") or "", sheet, row)
             _set_number(sheet[f"I{row}"], width)
             _set_number(sheet[f"J{row}"], height)
             _set_number(sheet[f"K{row}"], qty)
