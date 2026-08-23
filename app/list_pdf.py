@@ -215,8 +215,8 @@ def build_tabular_list_pdf(title, columns, rows, subtitle_lines=None, summary_ro
             right = col_bounds[col_idx + 1]
             if wrap:
                 ty = text_y
-                for line in cell_lines[col_idx]:
-                    text(left + 3, ty, line, 8, "F1")
+                for wrapped_line in cell_lines[col_idx]:
+                    text(left + 3, ty, wrapped_line, 8, "F1")
                     ty -= LINE_H
             elif align == "right":
                 text_right(right - 3, mid_y, values[col_idx], 8, "F1")
