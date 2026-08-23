@@ -28,7 +28,11 @@
                 <button type="submit" class="btn btn-primary">Search</button>
             </form>
         </div>
-        <a href="{{ url_for('invoices.create_invoice') }}" class="btn btn-success">+ New Invoice</a>
+        <div class="list-header-actions" style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <a href="{{ url_for('invoices.list_invoices_pdf', search=search, month=selected_month or '', year=selected_year) }}"
+               class="btn btn-secondary">Download PDF</a>
+            <a href="{{ url_for('invoices.create_invoice') }}" class="btn btn-success">+ New Invoice</a>
+        </div>
     </div>
 
     <div class="table-wrap invoices-table-wrap">

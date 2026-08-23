@@ -25,6 +25,7 @@ from app.payments import (
     remaining_due,
 )
 from app.perf import pagination_meta, parse_page, parse_page_size
+from app.list_pdf import build_tabular_list_pdf, format_money
 from app.validators import (
     ValidationErrors,
     clean_date,
@@ -1232,6 +1233,209 @@ def list_invoices():
         flash(f"Error loading invoices: {str(e)}", "danger")
         return redirect(url_for("dashboard.dashboard"))
 
+    finally:
+        cursor.close()
+
+
+def _invoice_list_where_sql(search, selected_month, selected_year):
+    where_sql = f"WHERE {owner_sql('i')}"
+    params = []
+
+    if search:
+        where_sql += " AND (CAST(i.InvoiceID AS VARCHAR(20)) LIKE ? OR c.CustomerName LIKE ?)"
+        params.extend([f"%{search}%", f"%{search}%"])
+
+    if selected_month:
+        month_start = date(selected_year, selected_month, 1)
+        month_end = (
+            date(selected_year + 1, 1, 1)
+            if selected_month == 12
+            else date(selected_year, selected_month + 1, 1)
+        )
+        where_sql += " AND i.[Date] >= ? AND i.[Date] < ?"
+        params.extend([month_start, month_end])
+
+    return where_sql, params
+
+
+def _fetch_invoices_for_pdf(cursor, search, selected_month, selected_year):
+    where_sql, params = _invoice_list_where_sql(search, selected_month, selected_year)
+    cursor.execute(
+        f"""
+        SELECT
+            i.InvoiceID,
+            i.[Date] AS InvoiceDate,
+            i.TotalAmount,
+            COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus,
+            COALESCE(i.CashReceived, 0) AS PaidAmount,
+            GREATEST(COALESCE(i.TotalAmount, 0) - COALESCE(i.CashReceived, 0), 0) AS RemainingAmount,
+            c.CustomerName
+        FROM Invoices i
+        JOIN Customers c ON i.CustomerID = c.CustomerID
+        {where_sql}
+        ORDER BY i.InvoiceID DESC
+        """,
+        params or (),
+    )
+    invoice_rows = cursor.fetchall()
+    invoice_ids = [int(row.InvoiceID) for row in invoice_rows]
+
+    returns_by_id = {}
+    profit_by_id = {}
+    if invoice_ids:
+        placeholders = ",".join("?" for _ in invoice_ids)
+        cursor.execute(
+            f"""
+            SELECT
+                InvoiceID,
+                COUNT(*) AS ReturnCount,
+                COALESCE(SUM(TotalAmount), 0) AS ReturnTotal
+            FROM SalesReturns
+            WHERE InvoiceID IN ({placeholders})
+            GROUP BY InvoiceID
+            """,
+            invoice_ids,
+        )
+        for row in cursor.fetchall():
+            returns_by_id[int(row.InvoiceID)] = row
+
+        line_cost = sold_line_cost_sql("d")
+        paid_ratio = paid_ratio_sql("i", None)
+        cursor.execute(
+            f"""
+            SELECT
+                i.InvoiceID,
+                ISNULL(
+                    SUM(
+                        (COALESCE(d.Qty, 0) * COALESCE(d.Rate, 0) - ({line_cost}))
+                        * ({paid_ratio})
+                    ),
+                    0
+                ) AS Profit
+            FROM Invoices i
+            LEFT JOIN InvoiceDetails d ON i.InvoiceID = d.InvoiceID
+            LEFT JOIN Item it ON d.ItemID = it.ItemID
+            {purchase_unit_cost_join("d")}
+            WHERE i.InvoiceID IN ({placeholders})
+            GROUP BY i.InvoiceID
+            """,
+            invoice_ids,
+        )
+        for row in cursor.fetchall():
+            profit_by_id[int(row.InvoiceID)] = float(row.Profit or 0)
+
+    invoices = []
+    for row in invoice_rows:
+        inv_id = int(row.InvoiceID)
+        ret = returns_by_id.get(inv_id)
+        invoices.append(
+            {
+                "InvoiceID": inv_id,
+                "InvoiceDate": row.InvoiceDate,
+                "CustomerName": row.CustomerName,
+                "TotalAmount": float(row.TotalAmount or 0),
+                "PaidAmount": float(row.PaidAmount or 0),
+                "RemainingAmount": float(row.RemainingAmount or 0),
+                "PaymentStatus": row.PaymentStatus,
+                "ReturnCount": int(ret.ReturnCount) if ret else 0,
+                "ReturnTotal": float(ret.ReturnTotal) if ret else 0.0,
+                "Profit": profit_by_id.get(inv_id, 0.0),
+            }
+        )
+    return invoices
+
+
+def _build_invoices_list_pdf(invoices, subtitle_lines=None):
+    columns = [
+        {"label": "ID", "width": 34, "get": lambda row, _i: str(row["InvoiceID"])},
+        {"label": "DATE", "width": 58, "get": lambda row, _i: _format_date_dmy(row["InvoiceDate"])},
+        {"label": "CUSTOMER", "width": 120, "get": lambda row, _i: row["CustomerName"], "wrap": 18},
+        {
+            "label": "TOTAL",
+            "width": 62,
+            "get": lambda row, _i: f"Rs {format_money(row['TotalAmount'])}",
+            "align": "right",
+        },
+        {
+            "label": "PAID",
+            "width": 58,
+            "get": lambda row, _i: f"Rs {format_money(row['PaidAmount'])}",
+            "align": "right",
+        },
+        {
+            "label": "DUE",
+            "width": 58,
+            "get": lambda row, _i: f"Rs {format_money(row['RemainingAmount'])}",
+            "align": "right",
+        },
+        {
+            "label": "RETURNS",
+            "width": 52,
+            "get": lambda row, _i: (
+                f"{row['ReturnCount']} / Rs {format_money(row['ReturnTotal'])}"
+                if row["ReturnCount"]
+                else "—"
+            ),
+        },
+        {
+            "label": "PROFIT",
+            "width": 58,
+            "get": lambda row, _i: f"Rs {format_money(row['Profit'])}",
+            "align": "right",
+        },
+        {"label": "STATUS", "width": 45, "get": lambda row, _i: row["PaymentStatus"] or "Unpaid"},
+    ]
+    total_amount = sum(row["TotalAmount"] for row in invoices)
+    total_paid = sum(row["PaidAmount"] for row in invoices)
+    total_due = sum(row["RemainingAmount"] for row in invoices)
+    total_profit = sum(row["Profit"] for row in invoices)
+    summary_rows = [
+        ("TOTAL INVOICES", str(len(invoices))),
+        ("TOTAL AMOUNT", f"Rs {format_money(total_amount)}"),
+        ("TOTAL PAID", f"Rs {format_money(total_paid)}"),
+        ("TOTAL DUE", f"Rs {format_money(total_due)}"),
+        ("TOTAL PROFIT", f"Rs {format_money(total_profit)}"),
+    ]
+    return build_tabular_list_pdf("INVOICES LIST", columns, invoices, subtitle_lines, summary_rows)
+
+
+@invoices_bp.route("/list/pdf")
+@login_required
+def list_invoices_pdf():
+    db = get_db_connection(app)
+    cursor = db.cursor()
+    try:
+        _ensure_invoice_schema(db, cursor)
+        search = request.args.get("search", "")
+        years = _invoice_list_years(cursor)
+        selected_month, selected_year = _invoice_list_period_from_request(years)
+        invoices = _fetch_invoices_for_pdf(cursor, search, selected_month, selected_year)
+
+        subtitle_lines = [f"Total invoices: {len(invoices)}"]
+        if search:
+            subtitle_lines.append(f"Search: {search}")
+        if selected_month:
+            subtitle_lines.append(f"Period: {MONTHS[selected_month - 1]} {selected_year}")
+
+        pdf = _build_invoices_list_pdf(invoices, subtitle_lines)
+        filename = f"invoices_list_{date.today().strftime('%Y%m%d')}.pdf"
+        return send_file(
+            pdf,
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=filename,
+        )
+    except Exception as e:
+        app.logger.exception("Error generating invoices PDF")
+        flash(f"Error generating invoices PDF: {str(e)}", "danger")
+        return redirect(
+            url_for(
+                "invoices.list_invoices",
+                search=request.args.get("search", ""),
+                month=request.args.get("month", ""),
+                year=request.args.get("year", ""),
+            )
+        )
     finally:
         cursor.close()
 
