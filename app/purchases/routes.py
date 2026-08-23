@@ -1,6 +1,6 @@
 from datetime import date
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file
 
 from flask_login import login_required
 
@@ -27,6 +27,7 @@ from app.payments import (
     save_cash_openings,
 )
 from app.tenancy import next_owner_no, next_table_id, owner_sql, request_user_id
+from app.list_pdf import build_tabular_list_pdf, format_money
 
 from app.validators import (
 
@@ -586,6 +587,119 @@ def list_purchases():
 
 
 
+
+def _purchases_list_where_sql(search):
+    where_sql = f"WHERE {owner_sql('p')}"
+    params = []
+    if search:
+        where_sql += """
+            AND (
+                CAST(p.PurchaseID AS VARCHAR(20)) LIKE ?
+                OR s.SupplierName LIKE ?
+                OR EXISTS (
+                    SELECT 1
+                    FROM PurchaseDetails pd
+                    WHERE pd.PurchaseID = p.PurchaseID
+                      AND pd.Particulars LIKE ?
+                )
+                OR CONVERT(VARCHAR(10), p.PurchaseDate, 103) LIKE ?
+            )
+        """
+        params.extend([f"%{search}%", f"%{search}%", f"%{search}%", f"%{search}%"])
+    return where_sql, params
+
+
+def _fetch_purchases_for_pdf(search):
+    where_sql, params = _purchases_list_where_sql(search)
+    db = get_db_connection(app)
+    cursor = db.cursor()
+    try:
+        cursor.execute(
+            f"""
+            SELECT
+                COALESCE(p.SupplierID, 0) AS SupplierID,
+                COALESCE(s.SupplierName, 'N/A') AS SupplierName,
+                MIN(p.PurchaseDate) AS FirstPurchaseDate,
+                MAX(p.PurchaseDate) AS LastPurchaseDate,
+                COUNT(DISTINCT p.PurchaseID) AS PurchaseCount,
+                SUM(ISNULL(p.TotalAmount, 0)) AS TotalAmount,
+                SUM(ISNULL(details.ItemLineCount, 0)) AS ItemLineCount,
+                SUM(ISNULL(details.TotalQty, 0)) AS TotalQty
+            FROM Purchases p
+            LEFT JOIN Supplier s ON p.SupplierID = s.SupplierID
+            LEFT JOIN (
+                SELECT
+                    pd.PurchaseID,
+                    COUNT(*) AS ItemLineCount,
+                    SUM(ISNULL(pd.Qty, 0)) AS TotalQty
+                FROM PurchaseDetails pd
+                GROUP BY pd.PurchaseID
+            ) details ON details.PurchaseID = p.PurchaseID
+            {where_sql}
+            GROUP BY COALESCE(p.SupplierID, 0), COALESCE(s.SupplierName, 'N/A')
+            ORDER BY MAX(p.PurchaseDate) DESC, COALESCE(s.SupplierName, 'N/A')
+            """,
+            params or (),
+        )
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+
+
+def _format_purchase_date(value):
+    if not value:
+        return "N/A"
+    if hasattr(value, "strftime"):
+        return value.strftime("%d/%m/%Y")
+    return str(value)
+
+
+def _build_purchases_list_pdf(purchases, subtitle_lines=None):
+    columns = [
+        {"label": "SUPPLIER", "width": 130, "get": lambda row, _i: row.SupplierName or "N/A", "wrap": 22},
+        {"label": "FIRST", "width": 62, "get": lambda row, _i: _format_purchase_date(row.FirstPurchaseDate)},
+        {"label": "LAST", "width": 62, "get": lambda row, _i: _format_purchase_date(row.LastPurchaseDate)},
+        {"label": "PURCH", "width": 48, "get": lambda row, _i: str(int(row.PurchaseCount or 0))},
+        {"label": "LINES", "width": 48, "get": lambda row, _i: str(int(row.ItemLineCount or 0))},
+        {"label": "QTY", "width": 48, "get": lambda row, _i: str(int(row.TotalQty or 0))},
+        {
+            "label": "TOTAL AMOUNT",
+            "width": 147,
+            "get": lambda row, _i: f"Rs {format_money(row.TotalAmount)}",
+            "align": "right",
+        },
+    ]
+    total_amount = sum(float(row.TotalAmount or 0) for row in purchases)
+    total_qty = sum(int(row.TotalQty or 0) for row in purchases)
+    summary_rows = [
+        ("TOTAL SUPPLIERS", str(len(purchases))),
+        ("TOTAL QTY", str(total_qty)),
+        ("TOTAL AMOUNT", f"Rs {format_money(total_amount)}"),
+    ]
+    return build_tabular_list_pdf("PURCHASES LIST", columns, purchases, subtitle_lines, summary_rows)
+
+
+@purchases_bp.route("/list/pdf")
+@login_required
+def list_purchases_pdf():
+    search = request.args.get("search", "")
+    try:
+        purchases = _fetch_purchases_for_pdf(search)
+        subtitle_lines = [f"Total suppliers: {len(purchases)}"]
+        if search:
+            subtitle_lines.append(f"Search: {search}")
+        pdf = _build_purchases_list_pdf(purchases, subtitle_lines)
+        filename = f"purchases_list_{date.today().strftime('%Y%m%d')}.pdf"
+        return send_file(
+            pdf,
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=filename,
+        )
+    except Exception as e:
+        app.logger.exception("Error generating purchases PDF")
+        flash(f"Error generating purchases PDF: {str(e)}", "danger")
+        return redirect(url_for("purchases.list_purchases", search=search))
 
 
 @purchases_bp.route("/details/supplier/<int:supplier_id>")

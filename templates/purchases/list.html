@@ -49,7 +49,10 @@
                 {% endif %}
             </form>
         </div>
-        <a href="{{ url_for('purchases.create_purchase') }}" class="btn btn-success">+ New Purchase</a>
+        <div class="list-header-actions" style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <a href="{{ url_for('purchases.list_purchases_pdf', search=search) }}" class="btn btn-secondary">Download PDF</a>
+            <a href="{{ url_for('purchases.create_purchase') }}" class="btn btn-success">+ New Purchase</a>
+        </div>
     </div>
 
     <table class="data-table">
