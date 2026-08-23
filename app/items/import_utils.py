@@ -328,3 +328,206 @@ def build_items_template_xlsx():
     workbook.save(output)
     output.seek(0)
     return output
+
+
+BRAND_UPDATE_ALIASES = {
+    "item_name": {"item_name", "itemname", "item", "name", "product", "product_name"},
+    "brand": {"brand", "brand_name", "brandname", "make", "manufacturer"},
+    "category": {"category", "category_name", "categoryname"},
+}
+
+
+def _detect_brand_columns(header_row):
+    mapping = {}
+    for index, cell in enumerate(header_row):
+        key = _normalize_header(cell)
+        for field, aliases in BRAND_UPDATE_ALIASES.items():
+            if key in aliases and field not in mapping:
+                mapping[field] = index
+    return mapping
+
+
+def parse_brands_xlsx(file_stream):
+    """Parse a two-column (or three with Category) sheet for brand-only bulk update."""
+    workbook = None
+    try:
+        if hasattr(file_stream, "seek"):
+            file_stream.seek(0)
+        workbook = load_workbook(file_stream, read_only=True, data_only=True)
+        sheet = workbook.active
+        rows_iter = sheet.iter_rows(values_only=True)
+
+        first_non_empty = None
+        for row in rows_iter:
+            if any(cell is not None and str(cell).strip() for cell in row):
+                first_non_empty = row
+                break
+        if first_non_empty is None:
+            raise ValueError("The Excel file is empty.")
+
+        header_map = _detect_brand_columns(first_non_empty)
+        if {"item_name", "brand"}.issubset(header_map):
+            start_row_number = 2
+            data_rows_iter = rows_iter
+        elif len(first_non_empty) >= 2:
+            header_map = {"item_name": 0, "brand": 1}
+            if len(first_non_empty) >= 3:
+                header_map["category"] = 2
+            start_row_number = 1
+
+            def _prepend_first_row():
+                yield first_non_empty
+                for next_row in rows_iter:
+                    yield next_row
+
+            data_rows_iter = _prepend_first_row()
+        else:
+            raise ValueError("Use columns: ItemName, Brand (Category optional).")
+
+        valid_rows = []
+        row_errors = []
+        for offset, row in enumerate(data_rows_iter, start=start_row_number):
+            if not row or not any(cell is not None and str(cell).strip() for cell in row):
+                continue
+            row_data = {
+                field: _cell_value(row[index]) if index < len(row) else ""
+                for field, index in header_map.items()
+            }
+            errors = ValidationErrors()
+            item_name = clean_string(
+                row_data.get("item_name"),
+                f"row_{offset}_item_name",
+                errors,
+                max_len=100,
+                label=f"Row {offset} item name",
+            )
+            brand = clean_optional_string(
+                row_data.get("brand"),
+                f"row_{offset}_brand",
+                errors,
+                max_len=100,
+                label=f"Row {offset} brand",
+            )
+            category = clean_optional_string(
+                row_data.get("category"),
+                f"row_{offset}_category",
+                errors,
+                max_len=50,
+                label=f"Row {offset} category",
+            )
+            if errors.valid:
+                if not brand:
+                    row_errors.append(f"Row {offset}: brand is empty — skipped.")
+                    continue
+                valid_rows.append({"item_name": item_name, "brand": brand, "category": category or None})
+            else:
+                row_errors.append(errors.first())
+
+        if not valid_rows and not row_errors:
+            raise ValueError("No data rows found in the Excel file.")
+        return valid_rows, row_errors
+    finally:
+        if workbook is not None:
+            workbook.close()
+
+
+def update_item_brands(app, rows):
+    """Update Brand only — no qty, rates, or purchase records touched."""
+    from app.db import get_db_connection
+    from app.items.routes import _ensure_item_brand_column
+    from app.tenancy import owner_sql
+
+    db = get_db_connection(app)
+    cursor = db.cursor()
+    updated = 0
+    skipped = 0
+    row_errors = []
+    try:
+        _ensure_item_brand_column(db, cursor)
+        for row in rows:
+            params = [row["item_name"]]
+            category_sql = ""
+            if row.get("category"):
+                category_sql = """
+                  AND CategoryID IN (
+                      SELECT CategoryID FROM Category
+                      WHERE LOWER(LTRIM(RTRIM(CategoryName))) = LOWER(LTRIM(RTRIM(?)))
+                        AND {owner}
+                  )
+                """.format(owner=owner_sql())
+                params.append(row["category"])
+
+            cursor.execute(
+                f"""
+                SELECT ItemID, ItemName
+                FROM Item
+                WHERE LOWER(LTRIM(RTRIM(ItemName))) = LOWER(LTRIM(RTRIM(?)))
+                  AND {owner_sql()}
+                  {category_sql}
+                ORDER BY ItemID ASC
+                """,
+                tuple(params),
+            )
+            matches = cursor.fetchall()
+            if not matches:
+                row_errors.append(f"Item not found: {row['item_name']}")
+                continue
+            if len(matches) > 1 and not row.get("category"):
+                row_errors.append(
+                    f"Multiple items named \"{row['item_name']}\" — add Category column to pick the right one."
+                )
+                skipped += 1
+                continue
+
+            for match in matches:
+                cursor.execute(
+                    f"UPDATE Item SET Brand = ? WHERE ItemID = ? AND {owner_sql()}",
+                    (row["brand"], match.ItemID),
+                )
+                updated += int(cursor.rowcount or 0)
+        db.commit()
+        return updated, skipped, row_errors
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        cursor.close()
+
+
+def build_brands_template_xlsx():
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Brands"
+    sheet.append(["ItemName", "Brand", "Category"])
+    sheet.append(["Euro 38 Floor hinge machine", "Dorma", "Glass Hardware 12MM"])
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return output
+
+
+def build_brands_export_xlsx(app):
+    """Export all items with current names/categories so user can fill Brand column."""
+    from app.db import execute_query
+    from app.tenancy import owner_sql
+
+    rows = execute_query(
+        app,
+        f"""
+        SELECT i.ItemName, COALESCE(i.Brand, '') AS Brand, COALESCE(c.CategoryName, '') AS CategoryName
+        FROM Item i
+        LEFT JOIN Category c ON c.CategoryID = i.CategoryID
+        WHERE {owner_sql("i")}
+        ORDER BY COALESCE(i.ItemNo, i.ItemID), i.ItemID
+        """,
+    )
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Brands"
+    sheet.append(["ItemName", "Brand", "Category"])
+    for row in rows:
+        sheet.append([row.ItemName, row.Brand or "", row.CategoryName or ""])
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return output

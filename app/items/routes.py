@@ -15,7 +15,15 @@ from app.payments import (
 )
 from app.purchases.routes import _ensure_purchase_payment_method_column, normalize_purchase_payment_method
 from app.tenancy import next_owner_no, next_table_id, owner_sql, request_user_id
-from app.items.import_utils import build_items_template_xlsx, import_items, parse_items_xlsx
+from app.items.import_utils import (
+    build_brands_export_xlsx,
+    build_brands_template_xlsx,
+    build_items_template_xlsx,
+    import_items,
+    parse_brands_xlsx,
+    parse_items_xlsx,
+    update_item_brands,
+)
 from app.validators import (
     ValidationErrors,
     clean_date,
@@ -765,6 +773,74 @@ def download_items_template():
         download_name="items_import_template.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+
+@items_bp.route("/brands/export")
+@login_required
+def export_brands_sheet():
+    """Download all items with ItemName + Category; fill Brand column and re-upload."""
+    try:
+        export_file = build_brands_export_xlsx(app)
+        filename = f"items_brands_{date.today().strftime('%Y%m%d')}.xlsx"
+        return send_file(
+            export_file,
+            as_attachment=True,
+            download_name=filename,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    except Exception as e:
+        flash(f"Error exporting brands sheet: {str(e)}", "danger")
+        return redirect(url_for("items.list_items"))
+
+
+@items_bp.route("/brands/template")
+@login_required
+def download_brands_template():
+    template_file = build_brands_template_xlsx()
+    return send_file(
+        template_file,
+        as_attachment=True,
+        download_name="items_brands_template.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@items_bp.route("/brands/upload", methods=["POST"])
+@login_required
+def upload_brands():
+    upload_file = request.files.get("file")
+    if not upload_file or not upload_file.filename:
+        flash("Please select an Excel file to upload.", "danger")
+        return redirect(url_for("items.list_items"))
+
+    if not upload_file.filename.lower().endswith(".xlsx"):
+        flash("Only .xlsx files are supported.", "danger")
+        return redirect(url_for("items.list_items"))
+
+    try:
+        db = get_db_connection(app)
+        cursor = db.cursor()
+        try:
+            _ensure_item_brand_column(db, cursor)
+        finally:
+            cursor.close()
+
+        valid_rows, row_errors = parse_brands_xlsx(upload_file.stream)
+        updated, skipped, import_errors = update_item_brands(app, valid_rows)
+        row_errors.extend(import_errors)
+
+        flash(f"Brand update complete: {updated} item(s) updated.", "success")
+        if skipped:
+            flash(f"{skipped} row(s) skipped (duplicate names — add Category column).", "warning")
+        if row_errors:
+            preview = "; ".join(row_errors[:5])
+            extra = f" (+{len(row_errors) - 5} more)" if len(row_errors) > 5 else ""
+            flash(f"{len(row_errors)} issue(s): {preview}{extra}", "danger")
+    except Exception as e:
+        app.logger.exception("Brand bulk update failed")
+        flash(f"Brand update failed: {str(e)}", "danger")
+
+    return redirect(url_for("items.list_items"))
 
 
 @items_bp.route("/create", methods=["GET", "POST"])

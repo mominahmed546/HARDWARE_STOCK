@@ -20,6 +20,23 @@
     </div>
     {% endif %}
 
+    <div class="upload-panel" style="margin-bottom:1.25rem;">
+        <div class="upload-panel-header">
+            <h3>Bulk update brands (100+ items)</h3>
+            <a href="{{ url_for('items.export_brands_sheet') }}" class="btn btn-secondary btn-sm">Download all items (Excel)</a>
+        </div>
+        <p class="upload-help">
+            Old items without a brand? Download the Excel sheet (ItemName + Category pre-filled),
+            fill the <strong>Brand</strong> column, then upload here. Only brands are updated —
+            stock, rates, and purchases are <strong>not</strong> changed.
+            Do <strong>not</strong> use the purchase-page import for this.
+        </p>
+        <form method="POST" action="{{ url_for('items.upload_brands') }}" enctype="multipart/form-data" class="upload-form">
+            <input type="file" name="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+            <button type="submit" class="btn btn-primary">Upload brands Excel</button>
+        </form>
+    </div>
+
     <div class="list-header">
         <div class="search-bar">
             <form method="GET" class="search-form">
