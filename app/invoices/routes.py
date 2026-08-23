@@ -1374,7 +1374,7 @@ def _build_invoices_list_pdf(invoices, subtitle_lines=None):
             "get": lambda row, _i: (
                 f"{row['ReturnCount']} / Rs {format_money(row['ReturnTotal'])}"
                 if row["ReturnCount"]
-                else "—"
+                else "-"
             ),
         },
         {
@@ -1396,7 +1396,14 @@ def _build_invoices_list_pdf(invoices, subtitle_lines=None):
         ("TOTAL DUE", f"Rs {format_money(total_due)}"),
         ("TOTAL PROFIT", f"Rs {format_money(total_profit)}"),
     ]
-    return build_tabular_list_pdf("INVOICES LIST", columns, invoices, subtitle_lines, summary_rows)
+    return build_tabular_list_pdf(
+        "INVOICES LIST",
+        columns,
+        invoices,
+        subtitle_lines,
+        summary_rows,
+        summary_value_from_index=-5,
+    )
 
 
 @invoices_bp.route("/list/pdf")
