@@ -1,6 +1,6 @@
 from datetime import date
 
-from flask import Blueprint, flash, render_template
+from flask import Blueprint, flash, jsonify, render_template, request
 from flask_login import login_required
 
 from app import app
@@ -16,6 +16,43 @@ from app.perf import day_bounds, through_exclusive
 from app.tenancy import owner_sql
 
 dashboard_bp = Blueprint("dashboard", __name__)
+
+
+@dashboard_bp.route("/dashboard/cash-capital")
+@login_required
+def cash_capital():
+    """Load profit split after the dashboard shell renders (keeps Home fast)."""
+    cash_in_hand = request.args.get("cash_in_hand", type=float)
+    bank_balance = request.args.get("bank_balance", type=float)
+    if cash_in_hand is None or bank_balance is None:
+        return jsonify(error="Missing balances"), 400
+
+    try:
+        db = get_db_connection(app)
+        cursor = db.cursor()
+        (
+            cash_excluding_profit,
+            profit_in_cash,
+            year_profit,
+            bank_excluding_profit,
+            profit_in_bank,
+        ) = _cash_excluding_profit(
+            cursor,
+            date.today(),
+            0,
+            cash_in_hand,
+            bank_balance=bank_balance,
+        )
+        cursor.close()
+        return jsonify(
+            cash_excluding_profit=cash_excluding_profit,
+            profit_in_cash=profit_in_cash,
+            bank_excluding_profit=bank_excluding_profit,
+            profit_in_bank=profit_in_bank,
+            year_profit=year_profit,
+        )
+    except Exception as exc:
+        return jsonify(error=str(exc)), 500
 
 
 @dashboard_bp.route("/dashboard")
@@ -197,19 +234,6 @@ def dashboard():
 
         cash_in_hand = cash_opening + cash_received_total - cash_paid_total
         bank_balance = bank_opening + bank_received_total - bank_paid_total
-        (
-            cash_excluding_profit,
-            profit_in_cash,
-            _accrual_profit,
-            bank_excluding_profit,
-            profit_in_bank,
-        ) = _cash_excluding_profit(
-            cursor,
-            today,
-            cash_opening,
-            cash_in_hand,
-            bank_balance=bank_balance,
-        )
 
         cursor.close()
 
@@ -227,10 +251,6 @@ def dashboard():
             today_bank=today_bank,
             cash_in_hand=cash_in_hand,
             bank_balance=bank_balance,
-            cash_excluding_profit=cash_excluding_profit,
-            bank_excluding_profit=bank_excluding_profit,
-            profit_in_cash=profit_in_cash,
-            profit_in_bank=profit_in_bank,
         )
 
     except Exception as e:

@@ -85,7 +85,7 @@
         </a>
         <a class="pos-total-cell cash-link" href="{{ url_for('cash.buy_suggestions') }}">
             <span class="pos-total-label">Cash for purchases</span>
-            <span class="pos-total-value">Rs {{ "{:,.2f}".format(cash_excluding_profit|default(0)) }}</span>
+            <span class="pos-total-value" id="cash-for-purchases">…</span>
         </a>
     </div>
 
@@ -189,6 +189,45 @@
     }
     tick();
     setInterval(tick, 1000);
+})();
+
+(function () {
+    var target = document.getElementById('cash-for-purchases');
+    if (!target) return;
+
+    var cashInHand = {{ cash_in_hand|default(0) }};
+    var bankBalance = {{ bank_balance|default(0) }};
+    var params = new URLSearchParams({
+        cash_in_hand: String(cashInHand),
+        bank_balance: String(bankBalance)
+    });
+
+    fetch('{{ url_for("dashboard.cash_capital") }}?' + params.toString(), {
+        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json' }
+    })
+        .then(function (response) {
+            if (!response.ok) {
+                throw new Error('Request failed');
+            }
+            return response.json();
+        })
+        .then(function (data) {
+            var value = Number(data.cash_excluding_profit);
+            if (!Number.isFinite(value)) {
+                throw new Error('Invalid amount');
+            }
+            target.textContent = 'Rs ' + value.toLocaleString('en-PK', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+        })
+        .catch(function () {
+            target.textContent = 'Rs ' + Number(cashInHand).toLocaleString('en-PK', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+        });
 })();
 </script>
 {% endblock %}
