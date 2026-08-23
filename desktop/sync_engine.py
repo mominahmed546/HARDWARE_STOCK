@@ -402,17 +402,127 @@ def merge_tables(
                     out[key] = lrow
                     stats["conflict_local"] += 1
         merged[logical] = list(out.values())
+
+    merged = _dedupe_business_keys(merged, prefer=prefer)
     return merged, stats
+
+
+def _dedupe_business_keys(
+    tables: dict[str, list[dict]],
+    prefer: str = "local",
+) -> dict[str, list[dict]]:
+    """
+    Collapse rows that would violate secondary unique keys.
+    Example: two quotation_ids both with quotation_no=1.
+    """
+    rules = {
+        "Quotations": ("user_id", "quotation_no"),
+        "Item": ("user_id", "item_no"),
+        "CashAccounts": ("user_id",),
+        "Users": ("username",),
+    }
+    out = dict(tables)
+    for logical, key_fields in rules.items():
+        rows = list(out.get(logical) or [])
+        if not rows:
+            continue
+        pk = TABLE_BY_LOGICAL[logical][3]
+        buckets: dict[tuple, dict] = {}
+        for row in rows:
+            row = normalize_row(row)
+            # Skip incomplete business keys (e.g. null item_no)
+            key_vals = []
+            skip = False
+            for field in key_fields:
+                val = row.get(field)
+                if val is None or val == "":
+                    skip = True
+                    break
+                key_vals.append(val)
+            if skip:
+                # keep rows with null business key keyed by PK only
+                buckets[("__pk__", _row_pk(row, pk))] = row
+                continue
+            key = tuple(key_vals)
+            existing = buckets.get(key)
+            if existing is None:
+                buckets[key] = row
+                continue
+            # Keep higher PK as tie-breaker (stable, deterministic)
+            if (_row_pk(row, pk) or 0) >= (_row_pk(existing, pk) or 0):
+                buckets[key] = row
+        out[logical] = list(buckets.values())
+    return out
+
+
+def _prepare_postgres_constraints(cur) -> None:
+    """Drop legacy global uniques that break per-account sync."""
+    drop_statements = (
+        "ALTER TABLE quotations DROP CONSTRAINT IF EXISTS quotations_quotation_no_key",
+        'ALTER TABLE "Quotations" DROP CONSTRAINT IF EXISTS "Quotations_QuotationNo_key"',
+        "DROP INDEX IF EXISTS quotations_quotation_no_key",
+        "DROP INDEX IF EXISTS idx_quotations_quotation_no",
+        # Also drop any unique index solely on quotation_no
+        """
+        DO $$
+        DECLARE r record;
+        BEGIN
+          FOR r IN
+            SELECT i.relname AS index_name
+            FROM pg_index x
+            JOIN pg_class i ON i.oid = x.indexrelid
+            JOIN pg_class t ON t.oid = x.indrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = 'public'
+              AND t.relname = 'quotations'
+              AND x.indisunique
+              AND NOT x.indisprimary
+              AND pg_get_indexdef(x.indexrelid) ILIKE '%(quotation_no)%'
+              AND pg_get_indexdef(x.indexrelid) NOT ILIKE '%user_id%'
+          LOOP
+            EXECUTE format('DROP INDEX IF EXISTS %I', r.index_name);
+          END LOOP;
+        END $$;
+        """,
+    )
+    for sql in drop_statements:
+        try:
+            cur.execute("SAVEPOINT prep_constraints")
+            cur.execute(sql)
+            cur.execute("RELEASE SAVEPOINT prep_constraints")
+        except Exception:
+            cur.execute("ROLLBACK TO SAVEPOINT prep_constraints")
+
+
+def _ensure_per_user_indexes(cur) -> None:
+    statements = (
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_quotations_user_no
+        ON quotations (user_id, quotation_no)
+        """,
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_item_user_no
+        ON item (user_id, item_no)
+        WHERE item_no IS NOT NULL
+        """,
+    )
+    for sql in statements:
+        try:
+            cur.execute("SAVEPOINT prep_indexes")
+            cur.execute(sql)
+            cur.execute("RELEASE SAVEPOINT prep_indexes")
+        except Exception:
+            cur.execute("ROLLBACK TO SAVEPOINT prep_indexes")
 
 
 def write_local_tables(db_path: Path, user_id: int, tables: dict[str, list[dict]]) -> dict:
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    tables = _dedupe_business_keys(tables, prefer="local")
     conn = sqlite3.connect(str(db_path))
     try:
         _ensure_sqlite_schema(conn)
         conn.execute("PRAGMA foreign_keys = OFF")
 
-        # Desktop is single-account: clear then reload merged rows.
         for logical in CLEAR_ORDER:
             sqlite_table = TABLE_BY_LOGICAL[logical][1]
             try:
@@ -463,7 +573,11 @@ def _delete_remote_user_data(cur, user_id: int) -> None:
     for logical in CLEAR_ORDER:
         if logical == "Users":
             continue
-        _sqlite, candidates, _pk = TABLE_BY_LOGICAL[logical][1], TABLE_BY_LOGICAL[logical][2], TABLE_BY_LOGICAL[logical][3]
+        _sqlite, candidates, _pk = (
+            TABLE_BY_LOGICAL[logical][1],
+            TABLE_BY_LOGICAL[logical][2],
+            TABLE_BY_LOGICAL[logical][3],
+        )
         pg_table = _resolve_pg_table(cur, candidates)
         if not pg_table:
             continue
@@ -529,9 +643,12 @@ def _delete_remote_user_data(cur, user_id: int) -> None:
 
 def write_remote_tables(database_url: str, user_id: int, tables: dict[str, list[dict]]) -> dict:
     counts: dict[str, int] = {}
+    tables = _dedupe_business_keys(tables, prefer="local")
     with _pg_connect(database_url) as conn:
         with conn.cursor() as cur:
+            _prepare_postgres_constraints(cur)
             _delete_remote_user_data(cur, user_id)
+            _ensure_per_user_indexes(cur)
 
             for logical in IMPORT_ORDER:
                 _sqlite, candidates, pk = (
@@ -568,7 +685,6 @@ def write_remote_tables(database_url: str, user_id: int, tables: dict[str, list[
                     n += 1
                 counts[logical] = n
 
-                # Best-effort sequence bump; never abort the sync transaction.
                 try:
                     cur.execute("SAVEPOINT sync_seq")
                     cur.execute(
