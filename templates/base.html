@@ -205,14 +205,23 @@
             var loader = document.getElementById('routeLoader');
             if (!loader) return;
 
-            function showLoader() {
-                loader.classList.add('visible');
-                loader.setAttribute('aria-hidden', 'false');
-            }
+            var loaderTimeout = null;
+            var LOADER_FAILSAFE_MS = 20000;
 
             function hideLoader() {
+                if (loaderTimeout) {
+                    window.clearTimeout(loaderTimeout);
+                    loaderTimeout = null;
+                }
                 loader.classList.remove('visible');
                 loader.setAttribute('aria-hidden', 'true');
+            }
+
+            function showLoader() {
+                hideLoader();
+                loader.classList.add('visible');
+                loader.setAttribute('aria-hidden', 'false');
+                loaderTimeout = window.setTimeout(hideLoader, LOADER_FAILSAFE_MS);
             }
 
             document.addEventListener('click', function (event) {
@@ -226,16 +235,28 @@
                 if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
                 if (link.hasAttribute('download')) return;
 
+                try {
+                    var nextUrl = new URL(link.href, window.location.href);
+                    if (nextUrl.origin === window.location.origin && nextUrl.pathname === window.location.pathname && nextUrl.search === window.location.search) {
+                        return;
+                    }
+                } catch (err) {
+                    // Ignore malformed hrefs.
+                }
+
                 showLoader();
             });
 
             document.addEventListener('submit', function (event) {
                 if (event.defaultPrevented) return;
+                var form = event.target;
+                if (form && form.target && form.target !== '_self') return;
                 showLoader();
             });
 
             window.addEventListener('pageshow', hideLoader);
             window.addEventListener('load', hideLoader);
+            document.addEventListener('DOMContentLoaded', hideLoader);
         })();
     </script>
     <script>

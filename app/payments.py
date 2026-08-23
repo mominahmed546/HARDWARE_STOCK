@@ -13,6 +13,73 @@ _SCHEMA_READY = {
 }
 
 
+def _ensure_schema_migrations_table(cursor):
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS SchemaMigrations (
+            MigrationName VARCHAR(100) PRIMARY KEY,
+            AppliedAt TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+
+def _migration_applied(cursor, name):
+    _ensure_schema_migrations_table(cursor)
+    cursor.execute(
+        "SELECT 1 FROM SchemaMigrations WHERE MigrationName = ?",
+        (name,),
+    )
+    return cursor.fetchone() is not None
+
+
+def _mark_migration_applied(cursor, name):
+    cursor.execute(
+        "INSERT INTO SchemaMigrations (MigrationName) VALUES (?)",
+        (name,),
+    )
+
+
+def invoice_receipt_totals(cursor):
+    """Cash/bank received from invoice payments for the current account."""
+    from app.tenancy import owner_sql
+
+    cursor.execute(
+        f"""
+        SELECT
+            COALESCE(SUM(CASE WHEN COALESCE(ip.PaymentMethod, 'Cash') = 'Cash' THEN ip.Amount ELSE 0 END), 0) AS CashAmount,
+            COALESCE(SUM(CASE WHEN COALESCE(ip.PaymentMethod, 'Cash') = 'Bank' THEN ip.Amount ELSE 0 END), 0) AS BankAmount
+        FROM InvoicePayments ip
+        INNER JOIN Invoices i ON i.InvoiceID = ip.InvoiceID
+        WHERE {owner_sql("i")}
+        """
+    )
+    row = cursor.fetchone()
+    if not row:
+        return 0.0, 0.0
+    return float(row.CashAmount or 0), float(row.BankAmount or 0)
+
+
+def purchase_payment_totals(cursor):
+    """Cash/bank paid out on purchases for the current account."""
+    from app.tenancy import owner_sql
+
+    cursor.execute(
+        f"""
+        SELECT
+            COALESCE(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Cash' THEN pp.Amount ELSE 0 END), 0) AS CashPaid,
+            COALESCE(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Bank' THEN pp.Amount ELSE 0 END), 0) AS BankPaid
+        FROM PurchasePayments pp
+        INNER JOIN Purchases p ON p.PurchaseID = pp.PurchaseID
+        WHERE {owner_sql("p")}
+        """
+    )
+    row = cursor.fetchone()
+    if not row:
+        return 0.0, 0.0
+    return float(row.CashPaid or 0), float(row.BankPaid or 0)
+
+
 def ensure_invoice_payments_table(db, cursor):
     if _SCHEMA_READY["invoice_payments"]:
         return
@@ -46,26 +113,32 @@ def ensure_invoice_payments_table(db, cursor):
         WHERE PaymentMethod IS NULL OR BTRIM(PaymentMethod) = ''
         """
     )
-    cursor.execute(
-        """
-        INSERT INTO InvoicePayments (InvoiceID, Amount, PaymentDate, Notes, PaymentMethod)
-        SELECT
-            i.InvoiceID,
-            i.TotalAmount,
-            i.[Date],
-            'Backfilled from Paid status',
-            'Cash'
-        FROM Invoices i
-        WHERE COALESCE(i.PaymentStatus, 'Unpaid') = 'Paid'
-          AND COALESCE(i.TotalAmount, 0) > 0
-          AND NOT EXISTS (
-              SELECT 1 FROM InvoicePayments p WHERE p.InvoiceID = i.InvoiceID
-          )
-        """
-    )
-    backfilled = int(cursor.rowcount or 0)
-    if backfilled:
-        _sync_invoices_with_payments(cursor)
+    if not _migration_applied(cursor, "invoice_payments_backfill"):
+        cursor.execute("SELECT 1 FROM InvoicePayments LIMIT 1")
+        if cursor.fetchone():
+            _mark_migration_applied(cursor, "invoice_payments_backfill")
+        else:
+            cursor.execute(
+                """
+                INSERT INTO InvoicePayments (InvoiceID, Amount, PaymentDate, Notes, PaymentMethod)
+                SELECT
+                    i.InvoiceID,
+                    i.TotalAmount,
+                    i.[Date],
+                    'Backfilled from Paid status',
+                    'Cash'
+                FROM Invoices i
+                WHERE COALESCE(i.PaymentStatus, 'Unpaid') = 'Paid'
+                  AND COALESCE(i.TotalAmount, 0) > 0
+                  AND NOT EXISTS (
+                      SELECT 1 FROM InvoicePayments p WHERE p.InvoiceID = i.InvoiceID
+                  )
+                """
+            )
+            backfilled = int(cursor.rowcount or 0)
+            if backfilled:
+                _sync_invoices_with_payments(cursor)
+            _mark_migration_applied(cursor, "invoice_payments_backfill")
     _reset_previous_balance_clean_slate(cursor)
     db.commit()
     _SCHEMA_READY["invoice_payments"] = True
@@ -252,24 +325,30 @@ def ensure_purchase_payments_table(db, cursor):
         WHERE PaymentStatus IS NULL OR BTRIM(PaymentStatus) = ''
         """
     )
-    cursor.execute(
-        """
-        INSERT INTO PurchasePayments (PurchaseID, Amount, PaymentDate, Notes, PaymentMethod)
-        SELECT
-            p.PurchaseID,
-            p.TotalAmount,
-            p.PurchaseDate,
-            'Backfilled from purchase payment mode',
-            CASE WHEN COALESCE(p.PaymentMethod, 'Cash') = 'Bank' THEN 'Bank' ELSE 'Cash' END
-        FROM Purchases p
-        WHERE COALESCE(p.TotalAmount, 0) > 0
-          AND COALESCE(p.PaymentMethod, 'Cash') IN ('Cash', 'Bank')
-          AND NOT EXISTS (
-              SELECT 1 FROM PurchasePayments pp WHERE pp.PurchaseID = p.PurchaseID
-          )
-        """
-    )
-    _sync_purchases_with_payments(cursor)
+    if not _migration_applied(cursor, "purchase_payments_backfill"):
+        cursor.execute("SELECT 1 FROM PurchasePayments LIMIT 1")
+        if cursor.fetchone():
+            _mark_migration_applied(cursor, "purchase_payments_backfill")
+        else:
+            cursor.execute(
+                """
+                INSERT INTO PurchasePayments (PurchaseID, Amount, PaymentDate, Notes, PaymentMethod)
+                SELECT
+                    p.PurchaseID,
+                    p.TotalAmount,
+                    p.PurchaseDate,
+                    'Backfilled from purchase payment mode',
+                    CASE WHEN COALESCE(p.PaymentMethod, 'Cash') = 'Bank' THEN 'Bank' ELSE 'Cash' END
+                FROM Purchases p
+                WHERE COALESCE(p.TotalAmount, 0) > 0
+                  AND COALESCE(p.PaymentMethod, 'Cash') IN ('Cash', 'Bank')
+                  AND NOT EXISTS (
+                      SELECT 1 FROM PurchasePayments pp WHERE pp.PurchaseID = p.PurchaseID
+                  )
+                """
+            )
+            _sync_purchases_with_payments(cursor)
+            _mark_migration_applied(cursor, "purchase_payments_backfill")
     db.commit()
     _SCHEMA_READY["purchase_payments"] = True
 

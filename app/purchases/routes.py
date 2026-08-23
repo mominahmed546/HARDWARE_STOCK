@@ -15,11 +15,12 @@ from app.payments import (
     clear_purchase_payments,
     delete_purchase_payment,
     ensure_cash_accounts,
-    ensure_invoice_payments_table,
     ensure_purchase_payments_table,
     get_cash_openings,
+    invoice_receipt_totals,
     list_purchase_payments,
     pay_purchase_remaining,
+    purchase_payment_totals,
     purchase_paid_total,
     purchase_remaining_due,
     refresh_purchase_settlement,
@@ -449,7 +450,6 @@ def list_purchases():
 
 
     try:
-        ensure_invoice_payments_table(db, cursor)
         ensure_cash_accounts(db, cursor)
         _ensure_purchase_payment_method_column(db, cursor)
         ensure_purchase_payments_table(db, cursor)
@@ -469,27 +469,8 @@ def list_purchases():
             )
             if cash_adjust_errors.valid:
                 cash_opening, bank_opening = get_cash_openings(cursor)
-                cursor.execute(
-                    f"""
-                    SELECT
-                        ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Cash' THEN Amount ELSE 0 END), 0) AS CashAmount
-                    FROM InvoicePayments
-                    WHERE InvoiceID IN (SELECT InvoiceID FROM Invoices WHERE {owner_sql()})
-                    """
-                )
-                receipts_row = cursor.fetchone()
-                cash_received = float(receipts_row.CashAmount or 0) if receipts_row else 0.0
-                cursor.execute(
-                    f"""
-                    SELECT
-                        ISNULL(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Cash' THEN pp.Amount ELSE 0 END), 0) AS CashPaid
-                    FROM PurchasePayments pp
-                    JOIN Purchases p ON p.PurchaseID = pp.PurchaseID
-                    WHERE {owner_sql("p")}
-                    """
-                )
-                purchase_row = cursor.fetchone()
-                total_cash_purchases = float(purchase_row.CashPaid or 0) if purchase_row else 0.0
+                cash_received, _bank_received = invoice_receipt_totals(cursor)
+                total_cash_purchases, _total_bank_purchases = purchase_payment_totals(cursor)
                 # opening + receipts - cash purchases = target
                 new_cash_opening = float(target_cash) - cash_received + total_cash_purchases
                 if new_cash_opening < 0:
@@ -569,32 +550,8 @@ def list_purchases():
         purchases = cursor.fetchall()
 
         cash_opening, bank_opening = get_cash_openings(cursor)
-        cursor.execute(
-            f"""
-            SELECT
-                ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Cash' THEN Amount ELSE 0 END), 0) AS CashAmount,
-                ISNULL(SUM(CASE WHEN COALESCE(PaymentMethod, 'Cash') = 'Bank' THEN Amount ELSE 0 END), 0) AS BankAmount
-            FROM InvoicePayments
-            WHERE InvoiceID IN (SELECT InvoiceID FROM Invoices WHERE {owner_sql()})
-            """
-        )
-        receipts = cursor.fetchone()
-        cash_received = float(receipts.CashAmount or 0) if receipts else 0.0
-        bank_received = float(receipts.BankAmount or 0) if receipts else 0.0
-
-        cursor.execute(
-            f"""
-            SELECT
-                ISNULL(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Cash' THEN pp.Amount ELSE 0 END), 0) AS CashPaid,
-                ISNULL(SUM(CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Bank' THEN pp.Amount ELSE 0 END), 0) AS BankPaid
-            FROM PurchasePayments pp
-            JOIN Purchases p ON p.PurchaseID = pp.PurchaseID
-            WHERE {owner_sql("p")}
-            """
-        )
-        purchase_payments = cursor.fetchone()
-        total_cash_purchases = float(purchase_payments.CashPaid or 0) if purchase_payments else 0.0
-        total_bank_purchases = float(purchase_payments.BankPaid or 0) if purchase_payments else 0.0
+        cash_received, bank_received = invoice_receipt_totals(cursor)
+        total_cash_purchases, total_bank_purchases = purchase_payment_totals(cursor)
         cash_in_hand = cash_opening + cash_received - total_cash_purchases
         bank_balance = bank_opening + bank_received - total_bank_purchases
         return render_template(
