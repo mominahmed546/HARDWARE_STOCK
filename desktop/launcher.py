@@ -83,8 +83,6 @@ def main() -> int:
         "height": 800,
         "min_size": (900, 600),
     }
-    if icon.exists():
-        window_kwargs["icon"] = str(icon)
 
     try:
         import webview
@@ -103,7 +101,14 @@ def main() -> int:
             pass
         return 0
 
-    webview.create_window(**window_kwargs)
+    # Older pywebview builds reject `icon=`; try with icon, then without.
+    if icon.exists():
+        try:
+            webview.create_window(**window_kwargs, icon=str(icon))
+        except TypeError:
+            webview.create_window(**window_kwargs)
+    else:
+        webview.create_window(**window_kwargs)
     webview.start()
     return 0
 
