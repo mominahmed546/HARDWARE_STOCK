@@ -53,6 +53,7 @@
                 <th>ID</th>
                 <th>Item Name</th>
                 <th>Category</th>
+                <th>Supplier</th>
                 <th>Purchase Rate</th>
                 <th>Sale Rate</th>
                 <th>Qty</th>
@@ -65,6 +66,7 @@
                 <td>{{ item.ItemNo or item.ItemID }}</td>
                 <td>{{ item.ItemName }}</td>
                 <td>{{ item.CategoryName or 'N/A' }}</td>
+                <td>{{ item.SupplierName or '—' }}</td>
                 <td>{{ item.PurchaseRate }}</td>
                 <td>{{ item.SaleRate }}</td>
                 <td>{{ item.Qty }}</td>

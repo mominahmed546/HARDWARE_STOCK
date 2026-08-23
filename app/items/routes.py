@@ -173,7 +173,21 @@ def list_items():
                 i.PurchaseRate,
                 i.SaleRate,
                 i.Qty,
-                c.CategoryName
+                c.CategoryName,
+                (
+                    SELECT STRING_AGG(sname, ', ' ORDER BY sname)
+                    FROM (
+                        SELECT DISTINCT s.SupplierName AS sname
+                        FROM PurchaseDetails pd
+                        INNER JOIN Purchases p ON p.PurchaseID = pd.PurchaseID
+                        LEFT JOIN Supplier s ON s.SupplierID = p.SupplierID
+                        WHERE pd.ItemID = i.ItemID
+                          AND {owner_sql("p")}
+                          AND {owner_sql("s")}
+                          AND s.SupplierName IS NOT NULL
+                          AND BTRIM(s.SupplierName) <> ''
+                    ) suppliers
+                ) AS SupplierName
             FROM Item i
             LEFT JOIN Category c ON i.CategoryID = c.CategoryID
             {where_sql}
