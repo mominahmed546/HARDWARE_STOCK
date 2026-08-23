@@ -82,10 +82,15 @@ def _normalize_phone(value):
 
 
 def _user_matches_recovery(user_row, email, phone):
-    stored_email = _normalize_email(getattr(user_row, "Email", None))
-    stored_phone = _normalize_phone(getattr(user_row, "Phone", None))
     provided_email = _normalize_email(email)
     provided_phone = _normalize_phone(phone)
+
+    # Username-only recovery when email and phone are left blank.
+    if not provided_email and not provided_phone:
+        return True
+
+    stored_email = _normalize_email(getattr(user_row, "Email", None))
+    stored_phone = _normalize_phone(getattr(user_row, "Phone", None))
 
     if stored_email and provided_email != stored_email:
         return False
@@ -95,11 +100,16 @@ def _user_matches_recovery(user_row, email, phone):
 
 
 def _recovery_field_errors(user_row, email, phone, errors):
+    provided_email = _normalize_email(email)
+    provided_phone = _normalize_phone(phone)
+    if not provided_email and not provided_phone:
+        return
+
     stored_email = _normalize_email(getattr(user_row, "Email", None))
     stored_phone = _normalize_phone(getattr(user_row, "Phone", None))
-    if stored_email and not _normalize_email(email):
+    if stored_email and not provided_email:
         errors.add("email", "Email is required for this account.")
-    if stored_phone and not _normalize_phone(phone):
+    if stored_phone and not provided_phone:
         errors.add("phone", "Phone number is required for this account.")
 
 
@@ -107,20 +117,25 @@ def _deliver_password_reset(user_row, reset_url):
     stored_email = _normalize_email(getattr(user_row, "Email", None))
     username = getattr(user_row, "Username", None) or getattr(user_row, "UserName", "")
 
+    email_sent = False
     if stored_email and is_email_configured(app):
-        send_password_reset_email(app, stored_email, username, reset_url)
+        try:
+            send_password_reset_email(app, stored_email, username, reset_url)
+            email_sent = True
+        except Exception:
+            app.logger.exception("Failed to send password reset email")
+
+    if email_sent:
         flash(
-            "If the details you entered match our records, a password reset "
-            "link has been sent to the registered email address.",
+            f"A reset link was also emailed to {stored_email}. "
+            f"Use this link now (valid for 1 hour): {reset_url}",
             "success",
         )
-        return redirect(url_for("auth.login"))
-
-    flash(
-        "Your account has no email on file (or email is not configured). "
-        f"Use this link to reset your password (valid for 1 hour): {reset_url}",
-        "warning",
-    )
+    else:
+        flash(
+            f"Use this link to reset your password (valid for 1 hour): {reset_url}",
+            "warning",
+        )
     return redirect(url_for("auth.login"))
 
 
@@ -385,9 +400,9 @@ def forgot_password():
             # Same message whether or not a match was found, to avoid leaking
             # which usernames/emails/phones are registered.
             flash(
-                'If the details you entered match our records, password reset '
-                'instructions will be provided or emailed.',
-                'success'
+                'No matching account found. Check your username, or leave email and phone '
+                'blank if your account has no contact details on file.',
+                'danger',
             )
             return redirect(url_for('auth.login'))
 
