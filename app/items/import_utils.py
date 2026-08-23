@@ -5,16 +5,20 @@ from datetime import date
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 
-from app.validators import ValidationErrors, clean_string, clean_positive_decimal, clean_positive_int
+from app.validators import ValidationErrors, clean_string, clean_optional_string, clean_positive_decimal, clean_positive_int
 
 HEADER_ALIASES = {
     "item_name": {"item_name", "itemname", "item", "name", "product", "product_name"},
+    "brand": {"brand", "brand_name", "brandname", "make", "manufacturer"},
     "category": {"category", "category_name", "categoryname"},
     "supplier_name": {"supplier", "supplier_name", "suppliername"},
     "purchase_rate": {"purchase_rate", "purchaserate", "purchase", "purchase_price", "cost"},
     "sale_rate": {"sale_rate", "salerate", "sale", "sale_price", "price"},
     "qty": {"qty", "quantity", "stock", "amount"},
 }
+
+REQUIRED_FIELDS = {"item_name", "category", "supplier_name", "purchase_rate", "sale_rate", "qty"}
+OPTIONAL_FIELDS = {"brand"}
 
 
 def _normalize_header(value):
@@ -37,6 +41,9 @@ def _validate_row(row_number, row_data, errors):
     return {
         "item_name": clean_string(
             row_data.get("item_name"), f"row_{row_number}_item_name", errors, max_len=100, label=f"Row {row_number} item name"
+        ),
+        "brand": clean_optional_string(
+            row_data.get("brand"), f"row_{row_number}_brand", errors, max_len=100, label=f"Row {row_number} brand"
         ),
         "category": clean_string(
             row_data.get("category"), f"row_{row_number}_category", errors, max_len=50, label=f"Row {row_number} category"
@@ -82,34 +89,56 @@ def parse_items_xlsx(file_stream):
         if first_non_empty is None:
             raise ValueError("The Excel file is empty.")
 
-        required_fields = {"item_name", "category", "supplier_name", "purchase_rate", "sale_rate", "qty"}
+        required_fields = REQUIRED_FIELDS
         header_map = _detect_columns(first_non_empty)
 
         if header_map and required_fields.issubset(header_map):
             start_row_number = 2
             data_rows_iter = rows_iter
         else:
-            if len(first_non_empty) < 6:
+            if len(first_non_empty) >= 7:
+                header_map = {
+                    "item_name": 0,
+                    "brand": 1,
+                    "category": 2,
+                    "supplier_name": 3,
+                    "purchase_rate": 4,
+                    "sale_rate": 5,
+                    "qty": 6,
+                }
+                start_row_number = 1
+
+                def _prepend_first_row():
+                    yield first_non_empty
+                    for next_row in rows_iter:
+                        yield next_row
+
+                data_rows_iter = _prepend_first_row()
+            elif len(first_non_empty) >= 6:
+                header_map = {
+                    "item_name": 0,
+                    "category": 1,
+                    "supplier_name": 2,
+                    "purchase_rate": 3,
+                    "sale_rate": 4,
+                    "qty": 5,
+                }
+                start_row_number = 1
+
+                def _prepend_first_row():
+                    yield first_non_empty
+                    for next_row in rows_iter:
+                        yield next_row
+
+                data_rows_iter = _prepend_first_row()
+            else:
                 raise ValueError(
-                    "Could not detect column headers. Use columns: ItemName, Category, SupplierName, PurchaseRate, SaleRate, Qty."
+                    "Could not detect column headers. Use columns: ItemName, Brand, Category, "
+                    "SupplierName, PurchaseRate, SaleRate, Qty."
                 )
-            header_map = {
-                "item_name": 0,
-                "category": 1,
-                "supplier_name": 2,
-                "purchase_rate": 3,
-                "sale_rate": 4,
-                "qty": 5,
-            }
-            start_row_number = 1
 
-            # Treat first row as data if it is not a header row.
-            def _prepend_first_row():
-                yield first_non_empty
-                for next_row in rows_iter:
-                    yield next_row
-
-            data_rows_iter = _prepend_first_row()
+        parsed_fields = set(required_fields)
+        parsed_fields.update(field for field in OPTIONAL_FIELDS if field in header_map)
 
         valid_items = []
         row_errors = []
@@ -118,7 +147,7 @@ def parse_items_xlsx(file_stream):
             row_index = start_row_number + offset
             row_data = {
                 field: _cell_value(row[header_map[field]] if header_map[field] < len(row) else "")
-                for field in required_fields
+                for field in parsed_fields
             }
 
             if not any(row_data.values()):
@@ -156,10 +185,12 @@ def import_items(app, items):
 
     try:
         from app.db import get_db_connection
+        from app.items.routes import _ensure_item_brand_column
         from app.tenancy import next_owner_no, next_table_id, owner_sql, request_user_id
 
         db = get_db_connection(app)
         cursor = db.cursor()
+        _ensure_item_brand_column(db, cursor)
 
         for item in items:
             cursor.execute(
@@ -210,13 +241,15 @@ def import_items(app, items):
                 cursor.execute(
                     f"""
                     UPDATE Item
-                    SET Qty = Qty + ?, PurchaseRate = ?, SaleRate = ?
+                    SET Qty = Qty + ?, PurchaseRate = ?, SaleRate = ?,
+                        Brand = COALESCE(?, Brand)
                     WHERE ItemID = ? AND {owner_sql()}
                     """,
                     (
                         item["qty"],
                         item["purchase_rate"],
                         item["sale_rate"],
+                        item.get("brand"),
                         existing_item.ItemID,
                     ),
                 )
@@ -226,13 +259,14 @@ def import_items(app, items):
                 next_item_no = next_owner_no(cursor, "Item", "ItemNo")
                 cursor.execute(
                     """
-                    INSERT INTO Item (ItemID, ItemNo, ItemName, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO Item (ItemID, ItemNo, ItemName, Brand, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         next_item_id,
                         next_item_no,
                         item["item_name"],
+                        item.get("brand"),
                         category.CategoryID,
                         item["purchase_rate"],
                         item["sale_rate"],
@@ -286,9 +320,9 @@ def build_items_template_xlsx():
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Items"
-    sheet.append(["ItemName", "Category", "SupplierName", "PurchaseRate", "SaleRate", "Qty"])
-    sheet.append(["Hammer", "Glass Hardware 12MM", "ABC Supplier", 150.00, 200.00, 25])
-    sheet.append(["Screwdriver Set", "Aluminium Hardware", "ABC Supplier", 80.50, 120.00, 40])
+    sheet.append(["ItemName", "Brand", "Category", "SupplierName", "PurchaseRate", "SaleRate", "Qty"])
+    sheet.append(["Hammer", "Stanley", "Glass Hardware 12MM", "ABC Supplier", 150.00, 200.00, 25])
+    sheet.append(["Screwdriver Set", "Bosch", "Aluminium Hardware", "ABC Supplier", 80.50, 120.00, 40])
 
     output = io.BytesIO()
     workbook.save(output)

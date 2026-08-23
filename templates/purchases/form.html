@@ -14,7 +14,7 @@
         </div>
         <p class="upload-help">
             Upload a <strong>.xlsx</strong> file with columns:
-            <code>ItemName</code>, <code>Category</code>, <code>SupplierName</code>, <code>PurchaseRate</code>, <code>SaleRate</code>, <code>Qty</code>
+            <code>ItemName</code>, <code>Brand</code>, <code>Category</code>, <code>SupplierName</code>, <code>PurchaseRate</code>, <code>SaleRate</code>, <code>Qty</code>
         </p>
         <form method="POST" action="{{ url_for('items.upload_items') }}" enctype="multipart/form-data" class="upload-form">
             <input type="hidden" name="redirect_to" value="purchases.create_purchase">
