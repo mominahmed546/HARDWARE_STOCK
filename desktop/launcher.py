@@ -1,12 +1,12 @@
 """Euroglass Hardware — offline desktop launcher.
 
 Starts the Flask app against a local SQLite database and opens it in a
-native window (pywebview). On Windows, build a single .exe with PyInstaller
-(see desktop/README.md).
+native window (pywebview). Cloud sync runs automatically on start and exit.
 """
 
 from __future__ import annotations
 
+import atexit
 import logging
 import os
 import socket
@@ -57,12 +57,22 @@ def _wait_for_server(host: str, port: int, timeout: float = 30.0) -> bool:
 def _run_flask(host: str, port: int) -> None:
     from app import app
 
-    # threaded=True so the UI stays responsive while pages load.
     app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
 
 
 def main() -> int:
     _prepare_environment()
+
+    # Compulsory bidirectional sync before the UI opens.
+    from desktop.auto_sync import sync_on_shutdown, sync_on_startup
+
+    startup = sync_on_startup()
+    if not startup.get("ok"):
+        logging.error("Startup sync blocked launch: %s", startup.get("error"))
+        return 1
+
+    atexit.register(sync_on_shutdown)
+
     host = "127.0.0.1"
     port = int(os.environ.get("DESKTOP_PORT") or _free_port())
     url = f"http://{host}:{port}/"
@@ -93,15 +103,14 @@ def main() -> int:
             f"Or open the app in a browser at {url}",
             file=sys.stderr,
         )
-        # Keep server alive for browser fallback during development.
         try:
             while server.is_alive():
                 time.sleep(1)
         except KeyboardInterrupt:
             pass
+        sync_on_shutdown()
         return 0
 
-    # Older pywebview builds reject `icon=`; try with icon, then without.
     if icon.exists():
         try:
             webview.create_window(**window_kwargs, icon=str(icon))
@@ -109,7 +118,12 @@ def main() -> int:
             webview.create_window(**window_kwargs)
     else:
         webview.create_window(**window_kwargs)
-    webview.start()
+
+    # Sync again when the window closes (in addition to atexit).
+    try:
+        webview.start()
+    finally:
+        sync_on_shutdown()
     return 0
 
 

@@ -42,6 +42,8 @@ hiddenimports = [
     "desktop.paths",
     "desktop.sync",
     "desktop.sync_engine",
+    "desktop.sync_config",
+    "desktop.auto_sync",
     "webview",
     "openpyxl",
 ]

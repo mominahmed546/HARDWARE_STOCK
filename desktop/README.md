@@ -13,57 +13,27 @@ python desktop\launcher.py
 
 Local DB: `%LOCALAPPDATA%\EuroglassHardware\euroglass_stock.db`
 
-## Bidirectional sync (PC ↔ cloud)
+## Automatic sync (required)
 
-Uses your **Supabase / Postgres URI** and your **app username/password**.
+When you open `EuroglassHardware.exe` / `desktop/launcher.py`:
 
-```bat
-cd C:\Users\DELL\Desktop\HARDWARE_STOCK
-git pull
+1. **On start** — syncs local ↔ cloud automatically  
+2. **On close** — syncs again to upload any local changes  
 
-python desktop\sync_db.py --database-url "postgresql://postgres:PASSWORD@db.XXXX.supabase.co:5432/postgres" --mode sync
-```
+First launch asks once for:
+- Supabase Postgres URI  
+- App username / password  
 
-| Mode | What it does |
-|------|----------------|
-| `--mode sync` | **Both ways** (default). Merges local + cloud, then writes the result to **both** |
-| `--mode pull` | Cloud → PC only (cloud wins) |
-| `--mode push` | PC → cloud only (local wins) |
+Saved under:
+`%LOCALAPPDATA%\EuroglassHardware\sync_config.json`
 
-Conflict option for `--mode sync`:
+You do **not** need to run CMD sync every time anymore.
 
-- `--prefer local` (default) — if the same row changed on both sides, keep **PC**
-- `--prefer remote` — keep **cloud**
-
-Example (cloud wins on conflicts):
-
-```bat
-python desktop\sync_db.py --database-url "postgresql://..." --mode sync --prefer remote
-```
-
-After sync:
-
-```bat
-python desktop\launcher.py
-```
-
-Log in with the same app username/password.
-
-## First-time: get data onto the PC
-
-If the PC is empty, run sync once (or pull):
-
-```bat
-python desktop\sync_db.py --database-url "postgresql://..." --mode pull
-```
-
-Then work offline. When you have internet again:
+Manual sync is still available if needed:
 
 ```bat
 python desktop\sync_db.py --database-url "postgresql://..." --mode sync
 ```
-
-That uploads PC changes and downloads any new cloud changes.
 
 ## Download the Windows app from GitHub
 
