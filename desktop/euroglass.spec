@@ -46,6 +46,10 @@ hiddenimports = [
     "desktop.auto_sync",
     "webview",
     "openpyxl",
+    "psycopg",
+    "psycopg_binary",
+    "psycopg_pool",
+    "psycopg_pool.pool",
 ]
 
 binaries = []
@@ -53,6 +57,16 @@ tmp_ret = collect_all("webview")
 datas += tmp_ret[0]
 binaries += tmp_ret[1]
 hiddenimports += tmp_ret[2]
+
+# Cloud sync needs the Postgres driver inside the .exe.
+for pkg in ("psycopg", "psycopg_binary", "psycopg_pool"):
+    try:
+        pkg_ret = collect_all(pkg)
+        datas += pkg_ret[0]
+        binaries += pkg_ret[1]
+        hiddenimports += pkg_ret[2]
+    except Exception:
+        pass
 
 a = Analysis(
     [str(root / "desktop" / "launcher.py")],
@@ -63,7 +77,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["psycopg", "psycopg_pool", "psycopg_binary"],
+    excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

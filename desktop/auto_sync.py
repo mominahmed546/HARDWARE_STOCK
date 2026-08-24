@@ -202,25 +202,30 @@ def sync_on_startup() -> dict[str, Any]:
         msg = str(exc) or "Sync failed"
         logging.exception("Startup sync failed")
         _show_message(
-            "Sync failed",
-            f"{msg}\n\nCheck your cloud URL / username / password.\n"
-            "Fix sync settings and restart the app.",
+            "Sync failed — opening offline",
+            f"{msg}\n\nCheck your cloud URL / username / password later.\n"
+            "The app will open with local data now.",
             error=True,
         )
         return {
-            "ok": False,
-            "skipped": False,
-            "offline": False,
+            "ok": True,
+            "skipped": True,
+            "offline": True,
             "error": msg,
             "result": None,
         }
     except Exception as exc:
         logging.exception("Startup sync failed")
-        _show_message("Sync failed", f"{exc}\n\nThe app will not open until sync works (or you are offline).", error=True)
+        _show_message(
+            "Sync failed — opening offline",
+            f"{exc}\n\nThe app will open with local data.\n"
+            "Fix cloud sync settings and restart when ready.",
+            error=True,
+        )
         return {
-            "ok": False,
-            "skipped": False,
-            "offline": False,
+            "ok": True,
+            "skipped": True,
+            "offline": True,
             "error": str(exc),
             "result": None,
         }
