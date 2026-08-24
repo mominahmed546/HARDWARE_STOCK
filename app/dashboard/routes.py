@@ -1,6 +1,6 @@
 from datetime import date
 
-from flask import Blueprint, flash, jsonify, render_template, request
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import login_required
 
 from app import app
@@ -11,9 +11,12 @@ from app.payments import (
     ensure_invoice_payments_table,
     ensure_purchase_payments_table,
     get_cash_openings,
+    opening_to_match_cash_in_hand,
+    save_cash_openings,
 )
 from app.perf import day_bounds, through_exclusive
 from app.tenancy import owner_sql
+from app.validators import ValidationErrors, clean_positive_decimal
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
@@ -55,7 +58,7 @@ def cash_capital():
         return jsonify(error=str(exc)), 500
 
 
-@dashboard_bp.route("/dashboard")
+@dashboard_bp.route("/dashboard", methods=["GET", "POST"])
 @login_required
 def dashboard():
     defaults = {
@@ -75,6 +78,8 @@ def dashboard():
         "bank_excluding_profit": 0,
         "profit_in_cash": 0,
         "profit_in_bank": 0,
+        "cash_received_total": 0,
+        "cash_paid_total": 0,
     }
 
     try:
@@ -85,6 +90,66 @@ def dashboard():
         ensure_invoice_payments_table(db, cursor)
         ensure_cash_accounts(db, cursor)
         ensure_purchase_payments_table(db, cursor)
+
+        if request.method == "POST" and request.form.get("action") == "set_current_cash":
+            errors = ValidationErrors()
+            target_cash = clean_positive_decimal(
+                request.form.get("current_cash_in_drawer"),
+                "current_cash_in_drawer",
+                errors,
+                min_val=0,
+                label="Current cash in drawer",
+            )
+            if not errors.valid:
+                flash(errors.first(), "danger")
+                return redirect(url_for("dashboard.dashboard"))
+
+            cash_opening, bank_opening = get_cash_openings(cursor)
+            today = date.today()
+            until = through_exclusive(today)
+            cursor.execute(
+                f"""
+                SELECT
+                    COALESCE(SUM(
+                        CASE
+                            WHEN COALESCE(p.PaymentMethod, 'Cash') = 'Cash'
+                            THEN p.Amount ELSE 0
+                        END
+                    ), 0) AS CashReceived
+                FROM InvoicePayments p
+                JOIN Invoices i ON i.InvoiceID = p.InvoiceID
+                WHERE {owner_sql("i")}
+                  AND p.PaymentDate < ?
+                """,
+                (until,),
+            )
+            cash_received_total = float(cursor.fetchone().CashReceived or 0)
+            cursor.execute(
+                f"""
+                SELECT
+                    COALESCE(SUM(
+                        CASE WHEN COALESCE(pp.PaymentMethod, 'Cash') = 'Cash'
+                             THEN pp.Amount ELSE 0 END
+                    ), 0) AS CashPaid
+                FROM PurchasePayments pp
+                JOIN Purchases p ON p.PurchaseID = pp.PurchaseID
+                WHERE pp.PaymentDate < ?
+                  AND {owner_sql("p")}
+                """,
+                (until,),
+            )
+            cash_paid_total = float(cursor.fetchone().CashPaid or 0)
+            new_opening = opening_to_match_cash_in_hand(
+                target_cash, cash_received_total, cash_paid_total
+            )
+            save_cash_openings(cursor, new_opening, bank_opening)
+            db.commit()
+            flash(
+                f"Cash in drawer set to Rs {float(target_cash):,.2f}.",
+                "success",
+            )
+            cursor.close()
+            return redirect(url_for("dashboard.dashboard"))
 
         cursor.execute(
             f"""
@@ -250,6 +315,8 @@ def dashboard():
             today_bank=today_bank,
             cash_in_hand=cash_in_hand,
             bank_balance=bank_balance,
+            cash_received_total=cash_received_total,
+            cash_paid_total=cash_paid_total,
         )
 
     except Exception as e:
