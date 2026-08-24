@@ -416,7 +416,10 @@ def get_cash_openings(cursor):
 
 
 def save_cash_openings(cursor, cash_opening, bank_opening):
-    from app.tenancy import owner_sql
+    from app.tenancy import next_table_id, owner_sql, request_user_id
+
+    cash_opening = float(cash_opening or 0)
+    bank_opening = float(bank_opening or 0)
 
     cursor.execute(
         f"""
@@ -424,9 +427,28 @@ def save_cash_openings(cursor, cash_opening, bank_opening):
         SET CashOpening = ?, BankOpening = ?
         WHERE {owner_sql()}
         """,
-        (float(cash_opening or 0), float(bank_opening or 0)),
+        (cash_opening, bank_opening),
     )
+    if int(cursor.rowcount or 0) == 0:
+        user_id = request_user_id()
+        account_id = next_table_id(cursor, "CashAccounts", "AccountID")
+        cursor.execute(
+            """
+            INSERT INTO CashAccounts (AccountID, UserID, CashOpening, BankOpening)
+            VALUES (?, ?, ?, ?)
+            """,
+            (account_id, user_id or None, cash_opening, bank_opening),
+        )
     invalidate_balance_cache()
+
+
+def opening_to_match_cash_in_hand(target_cash, cash_received, cash_paid):
+    """Opening cash such that opening + received - paid = target.
+
+    Do not clamp this to 0: a large opening is the reconciling figure when
+    purchase payments exceed recorded receipts (common after a sync).
+    """
+    return float(target_cash or 0) - float(cash_received or 0) + float(cash_paid or 0)
 
 
 def remaining_due(total_amount, paid_amount, epsilon=0.005):

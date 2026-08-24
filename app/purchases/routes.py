@@ -25,6 +25,7 @@ from app.payments import (
     purchase_remaining_due,
     refresh_purchase_settlement,
     save_cash_openings,
+    opening_to_match_cash_in_hand,
 )
 from app.tenancy import next_owner_no, next_table_id, owner_sql, request_user_id
 from app.list_pdf import build_tabular_list_pdf, format_money
@@ -473,9 +474,9 @@ def list_purchases():
                 cash_received, _bank_received = invoice_receipt_totals(cursor)
                 total_cash_purchases, _total_bank_purchases = purchase_payment_totals(cursor)
                 # opening + receipts - cash purchases = target
-                new_cash_opening = float(target_cash) - cash_received + total_cash_purchases
-                if new_cash_opening < 0:
-                    new_cash_opening = 0.0
+                new_cash_opening = opening_to_match_cash_in_hand(
+                    target_cash, cash_received, total_cash_purchases
+                )
                 save_cash_openings(cursor, new_cash_opening, bank_opening)
                 db.commit()
                 flash("Current cash in drawer updated.", "success")
