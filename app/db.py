@@ -297,6 +297,62 @@ _pool = None
 _pool_lock = threading.Lock()
 
 
+def _normalize_database_url(database_url):
+    """Ensure managed Postgres URLs (Supabase/Render) include SSL when needed."""
+    url = (database_url or "").strip()
+    if not url:
+        return url
+
+    # Render/Heroku sometimes provide postgres://; psycopg wants postgresql://.
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://") :]
+
+    lower = url.lower()
+    needs_ssl = (
+        "supabase.com" in lower
+        or "render.com" in lower
+        or "amazonaws.com" in lower
+        or os.environ.get("DB_SSLMODE")
+    )
+    if needs_ssl and "sslmode=" not in lower:
+        sep = "&" if "?" in url else "?"
+        sslmode = os.environ.get("DB_SSLMODE", "require")
+        url = f"{url}{sep}sslmode={sslmode}"
+    return url
+
+
+def _create_pool(database_url):
+    max_size = int(os.environ.get("DB_POOL_MAX_SIZE", "3"))
+    timeout = float(os.environ.get("DB_POOL_TIMEOUT", "20"))
+    connect_timeout = int(os.environ.get("DB_CONNECT_TIMEOUT", "15"))
+
+    return ConnectionPool(
+        conninfo=_normalize_database_url(database_url),
+        kwargs={"connect_timeout": connect_timeout},
+        min_size=1,
+        max_size=max(1, max_size),
+        # Warm connections can go stale on managed Postgres (idle kill /
+        # pooler recycle). Validate before handing one to a request.
+        check=ConnectionPool.check_connection,
+        timeout=timeout,
+        max_idle=180,
+        reconnect_timeout=timeout,
+    )
+
+
+def _reset_pool():
+    """Close a broken pool so the next request builds a fresh one."""
+    global _pool
+    with _pool_lock:
+        old = _pool
+        _pool = None
+    if old is not None:
+        try:
+            old.close()
+        except Exception:
+            pass
+
+
 def _get_pool(app):
     """Lazily create one small connection pool per process.
 
@@ -315,31 +371,48 @@ def _get_pool(app):
                 database_url = app.config.get("DATABASE_URL") or os.environ.get("DATABASE_URL")
                 if not database_url:
                     raise RuntimeError("DATABASE_URL is not configured.")
-
-                max_size = int(os.environ.get("DB_POOL_MAX_SIZE", 5))
-                _pool = ConnectionPool(
-                    conninfo=database_url,
-                    kwargs={"connect_timeout": 10},
-                    min_size=1,
-                    max_size=max_size,
-                    # Keep this short: if the database is genuinely down,
-                    # requests should fail fast (like the old direct-connect
-                    # code did) instead of every request hanging for a long
-                    # wait before the page's own try/except can show an
-                    # error. Healthy pools hand out a connection almost
-                    # instantly, so this never matters in normal operation.
-                    timeout=10,
-                    max_idle=300,
-                )
+                _pool = _create_pool(database_url)
     return _pool
 
 
-def get_db_connection(app):
-    if 'db' not in g:
-        pool = _get_pool(app)
-        g.db = ConnectionWrapper(pool.getconn(), pool=pool)
-        _ensure_user_contact_columns(g.db)
+def _pool_timeout_message(exc):
+    return (
+        "Database is busy or unreachable (connection timed out). "
+        "If you use Supabase, open the project dashboard and make sure it is "
+        "not paused, then wait ~30 seconds and try again. "
+        f"Details: {exc}"
+    )
 
+
+def get_db_connection(app):
+    if "db" in g:
+        return g.db
+
+    from psycopg_pool import PoolTimeout
+
+    pool = _get_pool(app)
+    try:
+        conn = pool.getconn()
+    except PoolTimeout as exc:
+        # First failure is often a cold/paused DB or a pool full of dead
+        # sockets. Drop the pool and retry once with a fresh connection.
+        _reset_pool()
+        pool = _get_pool(app)
+        try:
+            conn = pool.getconn()
+        except PoolTimeout as retry_exc:
+            raise RuntimeError(_pool_timeout_message(retry_exc)) from retry_exc
+        except Exception as retry_exc:
+            raise RuntimeError(_pool_timeout_message(retry_exc)) from retry_exc
+    except Exception as exc:
+        # Misconfigured URL / SSL / network — surface a clear login error.
+        msg = str(exc).lower()
+        if "timeout" in msg or "could not connect" in msg or "connection" in msg:
+            raise RuntimeError(_pool_timeout_message(exc)) from exc
+        raise
+
+    g.db = ConnectionWrapper(conn, pool=pool)
+    _ensure_user_contact_columns(g.db)
     return g.db
 
 
