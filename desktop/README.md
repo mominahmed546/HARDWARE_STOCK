@@ -65,14 +65,18 @@ python desktop\sync_db.py --database-url "postgresql://..." --mode sync
 
 That uploads PC changes and downloads any new cloud changes.
 
-## Build Windows `.exe`
+## Download the Windows app from GitHub
 
-```bat
-pip install -r requirements.txt -r requirements-desktop.txt
-pyinstaller desktop\euroglass.spec
-```
+After CI builds (or after a manual workflow run), get the installer from:
 
-Output: `dist\EuroglassHardware.exe`
+1. Repo → **Releases** (right side on GitHub)
+2. Download **EuroglassHardware.exe**
+3. Double-click to open
+
+Or open:
+`https://github.com/mominahmed546/HARDWARE_STOCK/releases`
+
+To rebuild manually on GitHub: **Actions → Build Windows Offline App → Run workflow**.
 
 ## Notes
 

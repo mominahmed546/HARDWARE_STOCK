@@ -35,9 +35,13 @@ hiddenimports = [
     "app.quotations",
     "app.suppliers",
     "app.categories",
+    "app.reports",
+    "app.sync_api",
+    "app.tenancy",
     "config",
     "desktop.paths",
     "desktop.sync",
+    "desktop.sync_engine",
     "webview",
     "openpyxl",
 ]
