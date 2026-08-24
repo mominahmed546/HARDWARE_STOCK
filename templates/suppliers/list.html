@@ -33,15 +33,19 @@
         <tbody>
             {% for supplier in suppliers %}
             <tr>
-                <td>{{ supplier[0] }}</td>
-                <td>{{ supplier[1] }}</td>
-                <td>{{ supplier[2] or 'N/A' }}</td>
+                <td>{{ supplier.SupplierID }}</td>
+                <td>{{ supplier.SupplierName }}</td>
+                <td>{{ supplier.ContactNo or 'N/A' }}</td>
                 <td>
-                    <a href="{{ url_for('suppliers.edit_supplier', id=supplier[0]) }}" class="btn btn-sm btn-info">Edit</a>
-                    <form method="POST" action="{{ url_for('suppliers.delete_supplier', id=supplier[0]) }}" style="display:inline;">
+                    <a href="{{ url_for('suppliers.edit_supplier', id=supplier.SupplierID) }}" class="btn btn-sm btn-info">Edit</a>
+                    <form method="POST" action="{{ url_for('suppliers.delete_supplier', id=supplier.SupplierID) }}" style="display:inline;">
                         <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure you want to delete this supplier?')">Delete</button>
                     </form>
                 </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="4">No suppliers found.</td>
             </tr>
             {% endfor %}
         </tbody>

@@ -43,10 +43,10 @@ def list_categories():
         pagination = pagination_meta(int(cursor.fetchone().TotalCount or 0), page, page_size)
 
         query = f"""
-            SELECT *
+            SELECT CategoryID, CategoryName
             FROM Category
             {where_sql}
-            ORDER BY CategoryName
+            ORDER BY CategoryName ASC, CategoryID ASC
             LIMIT ? OFFSET ?
         """
         cursor.execute(
@@ -124,7 +124,10 @@ def edit_category(id):
         db = get_db_connection(app)
         cursor = db.cursor()
 
-        cursor.execute(f"SELECT * FROM Category WHERE CategoryID = ? AND {owner_sql()}", (id,))
+        cursor.execute(
+            f"SELECT CategoryID, CategoryName FROM Category WHERE CategoryID = ? AND {owner_sql()}",
+            (id,),
+        )
         category = cursor.fetchone()
 
         if not category:

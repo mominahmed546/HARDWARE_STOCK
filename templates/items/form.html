@@ -33,9 +33,9 @@
                         class="{% if errors and errors.get('supplier_id') %}is-invalid{% endif %}">
                     <option value="">Select supplier</option>
                     {% for supplier in suppliers or [] %}
-                    <option value="{{ supplier[0] }}"
-                        {% if fd.get('supplier_id')|string == supplier[0]|string %}selected{% endif %}>
-                        {{ supplier[1] }}
+                    <option value="{{ supplier.SupplierID }}"
+                        {% if fd.get('supplier_id')|string == supplier.SupplierID|string %}selected{% endif %}>
+                        {{ supplier.SupplierName }}
                     </option>
                     {% endfor %}
                 </select>
@@ -76,9 +76,9 @@
                         class="{% if errors and errors.get('category_id') %}is-invalid{% endif %}">
                     <option value="">Select category</option>
                     {% for category in categories %}
-                    <option value="{{ category[0] }}"
-                        {% if fd.get('category_id', item.CategoryID if item else '')|string == category[0]|string %}selected{% endif %}>
-                        {{ category[1] }}
+                    <option value="{{ category.CategoryID }}"
+                        {% if fd.get('category_id', item.CategoryID if item else '')|string == category.CategoryID|string %}selected{% endif %}>
+                        {{ category.CategoryName }}
                     </option>
                     {% endfor %}
                 </select>
