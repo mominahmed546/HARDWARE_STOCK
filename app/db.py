@@ -295,6 +295,32 @@ def _ensure_user_contact_columns(db):
 
 _pool = None
 _pool_lock = threading.Lock()
+_last_connect_error = None
+
+
+def _parse_database_host(database_url):
+    """Return hostname from a postgres URL, or None."""
+    try:
+        # Avoid urllib edge cases with passwords containing '@' / ':'.
+        without_scheme = database_url.split("://", 1)[-1]
+        host_part = without_scheme.rsplit("@", 1)[-1]
+        host = host_part.split("/", 1)[0].split("?", 1)[0]
+        if ":" in host and not host.startswith("["):
+            host = host.rsplit(":", 1)[0]
+        return host.strip().lower() or None
+    except Exception:
+        return None
+
+
+def _supabase_direct_host_message(host):
+    return (
+        "DATABASE_URL points at Supabase DIRECT host "
+        f"({host}), which is IPv6-only and unreachable from Render. "
+        "In Supabase go to Project Settings → Database → Connection string, "
+        "choose Session pooler, copy the URI (host should contain "
+        "pooler.supabase.com and user should look like postgres.<project-ref>), "
+        "append ?sslmode=require, paste it into Render DATABASE_URL, then restart."
+    )
 
 
 def _normalize_database_url(database_url):
@@ -306,6 +332,10 @@ def _normalize_database_url(database_url):
     # Render/Heroku sometimes provide postgres://; psycopg wants postgresql://.
     if url.startswith("postgres://"):
         url = "postgresql://" + url[len("postgres://") :]
+
+    host = _parse_database_host(url)
+    if host and host.startswith("db.") and host.endswith(".supabase.co"):
+        raise RuntimeError(_supabase_direct_host_message(host))
 
     lower = url.lower()
     needs_ssl = (
@@ -337,7 +367,17 @@ def _create_pool(database_url):
         timeout=timeout,
         max_idle=180,
         reconnect_timeout=timeout,
+        reconnect_failed=_on_reconnect_failed,
     )
+
+
+def _on_reconnect_failed(pool):
+    global _last_connect_error
+    try:
+        stats = pool.get_stats()
+        _last_connect_error = f"pool reconnect failed stats={stats}"
+    except Exception as exc:
+        _last_connect_error = str(exc)
 
 
 def _reset_pool():
@@ -376,12 +416,58 @@ def _get_pool(app):
 
 
 def _pool_timeout_message(exc):
+    global _last_connect_error
+    database_url = os.environ.get("DATABASE_URL") or ""
+    host = _parse_database_host(database_url) or "unknown-host"
+    hint = ""
+    if host.startswith("db.") and host.endswith(".supabase.co"):
+        hint = " " + _supabase_direct_host_message(host)
+    elif "supabase" in host:
+        hint = (
+            " Use Supabase Session pooler URI (host contains pooler.supabase.com, "
+            "user is postgres.<project-ref>) with ?sslmode=require in Render DATABASE_URL."
+        )
+    detail = str(exc)
+    if _last_connect_error:
+        detail = f"{detail}; {_last_connect_error}"
     return (
         "Database is busy or unreachable (connection timed out). "
-        "If you use Supabase, open the project dashboard and make sure it is "
-        "not paused, then wait ~30 seconds and try again. "
-        f"Details: {exc}"
+        f"Host={host}.{hint} Details: {detail}"
     )
+
+
+def probe_database(app, timeout=8):
+    """Open one short-lived connection and return a JSON-safe status dict."""
+    import psycopg
+
+    database_url = app.config.get("DATABASE_URL") or os.environ.get("DATABASE_URL")
+    host = _parse_database_host(database_url or "") or None
+    result = {
+        "ok": False,
+        "host": host,
+        "uses_supabase_direct": bool(
+            host and host.startswith("db.") and host.endswith(".supabase.co")
+        ),
+        "uses_pooler": bool(host and "pooler.supabase.com" in host),
+    }
+    if not database_url:
+        result["error"] = "DATABASE_URL is not configured."
+        return result
+    if result["uses_supabase_direct"]:
+        result["error"] = _supabase_direct_host_message(host)
+        return result
+
+    try:
+        conninfo = _normalize_database_url(database_url)
+        with psycopg.connect(conninfo, connect_timeout=timeout) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                cur.fetchone()
+        result["ok"] = True
+        return result
+    except Exception as exc:
+        result["error"] = str(exc)
+        return result
 
 
 def get_db_connection(app):
@@ -390,22 +476,31 @@ def get_db_connection(app):
 
     from psycopg_pool import PoolTimeout
 
-    pool = _get_pool(app)
+    global _last_connect_error
+
+    try:
+        pool = _get_pool(app)
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(_pool_timeout_message(exc)) from exc
+
     try:
         conn = pool.getconn()
     except PoolTimeout as exc:
-        # First failure is often a cold/paused DB or a pool full of dead
-        # sockets. Drop the pool and retry once with a fresh connection.
+        # Capture the real TCP/auth error instead of only the wait timeout.
+        probe = probe_database(app, timeout=5)
+        if probe.get("error"):
+            _last_connect_error = probe["error"]
         _reset_pool()
-        pool = _get_pool(app)
         try:
+            pool = _get_pool(app)
             conn = pool.getconn()
-        except PoolTimeout as retry_exc:
-            raise RuntimeError(_pool_timeout_message(retry_exc)) from retry_exc
         except Exception as retry_exc:
+            if probe.get("error"):
+                raise RuntimeError(_pool_timeout_message(probe["error"])) from retry_exc
             raise RuntimeError(_pool_timeout_message(retry_exc)) from retry_exc
     except Exception as exc:
-        # Misconfigured URL / SSL / network — surface a clear login error.
         msg = str(exc).lower()
         if "timeout" in msg or "could not connect" in msg or "connection" in msg:
             raise RuntimeError(_pool_timeout_message(exc)) from exc
