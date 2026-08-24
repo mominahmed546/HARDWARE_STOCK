@@ -24,6 +24,18 @@
 
 {% block content %}
 <div class="container">
+    {% if cash_in_hand|default(0) < 0 %}
+    <div class="flash flash-warning" style="margin-bottom:1rem;">
+        Cash in drawer is negative because recorded <strong>cash purchase payments</strong>
+        are larger than <strong>opening cash + cash received from invoices</strong>.
+        Profit / “cash for purchases” show Rs 0.00 while the drawer is negative (not a separate bug).
+        This often happens after a desktop sync if purchase payments were imported twice or
+        invoice cash receipts were missing.
+        Fix: open <a href="{{ url_for('cash.cash_book') }}">Cash / Bank</a> and use
+        <strong>Set current cash in drawer</strong> to the real till amount.
+    </div>
+    {% endif %}
+
     <div class="report-summary-grid suggest-grid">
         <div class="report-card">
             <div class="report-card-label">Cash in drawer (all)</div>
@@ -49,6 +61,33 @@
             <div class="report-card-label">Profit sitting in bank</div>
             <div class="report-card-value profit-value">Rs {{ "{:,.2f}".format(profit_in_bank|default(0)) }}</div>
         </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:1rem;">
+        <div class="panel-header"><h2>How cash in drawer is calculated</h2></div>
+        <p class="text-muted" style="margin:0 0 0.75rem;">
+            Cash in drawer = Opening cash + Cash received (invoices) − Cash paid (purchases)
+        </p>
+        <table class="data-table">
+            <tbody>
+                <tr>
+                    <td>Opening cash</td>
+                    <td>Rs {{ "{:,.2f}".format(cash_opening|default(0)) }}</td>
+                </tr>
+                <tr>
+                    <td>+ Cash received from invoices</td>
+                    <td>Rs {{ "{:,.2f}".format(cash_received|default(0)) }}</td>
+                </tr>
+                <tr>
+                    <td>− Cash paid on purchases</td>
+                    <td>Rs {{ "{:,.2f}".format(cash_paid|default(0)) }}</td>
+                </tr>
+                <tr>
+                    <th>= Cash in drawer</th>
+                    <th>Rs {{ "{:,.2f}".format(cash_in_hand|default(0)) }}</th>
+                </tr>
+            </tbody>
+        </table>
     </div>
 
     <div class="report-toolbar" style="display:flex; gap:0.75rem; flex-wrap:wrap;">
