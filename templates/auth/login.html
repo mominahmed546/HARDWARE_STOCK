@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Hardware Stock Management</title>
-    <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" sizes="any">
-    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='images/favicon-32x32.png') }}">
-    <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='images/favicon-192x192.png') }}">
-    <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/apple-touch-icon.png') }}">
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}?v=eg3" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='images/favicon-32x32.png') }}?v=eg3">
+    <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='images/favicon-192x192.png') }}?v=eg3">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/apple-touch-icon.png') }}?v=eg3">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/forms.css') }}">
     <style>
@@ -90,6 +90,13 @@
     <div class="login-container">
         <div class="login-card">
             <div class="login-header">
+                <img
+                    src="{{ url_for('static', filename='images/euroglass-logo-sm.png') }}?v=eg3"
+                    alt="Euroglass"
+                    width="96"
+                    height="96"
+                    style="display:block;margin:0 auto 0.75rem;object-fit:contain;"
+                >
                 <h1>STOCK</h1>
                 <p>Hardware Stock Management System</p>
             </div>

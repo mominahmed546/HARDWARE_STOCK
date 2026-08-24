@@ -15,10 +15,10 @@
         })();
     </script>
     <title>{% block title %}Hardware Stock Management{% endblock %}</title>
-    <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}" sizes="any">
-    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='images/favicon-32x32.png') }}">
-    <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='images/favicon-192x192.png') }}">
-    <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/apple-touch-icon.png') }}">
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.ico') }}?v=eg3" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='images/favicon-32x32.png') }}?v=eg3">
+    <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='images/favicon-192x192.png') }}?v=eg3">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/apple-touch-icon.png') }}?v=eg3">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/forms.css') }}">
     {% block extra_css %}{% endblock %}
@@ -33,11 +33,11 @@
             <div class="sidebar-brand">
                 <a href="{{ url_for('dashboard.dashboard') }}" class="sidebar-logo-link" aria-label="Euroglass dashboard">
                     <img
-                        src="{{ url_for('static', filename='images/euroglass-logo-sm.png') }}"
-                        alt="Euroglass Aluminium &amp; Glass Hardware"
+                        src="{{ url_for('static', filename='images/euroglass-logo-sm.png') }}?v=eg3"
+                        alt="Euroglass"
                         class="sidebar-logo"
-                        width="160"
-                        height="160"
+                        width="112"
+                        height="112"
                         decoding="async"
                         fetchpriority="high"
                     >
