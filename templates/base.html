@@ -87,6 +87,12 @@
             </nav>
 
             <div class="sidebar-footer">
+                {% if config.DESKTOP_MODE %}
+                <button type="button" class="btn-sync" id="desktopSyncBtn" title="Sync local database with cloud">
+                    Sync Now
+                </button>
+                <div class="sync-status" id="desktopSyncStatus" aria-live="polite"></div>
+                {% endif %}
                 <form method="POST" action="{{ url_for('auth.logout') }}" class="logout-form">
                     <button type="submit" class="btn-logout">Logout</button>
                 </form>
@@ -280,5 +286,61 @@
             }
         })();
     </script>
+    {% if config.DESKTOP_MODE %}
+    <script>
+        (function () {
+            var btn = document.getElementById('desktopSyncBtn');
+            var status = document.getElementById('desktopSyncStatus');
+            if (!btn) return;
+
+            function setStatus(text, kind) {
+                if (!status) return;
+                status.textContent = text || '';
+                status.classList.remove('is-ok', 'is-error');
+                if (kind) status.classList.add(kind);
+            }
+
+            btn.addEventListener('click', function () {
+                if (btn.disabled) return;
+                btn.disabled = true;
+                btn.textContent = 'Syncing…';
+                setStatus('Syncing local ↔ cloud…', null);
+
+                fetch('{{ url_for("sync_api.run_sync_now") }}', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    },
+                    body: '{}'
+                })
+                    .then(function (response) {
+                        return response.json().then(function (data) {
+                            return { okHttp: response.ok, data: data || {} };
+                        });
+                    })
+                    .then(function (result) {
+                        var data = result.data;
+                        if (result.okHttp && data.ok) {
+                            setStatus(data.message || 'Synced successfully.', 'is-ok');
+                            window.setTimeout(function () {
+                                window.location.reload();
+                            }, 700);
+                            return;
+                        }
+                        setStatus(data.error || 'Sync failed.', 'is-error');
+                        btn.disabled = false;
+                        btn.textContent = 'Sync Now';
+                    })
+                    .catch(function (err) {
+                        setStatus((err && err.message) || 'Sync failed.', 'is-error');
+                        btn.disabled = false;
+                        btn.textContent = 'Sync Now';
+                    });
+            });
+        })();
+    </script>
+    {% endif %}
 </body>
 </html>

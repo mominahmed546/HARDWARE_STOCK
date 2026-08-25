@@ -188,6 +188,46 @@ a {
     margin: 0;
 }
 
+.btn-sync {
+    width: 100%;
+    margin-bottom: 0.55rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid rgba(56, 189, 248, 0.35);
+    border-radius: 8px;
+    background: rgba(14, 165, 233, 0.16);
+    color: #7dd3fc;
+    font-size: 0.9rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s, opacity 0.2s;
+}
+
+.btn-sync:hover:not(:disabled) {
+    background: rgba(14, 165, 233, 0.28);
+}
+
+.btn-sync:disabled {
+    opacity: 0.65;
+    cursor: wait;
+}
+
+.sync-status {
+    margin: 0 0 0.65rem;
+    min-height: 1.1rem;
+    font-size: 0.75rem;
+    line-height: 1.3;
+    color: #94a3b8;
+    text-align: center;
+}
+
+.sync-status.is-ok {
+    color: #86efac;
+}
+
+.sync-status.is-error {
+    color: #fca5a5;
+}
+
 .btn-logout {
     width: 100%;
     padding: 0.75rem 1rem;

@@ -245,3 +245,36 @@ def sync_on_shutdown() -> None:
         logging.info("Shutdown sync OK")
     except Exception:
         logging.exception("Shutdown sync failed")
+
+
+def sync_now() -> dict[str, Any]:
+    """Manual sync from the in-app Sync button."""
+    cfg = ensure_sync_config()
+    if not cfg or not config_ready(cfg):
+        return {
+            "ok": False,
+            "error": "Sync settings are missing. Restart the app to configure cloud sync.",
+        }
+
+    if not _has_network(cfg.get("database_url") or ""):
+        return {
+            "ok": False,
+            "offline": True,
+            "error": "No internet connection. Connect to the network and try again.",
+        }
+
+    try:
+        result = perform_sync(cfg, reason="manual")
+        return {
+            "ok": True,
+            "mode": result.get("mode"),
+            "message": "Local and cloud databases are synced.",
+            "local_counts": result.get("local_counts") or {},
+            "remote_counts": result.get("remote_counts") or {},
+            "last_sync_at": datetime.now(timezone.utc).isoformat(),
+        }
+    except SystemExit as exc:
+        return {"ok": False, "error": str(exc) or "Sync failed"}
+    except Exception as exc:
+        logging.exception("Manual sync failed")
+        return {"ok": False, "error": str(exc)}
