@@ -92,8 +92,10 @@ def _prompt_sync_setup(existing: dict | None = None) -> dict | None:
     if not password:
         return None
 
+    from desktop.sync_engine import normalize_database_url
+
     cfg = {
-        "database_url": database_url.strip(),
+        "database_url": normalize_database_url(database_url),
         "username": username.strip(),
         "password": password,
         "mode": "sync",
@@ -277,4 +279,11 @@ def sync_now() -> dict[str, Any]:
         return {"ok": False, "error": str(exc) or "Sync failed"}
     except Exception as exc:
         logging.exception("Manual sync failed")
-        return {"ok": False, "error": str(exc)}
+        msg = str(exc) or "Sync failed"
+        if "missing =" in msg.lower() or "connection string" in msg.lower():
+            msg = (
+                "Cloud database URL looks invalid. "
+                "Delete %LOCALAPPDATA%\\EuroglassHardware\\sync_config.json "
+                "and restart the app, then paste the Supabase URI without quotes."
+            )
+        return {"ok": False, "error": msg}

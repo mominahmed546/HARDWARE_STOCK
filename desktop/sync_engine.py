@@ -138,14 +138,66 @@ def _rows_equal(a: dict, b: dict) -> bool:
     return True
 
 
-def _pg_connect(database_url: str):
-    import psycopg
-    from psycopg.rows import dict_row
-
-    url = database_url.strip()
+def normalize_database_url(database_url: str) -> str:
+    """Strip quotes/whitespace and normalize postgres:// → postgresql://."""
+    url = (database_url or "").strip()
+    # Users often paste quoted URLs from docs / Render / chat.
+    if len(url) >= 2 and url[0] == url[-1] and url[0] in {"'", '"', "`"}:
+        url = url[1:-1].strip()
+    url = url.strip().strip("\ufeff")
     if url.startswith("postgres://"):
         url = "postgresql://" + url[len("postgres://") :]
-    return psycopg.connect(url, row_factory=dict_row)
+    return url
+
+
+def _pg_connect(database_url: str):
+    """Connect via kwargs so malformed/quoted URIs don't hit libpq conninfo errors."""
+    import psycopg
+    from psycopg.rows import dict_row
+    from urllib.parse import parse_qs, unquote, urlparse
+
+    url = normalize_database_url(database_url)
+    if not url:
+        raise ValueError("Cloud database URL is empty.")
+
+    # Prefer keyword args: avoids "missing = after connection string" when the
+    # saved value has quotes, BOM, or an old libpq that mishandles URIs.
+    if "://" in url:
+        parsed = urlparse(url)
+        if parsed.scheme not in {"postgresql", "postgres"}:
+            raise ValueError(f"Unsupported database URL scheme: {parsed.scheme!r}")
+        host = parsed.hostname
+        if not host:
+            raise ValueError("Cloud database URL is missing a host.")
+        user = unquote(parsed.username) if parsed.username else None
+        password = unquote(parsed.password) if parsed.password is not None else None
+        dbname = unquote((parsed.path or "/").lstrip("/") or "postgres")
+        port = parsed.port or 5432
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        sslmode = (query.get("sslmode") or ["require"])[0] or "require"
+        kwargs: dict[str, Any] = {
+            "host": host,
+            "port": int(port),
+            "dbname": dbname,
+            "sslmode": sslmode,
+            "row_factory": dict_row,
+        }
+        if user:
+            kwargs["user"] = user
+        if password is not None:
+            kwargs["password"] = password
+        # Session pooler / Supabase: keep connect timeout reasonable on Windows.
+        if "connect_timeout" in query:
+            try:
+                kwargs["connect_timeout"] = int(query["connect_timeout"][0])
+            except (TypeError, ValueError, IndexError):
+                pass
+        else:
+            kwargs["connect_timeout"] = 15
+        return psycopg.connect(**kwargs)
+
+    # Already keyword/value conninfo (host=... dbname=...).
+    return psycopg.connect(url, row_factory=dict_row, connect_timeout=15)
 
 
 def _resolve_pg_table(cur, candidates: tuple[str, ...]) -> str | None:

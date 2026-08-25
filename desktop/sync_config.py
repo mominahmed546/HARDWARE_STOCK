@@ -13,13 +13,27 @@ def sync_config_path() -> Path:
     return data_dir() / "sync_config.json"
 
 
+def _normalize_url(url: str) -> str:
+    try:
+        from desktop.sync_engine import normalize_database_url
+
+        return normalize_database_url(url)
+    except Exception:
+        text = (url or "").strip()
+        if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"', "`"}:
+            text = text[1:-1].strip()
+        if text.startswith("postgres://"):
+            text = "postgresql://" + text[len("postgres://") :]
+        return text
+
+
 def load_sync_config() -> dict:
     path = sync_config_path()
-    env_url = (
+    env_url = _normalize_url(
         os.environ.get("SYNC_DATABASE_URL")
         or os.environ.get("RENDER_DATABASE_URL")
         or ""
-    ).strip()
+    )
     defaults = {
         "database_url": env_url,
         "username": (os.environ.get("SYNC_USERNAME") or "").strip(),
@@ -40,13 +54,15 @@ def load_sync_config() -> dict:
         return defaults
     merged = dict(defaults)
     merged.update({k: v for k, v in data.items() if v is not None})
+    if merged.get("database_url"):
+        merged["database_url"] = _normalize_url(str(merged["database_url"]))
     return merged
 
 
 def save_sync_config(config: dict) -> None:
     path = sync_config_path()
     clean = {
-        "database_url": (config.get("database_url") or "").strip(),
+        "database_url": _normalize_url(config.get("database_url") or ""),
         "username": (config.get("username") or "").strip(),
         "password": config.get("password") or "",
         "mode": config.get("mode") or "sync",
@@ -60,7 +76,7 @@ def save_sync_config(config: dict) -> None:
 
 def config_ready(config: dict | None = None) -> bool:
     cfg = config or load_sync_config()
-    url = (cfg.get("database_url") or "").strip()
+    url = _normalize_url(cfg.get("database_url") or "")
     user = (cfg.get("username") or "").strip()
     password = cfg.get("password") or ""
     return bool(url) and not url.lower().startswith("sqlite:") and bool(user) and bool(password)
