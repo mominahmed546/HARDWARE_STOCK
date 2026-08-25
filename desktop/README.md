@@ -19,6 +19,7 @@ When you open `EuroglassHardware.exe` / `desktop/launcher.py`:
 
 1. **On start** — syncs local ↔ cloud automatically  
 2. **On close** — syncs again to upload any local changes  
+3. **Sync Now button** — in the left sidebar (desktop app only), click anytime to sync without closing the app
 
 First launch asks once for:
 - Supabase Postgres URI  
