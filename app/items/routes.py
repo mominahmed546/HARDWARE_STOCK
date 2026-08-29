@@ -1070,30 +1070,96 @@ def edit_item(id):
         return redirect(url_for("items.list_items"))
 
 
+def _items_list_redirect():
+    """Keep search/filters after delete so the list view does not reset."""
+    return redirect(
+        url_for(
+            "items.list_items",
+            search=request.form.get("search") or request.args.get("search") or "",
+            category_id=request.form.get("category_id") or request.args.get("category_id") or "",
+            qty_filter=request.form.get("qty_filter") or request.args.get("qty_filter") or "",
+            page=request.form.get("page") or request.args.get("page") or None,
+        )
+    )
+
+
 @items_bp.route("/delete/<int:id>", methods=["POST"])
 @login_required
 def delete_item(id):
     try:
-        usage = execute_query_one(
+        item = execute_query_one(
+            app,
+            f"SELECT ItemID, ItemName FROM Item WHERE ItemID = ? AND {owner_sql()}",
+            (id,),
+        )
+        if not item:
+            flash("Item not found.", "danger")
+            return _items_list_redirect()
+
+        # Drop orphaned detail rows (parent purchase/invoice already gone) so
+        # they cannot block delete forever after a bad sync or manual cleanup.
+        execute_update(
             app,
             """
-            SELECT
-                (SELECT COUNT(*) FROM InvoiceDetails WHERE ItemID = ?) AS InvoiceCount,
-                (SELECT COUNT(*) FROM PurchaseDetails WHERE ItemID = ?) AS PurchaseCount
+            DELETE FROM PurchaseDetails
+            WHERE ItemID = ?
+              AND PurchaseID NOT IN (SELECT PurchaseID FROM Purchases)
             """,
-            (id, id),
+            (id,),
+        )
+        execute_update(
+            app,
+            """
+            DELETE FROM InvoiceDetails
+            WHERE ItemID = ?
+              AND InvoiceID NOT IN (SELECT InvoiceID FROM Invoices)
+            """,
+            (id,),
         )
 
-        invoice_count = usage.InvoiceCount if usage else 0
-        purchase_count = usage.PurchaseCount if usage else 0
+        purchase_rows = execute_query(
+            app,
+            """
+            SELECT DISTINCT pd.PurchaseID
+            FROM PurchaseDetails pd
+            INNER JOIN Purchases p ON p.PurchaseID = pd.PurchaseID
+            WHERE pd.ItemID = ?
+            ORDER BY pd.PurchaseID
+            """,
+            (id,),
+        )
+        invoice_rows = execute_query(
+            app,
+            """
+            SELECT DISTINCT id.InvoiceID
+            FROM InvoiceDetails id
+            INNER JOIN Invoices i ON i.InvoiceID = id.InvoiceID
+            WHERE id.ItemID = ?
+            ORDER BY id.InvoiceID
+            """,
+            (id,),
+        )
 
-        if invoice_count or purchase_count:
+        purchase_ids = [int(r.PurchaseID) for r in (purchase_rows or [])]
+        invoice_ids = [int(r.InvoiceID) for r in (invoice_rows or [])]
+
+        if invoice_ids or purchase_ids:
+            parts = []
+            if purchase_ids:
+                ids = ", ".join(f"#{pid}" for pid in purchase_ids[:8])
+                extra = f" (+{len(purchase_ids) - 8} more)" if len(purchase_ids) > 8 else ""
+                parts.append(f"purchase(s) {ids}{extra}")
+            if invoice_ids:
+                ids = ", ".join(f"#{iid}" for iid in invoice_ids[:8])
+                extra = f" (+{len(invoice_ids) - 8} more)" if len(invoice_ids) > 8 else ""
+                parts.append(f"invoice(s) {ids}{extra}")
             flash(
-                "This item cannot be deleted because it is already used in "
-                f"{invoice_count} invoice detail(s) and {purchase_count} purchase detail(s).",
+                f"Cannot delete “{item.ItemName}”: it is used on {', and '.join(parts)}. "
+                "Open that purchase/invoice, remove the line (or delete the document), "
+                "then delete this item.",
                 "danger",
             )
-            return redirect(url_for("items.list_items"))
+            return _items_list_redirect()
 
         execute_update(app, f"DELETE FROM Item WHERE ItemID = ? AND {owner_sql()}", (id,))
         flash("Item deleted successfully", "success")
@@ -1101,7 +1167,7 @@ def delete_item(id):
     except Exception as e:
         flash(f"Error deleting item: {str(e)}", "danger")
 
-    return redirect(url_for("items.list_items"))
+    return _items_list_redirect()
 
 
 def _repoint_and_delete_items(cursor, keep_id, other_ids):

@@ -80,7 +80,10 @@
                 <td>
                     <a href="{{ url_for('items.edit_item', id=item.ItemID) }}" class="btn btn-sm btn-info">Edit</a>
                     <form method="POST" action="{{ url_for('items.delete_item', id=item.ItemID) }}" style="display:inline;">
-                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this item?')">Delete</button>
+                        <input type="hidden" name="search" value="{{ search or '' }}">
+                        <input type="hidden" name="category_id" value="{{ category_id or '' }}">
+                        <input type="hidden" name="qty_filter" value="{{ qty_filter or '' }}">
+                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this item? If it is used on a purchase or invoice, delete will be blocked.')">Delete</button>
                     </form>
                 </td>
             </tr>
