@@ -70,10 +70,10 @@ def list_suppliers():
         pagination = pagination_meta(int(cursor.fetchone().TotalCount or 0), page, page_size)
 
         query = f"""
-            SELECT *
+            SELECT SupplierID, SupplierName, ContactNo
             FROM Supplier
             {where_sql}
-            ORDER BY SupplierName
+            ORDER BY SupplierName ASC, SupplierID ASC
             LIMIT ? OFFSET ?
         """
         cursor.execute(

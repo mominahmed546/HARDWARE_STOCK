@@ -95,7 +95,7 @@ def bind_account_data():
         endpoint.startswith("static")
         or endpoint.startswith("auth.")
         or endpoint.startswith("sync_api.")
-        or endpoint in {"index"}
+        or endpoint in {"index", "health_db", "favicon"}
     ):
         return
     from app.tenancy import bind_current_account
@@ -179,3 +179,13 @@ app.register_blueprint(sync_api_bp)
 @app.route("/")
 def index():
     return redirect(url_for("auth.login"))
+
+
+@app.route("/health/db")
+def health_db():
+    """Public DB connectivity check for Render/Supabase debugging (no secrets)."""
+    from flask import jsonify
+
+    from app.db import probe_database
+
+    return jsonify(probe_database(app))

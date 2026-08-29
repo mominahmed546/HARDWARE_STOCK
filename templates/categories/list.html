@@ -32,14 +32,18 @@
         <tbody>
             {% for category in categories %}
             <tr>
-                <td>{{ category[0] }}</td>
-                <td>{{ category[1] }}</td>
+                <td>{{ category.CategoryID }}</td>
+                <td>{{ category.CategoryName }}</td>
                 <td>
-                    <a href="{{ url_for('categories.edit_category', id=category[0]) }}" class="btn btn-sm btn-info">Edit</a>
-                    <form method="POST" action="{{ url_for('categories.delete_category', id=category[0]) }}" style="display:inline;">
+                    <a href="{{ url_for('categories.edit_category', id=category.CategoryID) }}" class="btn btn-sm btn-info">Edit</a>
+                    <form method="POST" action="{{ url_for('categories.delete_category', id=category.CategoryID) }}" style="display:inline;">
                         <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this category?')">Delete</button>
                     </form>
                 </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="3">No categories found.</td>
             </tr>
             {% endfor %}
         </tbody>

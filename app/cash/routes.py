@@ -13,6 +13,7 @@ from app.payments import (
     ensure_invoice_payments_table,
     ensure_purchase_payments_table,
     get_cash_openings,
+    opening_to_match_cash_in_hand,
     save_cash_openings,
 )
 from app.profit.routes import get_year_total_profit
@@ -85,7 +86,12 @@ def _purchase_payment_split(cursor, where_sql="", params=()):
 
 
 def _balances_through(cursor, through_date, cash_opening, bank_opening):
-    # Half-open upper bound keeps PaymentDate indexes usable (no CAST).
+    breakdown = _balance_breakdown(cursor, through_date, cash_opening, bank_opening)
+    return breakdown["cash_in_hand"], breakdown["bank_balance"]
+
+
+def _balance_breakdown(cursor, through_date, cash_opening, bank_opening):
+    """Opening + receipts - purchase payments, with components for diagnostics."""
     until = through_exclusive(through_date)
     cash_received, bank_received, _ = _payment_split(
         cursor,
@@ -97,7 +103,18 @@ def _balances_through(cursor, through_date, cash_opening, bank_opening):
         "WHERE pp.PaymentDate < ?",
         (until,),
     )
-    return cash_opening + cash_received - cash_paid, bank_opening + bank_received - bank_paid
+    cash_opening = float(cash_opening or 0)
+    bank_opening = float(bank_opening or 0)
+    return {
+        "cash_opening": cash_opening,
+        "bank_opening": bank_opening,
+        "cash_received": float(cash_received or 0),
+        "bank_received": float(bank_received or 0),
+        "cash_paid": float(cash_paid or 0),
+        "bank_paid": float(bank_paid or 0),
+        "cash_in_hand": cash_opening + float(cash_received or 0) - float(cash_paid or 0),
+        "bank_balance": bank_opening + float(bank_received or 0) - float(bank_paid or 0),
+    }
 
 
 def _accrual_profit_for_year(cursor, year):
@@ -583,14 +600,20 @@ def cash_book():
             if not adjust_errors.valid:
                 flash(adjust_errors.first(), "danger")
             else:
-                data = _report_context(cursor, view, selected_date, selected_year, selected_month)
                 cash_opening, bank_opening = get_cash_openings(cursor)
-                # Shift opening by the delta so displayed drawer cash matches target.
-                delta = float(target_cash) - float(data["cash_in_hand"] or 0)
-                new_cash_opening = max(cash_opening + delta, 0.0)
+                today = date.today()
+                breakdown = _balance_breakdown(cursor, today, cash_opening, bank_opening)
+                new_cash_opening = opening_to_match_cash_in_hand(
+                    target_cash,
+                    breakdown["cash_received"],
+                    breakdown["cash_paid"],
+                )
                 save_cash_openings(cursor, new_cash_opening, bank_opening)
                 db.commit()
-                flash("Current cash in drawer updated.", "success")
+                flash(
+                    f"Cash in drawer set to Rs {float(target_cash):,.2f}.",
+                    "success",
+                )
                 return redirect(
                     url_for(
                         "cash.cash_book",
@@ -708,7 +731,7 @@ def cash_book_pdf():
         cursor.close()
 
 
-@cash_bp.route("/buy-suggestions")
+@cash_bp.route("/buy-suggestions", methods=["GET", "POST"])
 @login_required
 def buy_suggestions():
     db = get_db_connection(app)
@@ -716,9 +739,37 @@ def buy_suggestions():
 
     try:
         _ensure_cash_schema(db, cursor)
+
+        if request.method == "POST" and request.form.get("action") == "set_current_cash":
+            errors = ValidationErrors()
+            target_cash = clean_positive_decimal(
+                request.form.get("current_cash_in_drawer"),
+                "current_cash_in_drawer",
+                errors,
+                min_val=0,
+                label="Current cash in drawer",
+            )
+            if not errors.valid:
+                flash(errors.first(), "danger")
+                return redirect(url_for("cash.buy_suggestions"))
+            cash_opening, bank_opening = get_cash_openings(cursor)
+            today = date.today()
+            breakdown = _balance_breakdown(cursor, today, cash_opening, bank_opening)
+            new_cash_opening = opening_to_match_cash_in_hand(
+                target_cash,
+                breakdown["cash_received"],
+                breakdown["cash_paid"],
+            )
+            save_cash_openings(cursor, new_cash_opening, bank_opening)
+            db.commit()
+            flash(f"Cash in drawer set to Rs {float(target_cash):,.2f}.", "success")
+            return redirect(url_for("cash.buy_suggestions"))
+
         cash_opening, bank_opening = get_cash_openings(cursor)
         today = date.today()
-        cash_in_hand, bank_balance = _balances_through(cursor, today, cash_opening, bank_opening)
+        breakdown = _balance_breakdown(cursor, today, cash_opening, bank_opening)
+        cash_in_hand = breakdown["cash_in_hand"]
+        bank_balance = breakdown["bank_balance"]
         (
             cash_excluding_profit,
             profit_in_cash,
@@ -741,6 +792,12 @@ def buy_suggestions():
             bank_excluding_profit=bank_excluding_profit,
             profit_in_cash=profit_in_cash,
             profit_in_bank=profit_in_bank,
+            cash_opening=breakdown["cash_opening"],
+            cash_received=breakdown["cash_received"],
+            cash_paid=breakdown["cash_paid"],
+            bank_opening=breakdown["bank_opening"],
+            bank_received=breakdown["bank_received"],
+            bank_paid=breakdown["bank_paid"],
             suggestions=suggestions,
             spent=spent,
             remaining=max(cash_excluding_profit - spent, 0.0),
@@ -756,6 +813,12 @@ def buy_suggestions():
             bank_excluding_profit=0,
             profit_in_cash=0,
             profit_in_bank=0,
+            cash_opening=0,
+            cash_received=0,
+            cash_paid=0,
+            bank_opening=0,
+            bank_received=0,
+            bank_paid=0,
             suggestions=[],
             spent=0,
             remaining=0,
