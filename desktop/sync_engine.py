@@ -429,10 +429,48 @@ def fetch_remote_tables(database_url: str, user_id: int) -> dict[str, list[dict]
     return out
 
 
+def _schema_sqlite_file() -> Path:
+    """Locate schema_sqlite.sql in dev checkout, cwd, or frozen exe bundle."""
+    candidates = [
+        ROOT / "schema_sqlite.sql",
+        Path.cwd() / "schema_sqlite.sql",
+    ]
+    try:
+        from desktop.paths import bundle_dir, app_root
+
+        candidates.extend(
+            [
+                bundle_dir() / "schema_sqlite.sql",
+                app_root() / "schema_sqlite.sql",
+            ]
+        )
+    except Exception:
+        pass
+    for path in candidates:
+        try:
+            if path.is_file():
+                return path
+        except OSError:
+            continue
+    return ROOT / "schema_sqlite.sql"
+
+
 def _ensure_sqlite_schema(conn: sqlite3.Connection) -> None:
-    schema = ROOT / "schema_sqlite.sql"
+    # Existing offline DB already has tables — don't require the SQL file.
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+    ).fetchone()
+    if row:
+        conn.executescript(SALES_RETURN_DDL)
+        conn.commit()
+        return
+
+    schema = _schema_sqlite_file()
     if not schema.exists():
-        raise FileNotFoundError(f"Missing schema: {schema}")
+        raise FileNotFoundError(
+            f"Missing schema: {schema}\n"
+            "Run: git pull  (or copy schema_sqlite.sql into the HARDWARE_STOCK folder)"
+        )
     conn.executescript(schema.read_text(encoding="utf-8"))
     conn.executescript(SALES_RETURN_DDL)
     conn.commit()
