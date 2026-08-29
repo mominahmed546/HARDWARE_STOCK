@@ -93,10 +93,11 @@ def _resolve_or_create_item(cursor, data):
         FROM Item
         WHERE LOWER(LTRIM(RTRIM(ItemName))) = LOWER(LTRIM(RTRIM(?)))
           AND CategoryID = ?
+          AND ItemName <> ?
           AND {owner_sql()}
         ORDER BY Qty DESC, ItemID ASC
         """,
-        (item_name, data["category_id"]),
+        (item_name, data["category_id"], REMOVED_CATALOG_ITEM_NAME),
     )
     existing_item = cursor.fetchone()
     if existing_item:
