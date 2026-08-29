@@ -140,12 +140,32 @@ def _rows_equal(a: dict, b: dict) -> bool:
 
 def normalize_database_url(database_url: str) -> str:
     """Strip quotes/whitespace and normalize postgres:// → postgresql://."""
-    url = (database_url or "").strip()
-    # Users often paste quoted URLs from docs / Render / chat.
-    if len(url) >= 2 and url[0] == url[-1] and url[0] in {"'", '"', "`"}:
-        url = url[1:-1].strip()
-    url = url.strip().strip("\ufeff")
-    if url.startswith("postgres://"):
+    url = (database_url or "").strip().strip("\ufeff")
+    # Users often paste quoted URLs from docs / chat / Excel (ascii or “smart” quotes).
+    quote_chars = {"'", '"', "`", "“", "”", "‘", "’"}
+    changed = True
+    while changed and len(url) >= 2:
+        changed = False
+        if url[0] in quote_chars and url[-1] in quote_chars:
+            url = url[1:-1].strip()
+            changed = True
+    # Leading-only quote (common when paste drops the closing quote).
+    while url and url[0] in quote_chars:
+        url = url[1:].strip()
+    while url and url[-1] in quote_chars:
+        url = url[:-1].strip()
+
+    # If junk remains before the scheme, keep from the first postgres URI.
+    lowered = url.lower()
+    for marker in ("postgresql://", "postgres://"):
+        idx = lowered.find(marker)
+        if idx > 0:
+            url = url[idx:]
+            lowered = url.lower()
+            break
+
+    url = url.strip()
+    if url.lower().startswith("postgres://"):
         url = "postgresql://" + url[len("postgres://") :]
     return url
 
@@ -158,14 +178,24 @@ def _pg_connect(database_url: str):
 
     url = normalize_database_url(database_url)
     if not url:
-        raise ValueError("Cloud database URL is empty.")
+        raise ValueError(
+            "Cloud database URL is empty. Delete "
+            r"%LOCALAPPDATA%\EuroglassHardware\sync_config.json "
+            "and restart, then paste the Supabase URI without quotes."
+        )
 
     # Prefer keyword args: avoids "missing = after connection string" when the
     # saved value has quotes, BOM, or an old libpq that mishandles URIs.
     if "://" in url:
         parsed = urlparse(url)
         if parsed.scheme not in {"postgresql", "postgres"}:
-            raise ValueError(f"Unsupported database URL scheme: {parsed.scheme!r}")
+            preview = url[:60] + ("…" if len(url) > 60 else "")
+            raise ValueError(
+                f"Unsupported database URL scheme: {parsed.scheme!r} "
+                f"(value starts with {preview!r}). "
+                r"Delete %LOCALAPPDATA%\EuroglassHardware\sync_config.json "
+                "and paste the URI without quotes."
+            )
         host = parsed.hostname
         if not host:
             raise ValueError("Cloud database URL is missing a host.")

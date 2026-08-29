@@ -54,8 +54,16 @@ def load_sync_config() -> dict:
         return defaults
     merged = dict(defaults)
     merged.update({k: v for k, v in data.items() if v is not None})
-    if merged.get("database_url"):
-        merged["database_url"] = _normalize_url(str(merged["database_url"]))
+    raw_url = str(merged.get("database_url") or "")
+    if raw_url:
+        cleaned = _normalize_url(raw_url)
+        merged["database_url"] = cleaned
+        # Rewrite file when paste left quotes/junk so Sync Now keeps working.
+        if cleaned and cleaned != raw_url.strip():
+            try:
+                save_sync_config(merged)
+            except Exception:
+                pass
     return merged
 
 

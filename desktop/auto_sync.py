@@ -280,9 +280,9 @@ def sync_now() -> dict[str, Any]:
     except Exception as exc:
         logging.exception("Manual sync failed")
         msg = str(exc) or "Sync failed"
-        if "missing =" in msg.lower() or "connection string" in msg.lower():
+        if "missing =" in msg.lower() or "connection string" in msg.lower() or "unsupported database url" in msg.lower():
             msg = (
-                "Cloud database URL looks invalid. "
+                "Cloud database URL looks invalid (often extra quotes from paste). "
                 "Delete %LOCALAPPDATA%\\EuroglassHardware\\sync_config.json "
                 "and restart the app, then paste the Supabase URI without quotes."
             )
