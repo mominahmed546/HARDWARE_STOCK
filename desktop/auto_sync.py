@@ -9,8 +9,13 @@ from typing import Any
 
 from desktop.paths import database_path
 from desktop.sync import load_sync_state, save_sync_state
-from desktop.sync_config import config_ready, load_sync_config, save_sync_config
-from desktop.sync_engine import run_sync
+from desktop.sync_config import (
+    clear_database_url,
+    config_ready,
+    load_sync_config,
+    save_sync_config,
+)
+from desktop.sync_engine import is_valid_cloud_database_url, run_sync
 
 
 def _has_network(database_url: str = "") -> bool:
@@ -61,14 +66,28 @@ def _prompt_sync_setup(existing: dict | None = None) -> dict | None:
         parent=root,
     )
 
+    from desktop.sync_engine import normalize_database_url
+
     database_url = simpledialog.askstring(
         "Cloud database URL",
         "Supabase Session pooler URI:\n"
-        "postgresql://postgres.PROJECT:PASSWORD@....pooler.supabase.com:5432/postgres",
+        "postgresql://postgres.PROJECT:PASSWORD@....pooler.supabase.com:5432/postgres\n\n"
+        "Paste without quotes.",
         initialvalue=existing.get("database_url") or "",
         parent=root,
     )
     if not database_url:
+        root.destroy()
+        return None
+    database_url = normalize_database_url(database_url)
+    if not is_valid_cloud_database_url(database_url):
+        messagebox.showerror(
+            "Invalid database URL",
+            "That does not look like a Postgres URI.\n\n"
+            "It must start with postgresql:// and include the host\n"
+            "(pooler.supabase.com). Do not wrap it in quotes.",
+            parent=root,
+        )
         root.destroy()
         return None
 
@@ -92,10 +111,8 @@ def _prompt_sync_setup(existing: dict | None = None) -> dict | None:
     if not password:
         return None
 
-    from desktop.sync_engine import normalize_database_url
-
     cfg = {
-        "database_url": normalize_database_url(database_url),
+        "database_url": database_url,
         "username": username.strip(),
         "password": password,
         "mode": "sync",
@@ -129,7 +146,29 @@ def ensure_sync_config() -> dict | None:
     cfg = load_sync_config()
     if config_ready(cfg):
         return cfg
+    # Broken leftover URL (quotes / missing postgresql) — clear so the prompt is clean.
+    if (cfg.get("database_url") or "").strip() and not is_valid_cloud_database_url(
+        cfg.get("database_url") or ""
+    ):
+        cfg = clear_database_url()
+        _show_message(
+            "Cloud sync URL needs update",
+            "The saved cloud database URL is invalid.\n\n"
+            "Paste your Supabase Session pooler URI again,\n"
+            "starting with postgresql:// and with no quotes.",
+            error=True,
+        )
     return _prompt_sync_setup(cfg)
+
+
+def _is_bad_url_error(message: str) -> bool:
+    low = (message or "").lower()
+    return (
+        "unsupported database url" in low
+        or "missing = after connection string" in low
+        or "cloud database url" in low
+        or "missing a host" in low
+    )
 
 
 def perform_sync(cfg: dict, *, reason: str = "manual") -> dict[str, Any]:
@@ -203,12 +242,23 @@ def sync_on_startup() -> dict[str, Any]:
     except SystemExit as exc:
         msg = str(exc) or "Sync failed"
         logging.exception("Startup sync failed")
-        _show_message(
-            "Sync failed — opening offline",
-            f"{msg}\n\nCheck your cloud URL / username / password later.\n"
-            "The app will open with local data now.",
-            error=True,
-        )
+        if _is_bad_url_error(msg):
+            clear_database_url()
+            _show_message(
+                "Cloud sync URL needs update",
+                "The saved cloud database URL is invalid.\n\n"
+                "Click OK, then paste the Supabase URI again\n"
+                "(postgresql://... with no quotes).\n\n"
+                "The app will open with local data for now.",
+                error=True,
+            )
+        else:
+            _show_message(
+                "Sync failed — opening offline",
+                f"{msg}\n\nCheck your cloud URL / username / password later.\n"
+                "The app will open with local data now.",
+                error=True,
+            )
         return {
             "ok": True,
             "skipped": True,
@@ -218,17 +268,29 @@ def sync_on_startup() -> dict[str, Any]:
         }
     except Exception as exc:
         logging.exception("Startup sync failed")
-        _show_message(
-            "Sync failed — opening offline",
-            f"{exc}\n\nThe app will open with local data.\n"
-            "Fix cloud sync settings and restart when ready.",
-            error=True,
-        )
+        msg = str(exc)
+        if _is_bad_url_error(msg):
+            clear_database_url()
+            _show_message(
+                "Cloud sync URL needs update",
+                "The saved cloud database URL is invalid.\n\n"
+                "Delete is not required — on next start you will be asked\n"
+                "to paste the Supabase URI again (no quotes).\n\n"
+                "The app will open with local data for now.",
+                error=True,
+            )
+        else:
+            _show_message(
+                "Sync failed — opening offline",
+                f"{exc}\n\nThe app will open with local data.\n"
+                "Fix cloud sync settings and restart when ready.",
+                error=True,
+            )
         return {
             "ok": True,
             "skipped": True,
             "offline": True,
-            "error": str(exc),
+            "error": msg,
             "result": None,
         }
 

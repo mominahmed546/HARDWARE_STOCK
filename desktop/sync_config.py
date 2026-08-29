@@ -22,9 +22,21 @@ def _normalize_url(url: str) -> str:
         text = (url or "").strip()
         if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"', "`"}:
             text = text[1:-1].strip()
+        if text.startswith("://"):
+            text = "postgresql" + text
         if text.startswith("postgres://"):
             text = "postgresql://" + text[len("postgres://") :]
         return text
+
+
+def _url_ok(url: str) -> bool:
+    try:
+        from desktop.sync_engine import is_valid_cloud_database_url
+
+        return is_valid_cloud_database_url(url)
+    except Exception:
+        text = _normalize_url(url).lower()
+        return text.startswith("postgresql://") and "@" in text and "://" in text
 
 
 def load_sync_config() -> dict:
@@ -82,9 +94,23 @@ def save_sync_config(config: dict) -> None:
     path.write_text(json.dumps(clean, indent=2), encoding="utf-8")
 
 
+def clear_database_url() -> dict:
+    """Drop a broken cloud URL so startup can re-prompt for a good one."""
+    cfg = load_sync_config()
+    cfg["database_url"] = ""
+    save_sync_config(cfg)
+    return cfg
+
+
 def config_ready(config: dict | None = None) -> bool:
     cfg = config or load_sync_config()
     url = _normalize_url(cfg.get("database_url") or "")
     user = (cfg.get("username") or "").strip()
     password = cfg.get("password") or ""
-    return bool(url) and not url.lower().startswith("sqlite:") and bool(user) and bool(password)
+    return (
+        bool(url)
+        and _url_ok(url)
+        and not url.lower().startswith("sqlite:")
+        and bool(user)
+        and bool(password)
+    )

@@ -165,9 +165,27 @@ def normalize_database_url(database_url: str) -> str:
             break
 
     url = url.strip()
+    # Paste sometimes drops the word "postgresql" and leaves "://user:pass@host/..."
+    if url.startswith("://"):
+        url = "postgresql" + url
     if url.lower().startswith("postgres://"):
         url = "postgresql://" + url[len("postgres://") :]
     return url
+
+
+def is_valid_cloud_database_url(database_url: str) -> bool:
+    """True when URL looks like a usable Supabase/Postgres URI."""
+    from urllib.parse import urlparse
+
+    url = normalize_database_url(database_url)
+    if not url or url.lower().startswith("sqlite:"):
+        return False
+    if "://" not in url:
+        # keyword/value conninfo — require a host= or dbname=
+        low = url.lower()
+        return ("host=" in low or "dbname=" in low) and "=" in url
+    parsed = urlparse(url)
+    return parsed.scheme in {"postgresql", "postgres"} and bool(parsed.hostname)
 
 
 def _pg_connect(database_url: str):
