@@ -139,9 +139,36 @@ def _rows_equal(a: dict, b: dict) -> bool:
 
 
 def normalize_database_url(database_url: str) -> str:
-    """Strip quotes/whitespace and normalize postgres:// → postgresql://."""
+    """Strip quotes/whitespace/CLI junk and normalize postgres:// → postgresql://."""
     url = (database_url or "").strip().strip("\ufeff")
-    # Users often paste quoted URLs from docs / chat / Excel (ascii or “smart” quotes).
+
+    # Entire sync_db.py command pasted by mistake — keep only the URI token.
+    lowered_full = url.lower()
+    for marker in ("postgresql://", "postgres://"):
+        idx = lowered_full.find(marker)
+        if idx >= 0:
+            url = url[idx:]
+            break
+
+    # Cut off shell leftovers: ..." --mode sync   or   ... require" --mode sync
+    for sep in ('" --', "' --", " --mode", " --prefer", " --database", "\r", "\n", "\t"):
+        cut = url.find(sep)
+        if cut > 0:
+            url = url[:cut]
+            break
+    # Space after query/path usually means pasted CLI args.
+    if "://" in url:
+        # Keep spaces only inside userinfo (rare); split on space after host starts.
+        scheme_sep = url.find("://")
+        rest = url[scheme_sep + 3 :]
+        at = rest.find("@")
+        host_part = rest if at < 0 else rest[at + 1 :]
+        space = host_part.find(" ")
+        if space >= 0:
+            # Map space offset back onto full URL.
+            prefix_len = scheme_sep + 3 + (0 if at < 0 else at + 1)
+            url = url[: prefix_len + space]
+
     quote_chars = {"'", '"', "`", "“", "”", "‘", "’"}
     changed = True
     while changed and len(url) >= 2:
@@ -149,23 +176,12 @@ def normalize_database_url(database_url: str) -> str:
         if url[0] in quote_chars and url[-1] in quote_chars:
             url = url[1:-1].strip()
             changed = True
-    # Leading-only quote (common when paste drops the closing quote).
     while url and url[0] in quote_chars:
         url = url[1:].strip()
     while url and url[-1] in quote_chars:
         url = url[:-1].strip()
 
-    # If junk remains before the scheme, keep from the first postgres URI.
-    lowered = url.lower()
-    for marker in ("postgresql://", "postgres://"):
-        idx = lowered.find(marker)
-        if idx > 0:
-            url = url[idx:]
-            lowered = url.lower()
-            break
-
     url = url.strip()
-    # Paste sometimes drops the word "postgresql" and leaves "://user:pass@host/..."
     if url.startswith("://"):
         url = "postgresql" + url
     if url.lower().startswith("postgres://"):
@@ -186,6 +202,21 @@ def is_valid_cloud_database_url(database_url: str) -> bool:
         return ("host=" in low or "dbname=" in low) and "=" in url
     parsed = urlparse(url)
     return parsed.scheme in {"postgresql", "postgres"} and bool(parsed.hostname)
+
+
+_SSLMODES = frozenset(
+    {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
+)
+
+
+def _clean_sslmode(value: str | None) -> str:
+    raw = (value or "require").strip().strip("\"'`")
+    # If junk remains (require" --mode sync), keep the first token.
+    raw = raw.split()[0] if raw else "require"
+    raw = raw.strip("\"'`").lower()
+    if raw in _SSLMODES:
+        return raw
+    return "require"
 
 
 def _pg_connect(database_url: str):
@@ -222,7 +253,7 @@ def _pg_connect(database_url: str):
         dbname = unquote((parsed.path or "/").lstrip("/") or "postgres")
         port = parsed.port or 5432
         query = parse_qs(parsed.query, keep_blank_values=True)
-        sslmode = (query.get("sslmode") or ["require"])[0] or "require"
+        sslmode = _clean_sslmode((query.get("sslmode") or ["require"])[0])
         kwargs: dict[str, Any] = {
             "host": host,
             "port": int(port),
@@ -237,15 +268,17 @@ def _pg_connect(database_url: str):
         # Session pooler / Supabase: keep connect timeout reasonable on Windows.
         if "connect_timeout" in query:
             try:
-                kwargs["connect_timeout"] = int(query["connect_timeout"][0])
+                kwargs["connect_timeout"] = int(
+                    str(query["connect_timeout"][0]).split()[0].strip("\"'")
+                )
             except (TypeError, ValueError, IndexError):
-                pass
+                kwargs["connect_timeout"] = 15
         else:
             kwargs["connect_timeout"] = 15
         return psycopg.connect(**kwargs)
 
     # Already keyword/value conninfo (host=... dbname=...).
-    return psycopg.connect(url, row_factory=dict_row, connect_timeout=15)
+    return psycopg.connect(url, row_factory=dict_row, connect_timeout=15, sslmode="require")
 
 
 def _resolve_pg_table(cur, candidates: tuple[str, ...]) -> str | None:

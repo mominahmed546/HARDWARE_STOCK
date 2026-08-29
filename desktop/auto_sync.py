@@ -168,6 +168,7 @@ def _is_bad_url_error(message: str) -> bool:
         or "missing = after connection string" in low
         or "cloud database url" in low
         or "missing a host" in low
+        or "invalid sslmode" in low
     )
 
 
