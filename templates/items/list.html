@@ -83,7 +83,7 @@
                         <input type="hidden" name="search" value="{{ search or '' }}">
                         <input type="hidden" name="category_id" value="{{ category_id or '' }}">
                         <input type="hidden" name="qty_filter" value="{{ qty_filter or '' }}">
-                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this item? If it is used on a purchase or invoice, delete will be blocked.')">Delete</button>
+                        <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove this item from the catalog? Past purchases and invoices will keep the name on their lines.')">Delete</button>
                     </form>
                 </td>
             </tr>

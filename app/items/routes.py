@@ -20,6 +20,9 @@ from app.items.import_utils import (
     import_items,
     parse_items_xlsx,
 )
+
+# Hidden placeholder that keeps invoice/purchase FKs valid after catalog delete.
+REMOVED_CATALOG_ITEM_NAME = "(Removed from catalog)"
 from app.validators import (
     ValidationErrors,
     clean_date,
@@ -180,6 +183,10 @@ def _check_duplicate_item_name(item_name, errors, exclude_item_id=None):
     (e.g. Buy Suggestions can call one copy "out of stock" while another
     copy of the same item still has stock on the list page).
     """
+    if (item_name or "").strip() == REMOVED_CATALOG_ITEM_NAME:
+        errors.add("item_name", "That item name is reserved. Choose another name.")
+        return
+
     query = f"""
         SELECT ItemID, ItemName FROM Item
         WHERE LOWER(LTRIM(RTRIM(ItemName))) = LOWER(LTRIM(RTRIM(?)))
@@ -208,10 +215,12 @@ def _count_duplicate_item_groups(app):
             SELECT 1
             FROM Item
             WHERE {owner_sql()}
+              AND ItemName <> ?
             GROUP BY LOWER(LTRIM(RTRIM(ItemName)))
             HAVING COUNT(*) > 1
         ) dupes
         """,
+        (REMOVED_CATALOG_ITEM_NAME,),
     )
     return int(row.GroupCount or 0) if row else 0
 
@@ -227,9 +236,11 @@ def _find_duplicate_item_names(app):
         SELECT LOWER(LTRIM(RTRIM(ItemName))) AS NormName
         FROM Item
         WHERE {owner_sql()}
+          AND ItemName <> ?
         GROUP BY LOWER(LTRIM(RTRIM(ItemName)))
         HAVING COUNT(*) > 1
         """,
+        (REMOVED_CATALOG_ITEM_NAME,),
     )
     return [row.NormName for row in rows]
 
@@ -345,8 +356,8 @@ def _items_list_filters():
 
 
 def _items_list_where_sql(search, category_id, qty_filter):
-    where_sql = f"WHERE {owner_sql('i')}"
-    params = []
+    where_sql = f"WHERE {owner_sql('i')} AND i.ItemName <> ?"
+    params = [REMOVED_CATALOG_ITEM_NAME]
     if search:
         where_sql += " AND LOWER(i.ItemName) LIKE LOWER(?)"
         params.append(f"%{search}%")
@@ -1083,9 +1094,68 @@ def _items_list_redirect():
     )
 
 
+def _ensure_removed_catalog_item(cursor):
+    """Return ItemID of the hidden placeholder used after catalog deletes."""
+    cursor.execute(
+        f"""
+        SELECT ItemID FROM Item
+        WHERE ItemName = ? AND {owner_sql()}
+        ORDER BY ItemID
+        LIMIT 1
+        """,
+        (REMOVED_CATALOG_ITEM_NAME,),
+    )
+    row = cursor.fetchone()
+    if row is not None:
+        return int(row[0])
+
+    next_id = next_table_id(cursor, "Item", "ItemID")
+    item_no = next_owner_no(cursor, "Item", "ItemNo")
+    user_id = request_user_id()
+    cursor.execute(
+        """
+        INSERT INTO Item (ItemID, ItemNo, ItemName, Brand, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
+        VALUES (?, ?, ?, NULL, NULL, 0, 0, 0, ?)
+        """,
+        (next_id, item_no, REMOVED_CATALOG_ITEM_NAME, user_id),
+    )
+    return int(next_id)
+
+
+def _preserve_line_particulars(cursor, item_id, item_name):
+    """Keep human-readable names on history lines before detaching the item."""
+    name = (item_name or "").strip() or "Item"
+    for sql in (
+        """
+        UPDATE PurchaseDetails
+        SET Particulars = ?
+        WHERE ItemID = ?
+          AND (Particulars IS NULL OR BTRIM(Particulars) = '')
+        """,
+        """
+        UPDATE InvoiceDetails
+        SET Particulars = ?
+        WHERE ItemID = ?
+          AND (Particulars IS NULL OR BTRIM(Particulars) = '')
+        """,
+        """
+        UPDATE SalesReturnDetails
+        SET Particulars = ?
+        WHERE ItemID = ?
+          AND (Particulars IS NULL OR BTRIM(Particulars) = '')
+        """,
+    ):
+        try:
+            cursor.execute(sql, (name, item_id))
+        except Exception:
+            # SalesReturnDetails may not exist on older DBs.
+            pass
+
+
 @items_bp.route("/delete/<int:id>", methods=["POST"])
 @login_required
 def delete_item(id):
+    db = None
     try:
         item = execute_query_one(
             app,
@@ -1096,10 +1166,15 @@ def delete_item(id):
             flash("Item not found.", "danger")
             return _items_list_redirect()
 
-        # Drop orphaned detail rows (parent purchase/invoice already gone) so
-        # they cannot block delete forever after a bad sync or manual cleanup.
-        execute_update(
-            app,
+        if str(item.ItemName or "") == REMOVED_CATALOG_ITEM_NAME:
+            flash("This system placeholder cannot be deleted.", "danger")
+            return _items_list_redirect()
+
+        db = get_db_connection(app)
+        cursor = db.cursor()
+
+        # Drop orphaned detail rows (parent document already gone).
+        cursor.execute(
             """
             DELETE FROM PurchaseDetails
             WHERE ItemID = ?
@@ -1107,8 +1182,7 @@ def delete_item(id):
             """,
             (id,),
         )
-        execute_update(
-            app,
+        cursor.execute(
             """
             DELETE FROM InvoiceDetails
             WHERE ItemID = ?
@@ -1117,54 +1191,56 @@ def delete_item(id):
             (id,),
         )
 
-        purchase_rows = execute_query(
-            app,
-            """
-            SELECT DISTINCT pd.PurchaseID
-            FROM PurchaseDetails pd
-            INNER JOIN Purchases p ON p.PurchaseID = pd.PurchaseID
-            WHERE pd.ItemID = ?
-            ORDER BY pd.PurchaseID
-            """,
-            (id,),
-        )
-        invoice_rows = execute_query(
-            app,
-            """
-            SELECT DISTINCT id.InvoiceID
-            FROM InvoiceDetails id
-            INNER JOIN Invoices i ON i.InvoiceID = id.InvoiceID
-            WHERE id.ItemID = ?
-            ORDER BY id.InvoiceID
-            """,
-            (id,),
+        cursor.execute("SELECT COUNT(*) FROM PurchaseDetails WHERE ItemID = ?", (id,))
+        purchase_count = int((cursor.fetchone() or [0])[0] or 0)
+        cursor.execute("SELECT COUNT(*) FROM InvoiceDetails WHERE ItemID = ?", (id,))
+        invoice_count = int((cursor.fetchone() or [0])[0] or 0)
+        try:
+            cursor.execute("SELECT COUNT(*) FROM QuotationDetails WHERE ItemID = ?", (id,))
+            quotation_count = int((cursor.fetchone() or [0])[0] or 0)
+        except Exception:
+            quotation_count = 0
+        try:
+            cursor.execute("SELECT COUNT(*) FROM StockHistory WHERE ItemID = ?", (id,))
+            stock_count = int((cursor.fetchone() or [0])[0] or 0)
+        except Exception:
+            stock_count = 0
+        try:
+            cursor.execute("SELECT COUNT(*) FROM SalesReturnDetails WHERE ItemID = ?", (id,))
+            return_count = int((cursor.fetchone() or [0])[0] or 0)
+        except Exception:
+            return_count = 0
+
+        in_use = any(
+            n > 0
+            for n in (purchase_count, invoice_count, quotation_count, stock_count, return_count)
         )
 
-        purchase_ids = [int(r.PurchaseID) for r in (purchase_rows or [])]
-        invoice_ids = [int(r.InvoiceID) for r in (invoice_rows or [])]
-
-        if invoice_ids or purchase_ids:
-            parts = []
-            if purchase_ids:
-                ids = ", ".join(f"#{pid}" for pid in purchase_ids[:8])
-                extra = f" (+{len(purchase_ids) - 8} more)" if len(purchase_ids) > 8 else ""
-                parts.append(f"purchase(s) {ids}{extra}")
-            if invoice_ids:
-                ids = ", ".join(f"#{iid}" for iid in invoice_ids[:8])
-                extra = f" (+{len(invoice_ids) - 8} more)" if len(invoice_ids) > 8 else ""
-                parts.append(f"invoice(s) {ids}{extra}")
+        if in_use:
+            _preserve_line_particulars(cursor, id, item.ItemName)
+            keep_id = _ensure_removed_catalog_item(cursor)
+            if int(keep_id) == int(id):
+                flash("This system placeholder cannot be deleted.", "danger")
+                db.rollback()
+                return _items_list_redirect()
+            _repoint_and_delete_items(cursor, keep_id, [id])
             flash(
-                f"Cannot delete “{item.ItemName}”: it is used on {', and '.join(parts)}. "
-                "Open that purchase/invoice, remove the line (or delete the document), "
-                "then delete this item.",
-                "danger",
+                f"“{item.ItemName}” removed from the catalog. "
+                "Past purchases/invoices still show the item name on their lines.",
+                "success",
             )
-            return _items_list_redirect()
+        else:
+            cursor.execute(f"DELETE FROM Item WHERE ItemID = ? AND {owner_sql()}", (id,))
+            flash("Item deleted successfully", "success")
 
-        execute_update(app, f"DELETE FROM Item WHERE ItemID = ? AND {owner_sql()}", (id,))
-        flash("Item deleted successfully", "success")
+        db.commit()
 
     except Exception as e:
+        if db is not None:
+            try:
+                db.rollback()
+            except Exception:
+                pass
         flash(f"Error deleting item: {str(e)}", "danger")
 
     return _items_list_redirect()
@@ -1180,6 +1256,13 @@ def _repoint_and_delete_items(cursor, keep_id, other_ids):
         cursor.execute("UPDATE InvoiceDetails SET ItemID = ? WHERE ItemID = ?", (keep_id, other_id))
         cursor.execute("UPDATE QuotationDetails SET ItemID = ? WHERE ItemID = ?", (keep_id, other_id))
         cursor.execute("UPDATE StockHistory SET ItemID = ? WHERE ItemID = ?", (keep_id, other_id))
+        try:
+            cursor.execute(
+                "UPDATE SalesReturnDetails SET ItemID = ? WHERE ItemID = ?",
+                (keep_id, other_id),
+            )
+        except Exception:
+            pass
         cursor.execute(f"DELETE FROM Item WHERE ItemID = ? AND {owner_sql()}", (other_id,))
 
 
