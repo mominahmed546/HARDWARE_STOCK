@@ -186,6 +186,19 @@ def normalize_database_url(database_url: str) -> str:
         url = "postgresql" + url
     if url.lower().startswith("postgres://"):
         url = "postgresql://" + url[len("postgres://") :]
+
+    # Drop stray quotes left inside the query (sslmode="require → sslmode=require).
+    if "?" in url:
+        base, _, query = url.partition("?")
+        cleaned_parts = []
+        for part in query.split("&"):
+            if "=" not in part:
+                if part.strip("\"'"):
+                    cleaned_parts.append(part.strip("\"'"))
+                continue
+            key, _, val = part.partition("=")
+            cleaned_parts.append(f"{key.strip()}={val.strip().strip(chr(34)).strip(chr(39))}")
+        url = base + (("?" + "&".join(p for p in cleaned_parts if p)) if cleaned_parts else "")
     return url
 
 

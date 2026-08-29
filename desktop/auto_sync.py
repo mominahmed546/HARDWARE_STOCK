@@ -169,6 +169,9 @@ def _is_bad_url_error(message: str) -> bool:
         or "cloud database url" in low
         or "missing a host" in low
         or "invalid sslmode" in low
+        or "unexpected spaces" in low
+        or "percent-encoded" in low
+        or "--mode sync" in low
     )
 
 

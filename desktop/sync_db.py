@@ -31,7 +31,8 @@ if str(_ROOT) not in sys.path:
 
 from desktop.paths import database_path
 from desktop.sync import load_sync_state, save_sync_state
-from desktop.sync_engine import run_sync
+from desktop.sync_config import save_sync_config
+from desktop.sync_engine import is_valid_cloud_database_url, normalize_database_url, run_sync
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,11 +63,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--yes", action="store_true")
     args = parser.parse_args(argv)
 
-    db_url = (args.database_url or "").strip()
-    if not db_url or db_url.lower().startswith("sqlite:"):
+    db_url = normalize_database_url(args.database_url or "")
+    if not db_url or db_url.lower().startswith("sqlite:") or not is_valid_cloud_database_url(db_url):
         print(
             'Required: --database-url "postgresql://..."\n'
-            "(Supabase → Connect → URI, or Render Postgres External URL)",
+            "(Supabase URI only — do not include python or --mode sync)",
             file=sys.stderr,
         )
         return 1
@@ -76,6 +77,23 @@ def main(argv: list[str] | None = None) -> int:
     if not username or not password:
         print("Username and password are required.", file=sys.stderr)
         return 1
+
+    # Keep Sync Now / startup using the same cleaned URI.
+    try:
+        save_sync_config(
+            {
+                "database_url": db_url,
+                "username": username,
+                "password": password,
+                "mode": args.mode,
+                "prefer": args.prefer,
+                "required": True,
+                "sync_on_start": True,
+                "sync_on_exit": True,
+            }
+        )
+    except Exception:
+        pass
 
     db_file = database_path()
     print(f"Local DB : {db_file}")
