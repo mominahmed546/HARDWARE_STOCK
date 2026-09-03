@@ -1,11 +1,11 @@
 from datetime import datetime
-from io import BytesIO
 
 from flask import Blueprint, flash, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
 
 from app import app
 from app.db import get_db_connection
+from app.list_pdf import build_invoice_style_report_pdf, format_money
 from app.tenancy import owner_sql, request_user_id
 from app.payments import ensure_invoice_payments_table
 from app.perf import pagination_meta, parse_page, parse_page_size
@@ -114,10 +114,6 @@ def _event_sort_date(value):
     if getattr(value, "tzinfo", None):
         return value.replace(tzinfo=None)
     return value
-
-
-def _pdf_escape(value):
-    return str(value).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
 def _balance_side(balance):
@@ -439,136 +435,91 @@ def _load_customer_ledger(cursor, customer_id):
     }
 
 
+def _format_ledger_date(value):
+    if not value:
+        return "-"
+    if hasattr(value, "strftime"):
+        return value.strftime("%d/%m/%Y")
+    return str(value)[:10]
+
+
+def _ledger_money(value):
+    if not value:
+        return ""
+    return format_money(value)
+
+
 def _build_ledger_pdf(data):
     customer = data["customer"]
-    entries = data["entries"]
-    commands = []
-    page_width = 612
-    page_height = 792
-    left = 36
-    right = page_width - 36
-    top = page_height - 40
-
-    def text(x, y, value, size=9, font="F1"):
-        commands.append(f"BT /{font} {size} Tf {x} {y} Td ({_pdf_escape(value)}) Tj ET")
-
-    def text_right(x, y, value, size=9, font="F1"):
-        value = str(value)
-        text(max(left, x - len(value) * size * 0.5), y, value, size, font)
-
-    def line(x1, y1, x2, y2):
-        commands.append(f"0.6 w {x1} {y1} m {x2} {y2} l S")
-
-    def money(value):
-        if not value:
-            return ""
-        return f"{float(value):,.2f}"
-
-    def format_date(value):
-        if not value:
-            return ""
-        if hasattr(value, "strftime"):
-            return value.strftime("%d/%m/%Y")
-        return str(value)[:10]
-
-    y = top
-    text(left, y, "EUROGLASS HARDWARE", 14, "F2")
-    y -= 14
-    text(left, y, "Ph: 0300-5411417", 8)
-    y -= 16
-    text(left, y, "CUSTOMER ACCOUNT LEDGER", 12, "F2")
-    y -= 14
-    text(left, y, f"Account of: {customer.CustomerName}", 10, "F2")
-    y -= 12
-    text(left, y, f"Contact: {customer.ContactNo or 'N/A'}", 9)
-    y -= 12
-    generated = datetime.now().strftime("%d/%m/%Y %I:%M %p")
-    text(left, y, f"Printed: {generated}", 8)
-    y -= 10
-    line(left, y, right, y)
-    y -= 16
-
-    col_date = left
-    col_type = left + 68
-    col_no = left + 118
-    col_part = left + 158
-    col_debit = right - 186
-    col_credit = right - 118
-    col_bal = right - 8
-
-    text(col_date, y, "Date", 8, "F2")
-    text(col_type, y, "Type", 8, "F2")
-    text(col_no, y, "Vch No", 8, "F2")
-    text(col_part, y, "Particulars", 8, "F2")
-    text_right(col_debit, y, "Debit", 8, "F2")
-    text_right(col_credit, y, "Credit", 8, "F2")
-    text_right(col_bal, y, "Balance", 8, "F2")
-    y -= 6
-    line(left, y, right, y)
-    y -= 14
-
-    for entry in entries:
-        if y < 70:
-            text(left, 48, "Continued...", 8)
-            break
-        particulars = entry["particulars"]
-        if len(particulars) > 42:
-            particulars = particulars[:41] + "..."
-        text(col_date, y, format_date(entry["date"]), 8)
-        text(col_type, y, entry["vch_type"], 8)
-        text(col_no, y, entry["vch_no"], 8)
-        text(col_part, y, particulars, 8)
-        text_right(col_debit, y, money(entry["debit"]), 8)
-        text_right(col_credit, y, money(entry["credit"]), 8)
-        closing = f"{abs(entry['balance']):,.2f} {entry['balance_side']}"
-        text_right(col_bal, y, closing, 8)
-        y -= 13
-
-    y -= 4
-    line(left, y, right, y)
-    y -= 14
-    text(col_part, y, "Total", 9, "F2")
-    text_right(col_debit, y, f"{data['total_debit']:,.2f}", 9, "F2")
-    text_right(col_credit, y, f"{data['total_credit']:,.2f}", 9, "F2")
-    y -= 16
-    closing = data["closing_balance"]
-    text(
-        left,
-        y,
-        f"Closing Balance: {abs(closing):,.2f} {_balance_side(closing)}",
-        11,
-        "F2",
-    )
-
-    content = "\n".join(commands).encode("latin-1", errors="replace")
-    objects = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
-        b"<< /Length " + str(len(content)).encode("ascii") + b" >>\nstream\n" + content + b"\nendstream",
+    closing = float(data["closing_balance"] or 0)
+    closing_side = _balance_side(closing)
+    closing_color = (0.86, 0.08, 0.24) if closing > 0 else None
+    columns = [
+        {
+            "label": "DATE",
+            "width": 56,
+            "get": lambda row, _i: _format_ledger_date(row.get("date")),
+            "align": "left",
+        },
+        {
+            "label": "TYPE",
+            "width": 56,
+            "get": lambda row, _i: row.get("vch_type") or "-",
+            "align": "left",
+        },
+        {
+            "label": "VCH NO",
+            "width": 40,
+            "get": lambda row, _i: str(row.get("vch_no") or "-"),
+            "align": "center",
+        },
+        {
+            "label": "PARTICULARS",
+            "width": 191,
+            "get": lambda row, _i: row.get("particulars") or "-",
+            "align": "left",
+            "wrap": 32,
+        },
+        {
+            "label": "DEBIT",
+            "width": 66,
+            "get": lambda row, _i: _ledger_money(row.get("debit")),
+            "align": "right",
+        },
+        {
+            "label": "CREDIT",
+            "width": 66,
+            "get": lambda row, _i: _ledger_money(row.get("credit")),
+            "align": "right",
+        },
+        {
+            "label": "BALANCE",
+            "width": 68,
+            "get": lambda row, _i: f"{abs(float(row.get('balance') or 0)):,.2f} {row.get('balance_side') or _balance_side(row.get('balance'))}",
+            "align": "right",
+        },
     ]
-
-    pdf = BytesIO()
-    pdf.write(b"%PDF-1.4\n")
-    offsets = []
-    for index, obj in enumerate(objects, start=1):
-        offsets.append(pdf.tell())
-        pdf.write(f"{index} 0 obj\n".encode("ascii"))
-        pdf.write(obj)
-        pdf.write(b"\nendobj\n")
-
-    xref_offset = pdf.tell()
-    pdf.write(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
-    pdf.write(b"0000000000 65535 f \n")
-    for offset in offsets:
-        pdf.write(f"{offset:010d} 00000 n \n".encode("ascii"))
-    pdf.write(
-        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF".encode("ascii")
+    return build_invoice_style_report_pdf(
+        "Account Ledger",
+        info_lines=[
+            f"Account of: {customer.CustomerName}",
+            f"Contact: {customer.ContactNo or 'N/A'}",
+            f"Opening Balance: {format_money(data['opening_balance'])}",
+        ],
+        columns=columns,
+        rows=data["entries"],
+        summary_rows=[
+            {"label": "TOTAL DEBIT", "value": format_money(data["total_debit"])},
+            {"label": "TOTAL CREDIT", "value": format_money(data["total_credit"])},
+            {
+                "label": "CLOSING BALANCE",
+                "value": f"{abs(closing):,.2f} {closing_side}",
+                "highlight": True,
+                "color": closing_color,
+            },
+        ],
+        footer_from_index=-4,
     )
-    pdf.seek(0)
-    return pdf
 
 
 def _load_customers_for_select(cursor):
