@@ -26,23 +26,17 @@ def _pdf_escape(value):
     return str(value).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
-def _year_total_profit(cursor, selected_year):
-    """Single-number year profit matching the Monthly Profit report total."""
-    return get_year_total_profit(cursor, selected_year, use_cache=False)
-
-
-def get_year_total_profit(cursor, selected_year, *, use_cache=True, fast=False):
+def get_year_total_profit(cursor, selected_year, *, use_cache=True):
     """Year profit with a short-lived per-account cache for dashboard/cash pages.
 
-    fast=True skips the all-history purchase-cost average join and uses
-    Item.PurchaseRate only — accurate enough for cash-capital split and much
-    cheaper on large purchase histories.
+    Uses the same cost basis as the Monthly Profit report so every page that
+    shows or reserves year profit agrees on one number.
     """
-    from app.cogs import list_sold_line_cost_sql, purchase_unit_cost_join, sold_line_cost_sql
+    from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
 
     user_id = request_user_id()
     year = int(selected_year)
-    cache_key = (user_id, year, bool(fast))
+    cache_key = (user_id, year)
     if use_cache and user_id:
         now = time.monotonic()
         cached = _YEAR_PROFIT_CACHE.get(cache_key)
@@ -51,9 +45,8 @@ def get_year_total_profit(cursor, selected_year, *, use_cache=True, fast=False):
 
     year_start = date(year, 1, 1)
     year_end = date(year + 1, 1, 1)
-    line_cost = list_sold_line_cost_sql("id") if fast else sold_line_cost_sql("id")
+    line_cost = sold_line_cost_sql("id")
     paid_ratio = paid_ratio_sql("i", None)
-    cost_join = "" if fast else purchase_unit_cost_join("id")
     cursor.execute(
         f"""
         SELECT
@@ -62,7 +55,7 @@ def get_year_total_profit(cursor, selected_year, *, use_cache=True, fast=False):
         FROM Invoices i
         JOIN InvoiceDetails id ON id.InvoiceID = i.InvoiceID
         LEFT JOIN Item it ON it.ItemID = id.ItemID
-        {cost_join}
+        {purchase_unit_cost_join("id")}
         WHERE i.[Date] >= ? AND i.[Date] < ? AND {owner_sql("i")}
         """,
         (year_start, year_end),
