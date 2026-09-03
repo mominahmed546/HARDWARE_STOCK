@@ -145,6 +145,7 @@
     </div>
 
     <div class="cash-actions">
+        <a href="{{ url_for('invoices.drawer_receipts') }}" class="btn btn-success">Add cash to drawer against an invoice</a>
         <a href="#transfer-funds" class="btn btn-primary">Transfer cash ↔ bank</a>
         <a href="{{ url_for('cash.buy_suggestions') }}" class="btn btn-secondary">What to buy with purchase cash</a>
     </div>
