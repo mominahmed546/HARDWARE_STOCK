@@ -15,6 +15,27 @@
     .chart-panel { background: #fff; border-radius: 8px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
     .chart-panel h2 { margin: 0 0 18px; font-size: 1rem; color: #444; }
     .chart-wrap { position: relative; height: 300px; }
+    .adjust-help { margin: 0 0 1rem; color: var(--text-muted); max-width: 60ch; }
+    .adjust-form {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+        gap: 0.75rem;
+        align-items: end;
+        margin-bottom: 1.25rem;
+    }
+    .adjust-field { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+    .adjust-field > label {
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-muted);
+    }
+    .adjust-field input, .adjust-field select { width: 100%; min-width: 0; }
+    .adjust-field-wide { grid-column: span 2; }
+    @media (max-width: 700px) {
+        .adjust-field-wide { grid-column: span 1; }
+    }
 </style>
 {% endblock %}
 
@@ -43,7 +64,17 @@
             <div class="report-card-value">Rs {{ "{:,.2f}".format(total_cost|default(0)) }}</div>
         </div>
         <div class="report-card">
-            <div class="report-card-label">Total Profit</div>
+            <div class="report-card-label">Calculated Profit</div>
+            <div class="report-card-value">Rs {{ "{:,.2f}".format(calculated_profit|default(0)) }}</div>
+        </div>
+        <div class="report-card">
+            <div class="report-card-label">Adjustments</div>
+            <div class="report-card-value {% if (total_adjustment|default(0)) > 0 %}profit-positive{% elif (total_adjustment|default(0)) < 0 %}profit-negative{% else %}profit-zero{% endif %}">
+                {% if (total_adjustment|default(0)) > 0 %}+{% endif %}Rs {{ "{:,.2f}".format(total_adjustment|default(0)) }}
+            </div>
+        </div>
+        <div class="report-card">
+            <div class="report-card-label">Net Profit</div>
             <div class="report-card-value {% if total_profit > 0 %}profit-positive{% elif total_profit < 0 %}profit-negative{% else %}profit-zero{% endif %}">
                 Rs {{ "{:,.2f}".format(total_profit|default(0)) }}
             </div>
@@ -60,6 +91,94 @@
         </div>
     </div>
 
+    <div class="panel">
+        <div class="panel-header">
+            <h2>Adjust profit</h2>
+        </div>
+        <p class="adjust-help">
+            Increase or decrease the reported profit without touching any invoice.
+            The calculated figure above stays exactly as it is; adjustments are
+            listed separately and applied on top, and the cash page reserves the
+            net amount.
+        </p>
+        <form method="POST" class="adjust-form">
+            <input type="hidden" name="action" value="add_adjustment">
+            <div class="adjust-field">
+                <label for="adjustment_date">Date</label>
+                <input type="date" id="adjustment_date" name="adjustment_date"
+                       value="{{ (form_data or {}).get('adjustment_date', '') }}" required>
+                {% if errors and errors.get('adjustment_date') %}
+                <div class="error-message">{{ errors.get('adjustment_date') }}</div>
+                {% endif %}
+            </div>
+            <div class="adjust-field">
+                <label for="direction">Direction</label>
+                <select id="direction" name="direction">
+                    <option value="increase" {% if (form_data or {}).get('direction', 'increase') == 'increase' %}selected{% endif %}>Increase profit</option>
+                    <option value="decrease" {% if (form_data or {}).get('direction') == 'decrease' %}selected{% endif %}>Decrease profit</option>
+                </select>
+                {% if errors and errors.get('direction') %}
+                <div class="error-message">{{ errors.get('direction') }}</div>
+                {% endif %}
+            </div>
+            <div class="adjust-field">
+                <label for="amount">Amount</label>
+                <input type="number" id="amount" name="amount" min="0.01" step="0.01"
+                       value="{{ (form_data or {}).get('amount', '') }}" placeholder="e.g. 5000" required>
+                {% if errors and errors.get('amount') %}
+                <div class="error-message">{{ errors.get('amount') }}</div>
+                {% endif %}
+            </div>
+            <div class="adjust-field adjust-field-wide">
+                <label for="reason">Reason (optional)</label>
+                <input type="text" id="reason" name="reason" maxlength="255"
+                       value="{{ (form_data or {}).get('reason', '') }}"
+                       placeholder="e.g. shop expenses, damaged stock, discount given">
+                {% if errors and errors.get('reason') %}
+                <div class="error-message">{{ errors.get('reason') }}</div>
+                {% endif %}
+            </div>
+            <div class="adjust-field adjust-submit">
+                <button type="submit" class="btn btn-primary">Save adjustment</button>
+            </div>
+        </form>
+
+        <div class="table-wrap">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Change</th>
+                    <th>Reason</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for adjustment in adjustments|default([]) %}
+                <tr>
+                    <td>{{ adjustment.AdjustmentDate|date_dmy }}</td>
+                    <td class="{% if (adjustment.Amount|float) > 0 %}profit-positive{% else %}profit-negative{% endif %}">
+                        {% if (adjustment.Amount|float) > 0 %}+{% endif %}Rs {{ "{:,.2f}".format(adjustment.Amount|float) }}
+                    </td>
+                    <td>{{ adjustment.Reason or '—' }}</td>
+                    <td>
+                        <form method="POST" action="{{ url_for('profit.delete_profit_adjustment', id=adjustment.AdjustmentID) }}">
+                            <input type="hidden" name="year" value="{{ selected_year }}">
+                            <button type="submit" class="btn btn-sm btn-danger"
+                                    onclick="return confirm('Remove this profit adjustment?')">Remove</button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="4">No adjustments for {{ selected_year }}. Profit is exactly as calculated.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+
     <!-- Chart -->
     <div class="chart-panel">
         <h2>Revenue vs Cost vs Profit — {{ selected_year }}</h2>
@@ -73,13 +192,16 @@
             <h2>Profit by Month - {{ selected_year }}</h2>
         </div>
 
+        <div class="table-wrap">
         <table class="data-table">
             <thead>
                 <tr>
                     <th>Month</th>
                     <th>Revenue (Rs)</th>
                     <th>Purchase Cost (Rs)</th>
-                    <th>Profit (Rs)</th>
+                    <th>Calculated (Rs)</th>
+                    <th>Adjustment (Rs)</th>
+                    <th>Net Profit (Rs)</th>
                 </tr>
             </thead>
             <tbody>
@@ -88,13 +210,17 @@
                     <td>{{ row.month_name }}</td>
                     <td>{{ "{:,.2f}".format(row.revenue) }}</td>
                     <td>{{ "{:,.2f}".format(row.cost) }}</td>
+                    <td>{{ "{:,.2f}".format(row.calculated_profit) }}</td>
+                    <td class="{% if row.adjustment > 0 %}profit-positive{% elif row.adjustment < 0 %}profit-negative{% else %}profit-zero{% endif %}">
+                        {% if row.adjustment > 0 %}+{% endif %}{{ "{:,.2f}".format(row.adjustment) }}
+                    </td>
                     <td class="{% if row.profit > 0 %}profit-positive{% elif row.profit < 0 %}profit-negative{% else %}profit-zero{% endif %}">
                         {{ "{:,.2f}".format(row.profit) }}
                     </td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="4">No data found for {{ selected_year }}.</td>
+                    <td colspan="6">No data found for {{ selected_year }}.</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -103,12 +229,17 @@
                     <th>Total</th>
                     <th>{{ "{:,.2f}".format(total_revenue|default(0)) }}</th>
                     <th>{{ "{:,.2f}".format(total_cost|default(0)) }}</th>
+                    <th>{{ "{:,.2f}".format(calculated_profit|default(0)) }}</th>
+                    <th class="{% if (total_adjustment|default(0)) > 0 %}profit-positive{% elif (total_adjustment|default(0)) < 0 %}profit-negative{% else %}profit-zero{% endif %}">
+                        {% if (total_adjustment|default(0)) > 0 %}+{% endif %}{{ "{:,.2f}".format(total_adjustment|default(0)) }}
+                    </th>
                     <th class="{% if total_profit > 0 %}profit-positive{% elif total_profit < 0 %}profit-negative{% else %}profit-zero{% endif %}">
                         {{ "{:,.2f}".format(total_profit|default(0)) }}
                     </th>
                 </tr>
             </tfoot>
         </table>
+        </div>
     </div>
 </div>
 

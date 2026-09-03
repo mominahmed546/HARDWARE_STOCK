@@ -119,6 +119,11 @@ def _balance_breakdown(cursor, through_date, cash_opening, bank_opening):
 
 def _accrual_profit_for_year(cursor, year):
     """Total profit for the year, matching the Monthly Profit report total."""
+    from app.profit.routes import ensure_profit_adjustments_table
+
+    # Reached from the dashboard's async capital endpoint too, which does no
+    # schema setup of its own, so make sure the adjustments table is there.
+    ensure_profit_adjustments_table(get_db_connection(app), cursor)
     return get_year_total_profit(cursor, year)
 
 
