@@ -1244,6 +1244,168 @@ def list_invoices():
         cursor.close()
 
 
+def _drawer_balances(db, cursor):
+    """Current cash/bank balances, shown so the effect of a receipt is visible."""
+    from app.cash.routes import _balance_breakdown
+    from app.payments import ensure_cash_accounts, ensure_purchase_payments_table, get_cash_openings
+
+    ensure_cash_accounts(db, cursor)
+    ensure_purchase_payments_table(db, cursor)
+    cash_opening, bank_opening = get_cash_openings(cursor)
+    breakdown = _balance_breakdown(cursor, date.today(), cash_opening, bank_opening)
+    return breakdown["cash_in_hand"], breakdown["bank_balance"]
+
+
+def _outstanding_invoices(cursor, search, pagination_args):
+    """Invoices with money still due, newest first, for the drawer receipt page."""
+    where_sql = f"WHERE {owner_sql('i')} AND COALESCE(i.TotalAmount, 0) - COALESCE(i.CashReceived, 0) > 0.005"
+    params = []
+    if search:
+        where_sql += " AND (CAST(i.InvoiceID AS VARCHAR(20)) LIKE ? OR c.CustomerName LIKE ?)"
+        params.extend([f"%{search}%", f"%{search}%"])
+
+    cursor.execute(
+        f"""
+        SELECT COUNT(*) AS TotalCount
+        FROM Invoices i
+        JOIN Customers c ON c.CustomerID = i.CustomerID
+        {where_sql}
+        """,
+        params or (),
+    )
+    total = int(cursor.fetchone().TotalCount or 0)
+    pagination = pagination_meta(total, *pagination_args)
+
+    cursor.execute(
+        f"""
+        SELECT
+            i.InvoiceID,
+            i.[Date] AS InvoiceDate,
+            COALESCE(i.TotalAmount, 0) AS TotalAmount,
+            COALESCE(i.CashReceived, 0) AS PaidAmount,
+            GREATEST(COALESCE(i.TotalAmount, 0) - COALESCE(i.CashReceived, 0), 0) AS RemainingAmount,
+            COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus,
+            c.CustomerName
+        FROM Invoices i
+        JOIN Customers c ON c.CustomerID = i.CustomerID
+        {where_sql}
+        ORDER BY i.InvoiceID DESC
+        LIMIT ? OFFSET ?
+        """,
+        list(params) + [pagination["page_size"], pagination["offset"]],
+    )
+    invoices = [
+        {
+            "InvoiceID": int(row.InvoiceID),
+            "InvoiceDate": row.InvoiceDate,
+            "DateISO": _invoice_date_iso(row.InvoiceDate),
+            "TotalAmount": float(row.TotalAmount or 0),
+            "PaidAmount": float(row.PaidAmount or 0),
+            "RemainingAmount": float(row.RemainingAmount or 0),
+            "PaymentStatus": row.PaymentStatus,
+            "CustomerName": row.CustomerName,
+        }
+        for row in cursor.fetchall()
+    ]
+    return invoices, pagination
+
+
+@invoices_bp.route("/drawer", methods=["GET", "POST"])
+@login_required
+def drawer_receipts():
+    """Add an amount to the cash drawer (or bank) against a specific invoice."""
+    db = get_db_connection(app)
+    cursor = db.cursor()
+    search = request.args.get("search", "")
+    page = parse_page(request.args.get("page"))
+    page_size = parse_page_size(request.args.get("page_size"))
+
+    try:
+        _ensure_invoice_schema(db, cursor)
+
+        if request.method == "POST":
+            errors = ValidationErrors()
+            invoice_id = clean_select_id(
+                request.form.get("invoice_id"), "invoice_id", errors, label="Invoice"
+            )
+            amount = clean_positive_decimal(
+                request.form.get("amount"),
+                "amount",
+                errors,
+                min_val=0.01,
+                label="Amount",
+            )
+            method = normalize_payment_method(request.form.get("payment_method"))
+            if method not in {"Cash", "Bank"}:
+                method = "Cash"
+
+            if not errors.valid:
+                flash(errors.first(), "danger")
+                return redirect(url_for("invoices.drawer_receipts", search=search, page=page))
+
+            invoice = _load_invoice_record(cursor, invoice_id)
+            if not invoice:
+                flash("Invoice not found.", "danger")
+                return redirect(url_for("invoices.drawer_receipts", search=search, page=page))
+
+            receipt_date = clean_date(
+                request.form.get("payment_date") or _invoice_date_iso(invoice.InvoiceDate),
+                "payment_date",
+                errors,
+                label="Receipt date",
+            )
+            if not errors.valid:
+                flash(errors.first(), "danger")
+                return redirect(url_for("invoices.drawer_receipts", search=search, page=page))
+
+            receipt_datetime = datetime.combine(
+                datetime.strptime(receipt_date, "%Y-%m-%d").date(),
+                datetime.now().time(),
+            )
+            try:
+                result = add_invoice_payment(
+                    cursor,
+                    invoice,
+                    amount,
+                    receipt_datetime,
+                    "Added to drawer",
+                    method,
+                )
+            except ValueError as e:
+                db.rollback()
+                flash(str(e), "danger")
+                return redirect(url_for("invoices.drawer_receipts", search=search, page=page))
+
+            db.commit()
+            destination = "cash drawer" if method == "Cash" else "bank account"
+            new_status = (result or {}).get("status", "updated")
+            flash(
+                f"Added Rs {float(amount):,.2f} to the {destination} against invoice "
+                f"#{invoice_id}. That invoice is now {new_status}.",
+                "success",
+            )
+            return redirect(url_for("invoices.drawer_receipts", search=search, page=page))
+
+        invoices, pagination = _outstanding_invoices(cursor, search, (page, page_size))
+        cash_in_hand, bank_balance = _drawer_balances(db, cursor)
+        return render_template(
+            "invoices/drawer.html",
+            invoices=invoices,
+            search=search,
+            pagination=pagination,
+            cash_in_hand=cash_in_hand,
+            bank_balance=bank_balance,
+        )
+
+    except Exception as e:
+        db.rollback()
+        flash(f"Error loading drawer receipts: {str(e)}", "danger")
+        return redirect(url_for("dashboard.dashboard"))
+
+    finally:
+        cursor.close()
+
+
 def _invoice_list_where_sql(search, selected_month, selected_year):
     where_sql = f"WHERE {owner_sql('i')}"
     params = []

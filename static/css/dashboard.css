@@ -131,6 +131,10 @@
     background: #047857;
 }
 
+.fkey-drawer {
+    background: #7c3aed;
+}
+
 .fkey-label {
     display: block;
     font-size: 1rem;
@@ -353,6 +357,7 @@ a.pos-total-cell.cash-link:hover {
 [data-theme="dark"] .fkey-report { background: #334155; }
 [data-theme="dark"] .fkey-items { background: #475569; }
 [data-theme="dark"] .fkey-transfer { background: #059669; }
+[data-theme="dark"] .fkey-drawer { background: #8b5cf6; }
 
 [data-theme="dark"] .pos-total-cell,
 [data-theme="dark"] .pos-panel {
