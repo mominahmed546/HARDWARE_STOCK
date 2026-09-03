@@ -278,6 +278,7 @@ def build_invoice_style_report_pdf(
     columns=None,
     rows=None,
     summary_rows=None,
+    footer_from_index=-3,
 ):
     """A4 report that uses the same header, table, and footer layout as an invoice.
 
@@ -286,10 +287,12 @@ def build_invoice_style_report_pdf(
       - width (int)
       - get (callable(row, index) -> str)
       - align ('left' | 'center' | 'right'), default 'right' for numbers
+      - wrap (int | None): word-wrap threshold for left-aligned text
     summary_rows: list of dicts with keys:
       - label, value
       - highlight (bool)
       - color (optional (r, g, b) 0-1)
+    footer_from_index: col_bounds index for the left edge of the boxed totals.
     """
     columns = columns or []
     rows = list(rows or [])
@@ -371,7 +374,8 @@ def build_invoice_style_report_pdf(
         text(dated_x + 48, y, datetime.now().strftime("%d/%m/%Y %I:%M:%S %p"), 8, "F1")
         y -= 11
         for info in info_lines:
-            text(X_LEFT, y, info, 9, "F2" if info.startswith("Year:") else "F1")
+            bold = info.startswith("Year:") or info.startswith("Account of:")
+            text(X_LEFT, y, info, 9, "F2" if bold else "F1")
             y -= 10
         if page_num > 1:
             text(X_LEFT, y, f"Page {page_num}", 8, "F1")
@@ -395,26 +399,42 @@ def build_invoice_style_report_pdf(
     else:
         for index, row in enumerate(rows, start=1):
             values = [col["get"](row, index) for col in columns]
-            if y - row_h < BOTTOM_MARGIN:
+            cell_lines = []
+            for col_idx, col in enumerate(columns):
+                wrap = col.get("wrap")
+                if wrap:
+                    cell_lines.append(wrap_pdf_text(values[col_idx], wrap))
+                else:
+                    cell_lines.append([values[col_idx]])
+            row_lines = max((len(lines) for lines in cell_lines), default=1)
+            dyn_row_h = max(row_h, 6 + row_lines * LINE_H)
+            if y - dyn_row_h < BOTTOM_MARGIN:
                 new_page()
 
-            rect(table_x, y - row_h + 4, TABLE_W, row_h)
+            rect(table_x, y - dyn_row_h + 4, TABLE_W, dyn_row_h)
             for x in divider_xs:
-                line(x, y - row_h + 4, x, y + 4)
+                line(x, y - dyn_row_h + 4, x, y + 4)
 
-            mid_y = y - (row_h / 2) + 2
+            mid_y = y - (dyn_row_h / 2) + 2
             text_center(table_x + sr_col_w / 2, mid_y, str(index), 8, "F1")
+            text_y = y - 8
             for col_idx, col in enumerate(columns):
                 align = col.get("align", "right")
+                wrap = col.get("wrap")
                 left = col_bounds[col_idx]
                 right = col_bounds[col_idx + 1]
-                if align == "left":
+                if wrap:
+                    ty = text_y
+                    for wrapped_line in cell_lines[col_idx]:
+                        text(left + 4, ty, wrapped_line, 8, "F1")
+                        ty -= LINE_H
+                elif align == "left":
                     text(left + 4, mid_y, values[col_idx], 8, "F1")
                 elif align == "center":
                     text_center(left + (right - left) / 2, mid_y, values[col_idx], 8, "F1")
                 else:
                     text_right(right - 4, mid_y, values[col_idx], 8, "F1")
-            y -= row_h
+            y -= dyn_row_h
 
     if summary_rows:
         footer_h = 18
@@ -422,9 +442,13 @@ def build_invoice_style_report_pdf(
         if y - needed < BOTTOM_MARGIN:
             new_page()
         y -= 12
-        # Invoice-style footer: boxed label | amount on the last two columns
+        # Invoice-style footer: boxed label | amount on the right side
         split_x = col_bounds[-2] if len(col_bounds) > 1 else (table_x + TABLE_W / 2)
-        footer_x = col_bounds[-3] if len(col_bounds) >= 3 else table_x
+        footer_idx = footer_from_index
+        if footer_idx < 0:
+            footer_idx = len(col_bounds) + footer_idx
+        footer_idx = max(0, min(footer_idx, len(col_bounds) - 2))
+        footer_x = col_bounds[footer_idx]
         footer_w = (table_x + TABLE_W) - footer_x
 
         def footer_row(label, amount_str, highlight=False, color=None):
