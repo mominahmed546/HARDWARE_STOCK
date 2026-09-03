@@ -1,6 +1,5 @@
 import time
 from datetime import date
-from io import BytesIO
 
 from flask import Blueprint, flash, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
@@ -8,6 +7,7 @@ from flask_login import login_required
 from app import app
 from app.cogs import purchase_unit_cost_join, sold_line_cost_sql
 from app.db import get_db_connection
+from app.list_pdf import build_invoice_style_report_pdf, format_money
 from app.tenancy import owner_sql, request_user_id
 from app.payments import ensure_invoice_payments_table, paid_ratio_sql
 from app.validators import (
@@ -27,10 +27,6 @@ MONTHS = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
 ]
-
-
-def _pdf_escape(value):
-    return str(value).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
 def ensure_profit_adjustments_table(db, cursor):
@@ -239,92 +235,50 @@ def _monthly_profit_data(cursor, selected_year):
 
 
 def _build_profit_pdf(report):
-    commands = []
-    selected_year = report["selected_year"]
-    monthly_rows = report["monthly_rows"]
-    total_revenue = report["total_revenue"]
-    total_cost = report["total_cost"]
-    total_profit = report["total_profit"]
-    total_adjustment = report["total_adjustment"]
     best_month = report["best_month"]
-
-    def text(x, y, value, size=10, font="F1"):
-        commands.append(f"BT /{font} {size} Tf {x} {y} Td ({_pdf_escape(value)}) Tj ET")
-
-    def line(x1, y1, x2, y2):
-        commands.append(f"0.6 w {x1} {y1} m {x2} {y2} l S")
-
-    text(50, 780, f"Monthly Profit Report - {selected_year}", 16, "F2")
-    text(50, 760, f"Total Revenue: Rs {total_revenue:,.2f}", 10, "F1")
-    text(250, 760, f"Total Cost: Rs {total_cost:,.2f}", 10, "F1")
-    text(430, 760, f"Net Profit: Rs {total_profit:,.2f}", 10, "F1")
     best_name = best_month["month_name"] if best_month and best_month["profit"] > 0 else "N/A"
-    text(50, 742, f"Best Month: {best_name}", 10, "F1")
-    text(250, 742, f"Calculated: Rs {report['calculated_profit']:,.2f}", 10, "F1")
-    text(430, 742, f"Adjustments: Rs {total_adjustment:,.2f}", 10, "F1")
-    text(50, 726, "Sales, cost and profit are counted in proportion to cash received.", 8, "F1")
-
-    table_top = 700
-    row_h = 20
-    text(50, table_top, "Month", 10, "F2")
-    text(140, table_top, "Revenue (Rs)", 10, "F2")
-    text(250, table_top, "Cost (Rs)", 10, "F2")
-    text(350, table_top, "Calculated", 10, "F2")
-    text(440, table_top, "Adjustment", 10, "F2")
-    text(520, table_top, "Net", 10, "F2")
-    line(50, table_top - 5, 570, table_top - 5)
-
-    y = table_top - row_h
-    for row in monthly_rows:
-        text(50, y, row["month_name"], 10, "F1")
-        text(140, y, f"{row['revenue']:,.2f}", 10, "F1")
-        text(250, y, f"{row['cost']:,.2f}", 10, "F1")
-        text(350, y, f"{row['calculated_profit']:,.2f}", 10, "F1")
-        text(440, y, f"{row['adjustment']:,.2f}", 10, "F1")
-        text(520, y, f"{row['profit']:,.2f}", 10, "F1")
-        y -= row_h
-
-    line(50, y + 6, 570, y + 6)
-    text(50, y - 10, "Total", 10, "F2")
-    text(140, y - 10, f"{total_revenue:,.2f}", 10, "F2")
-    text(250, y - 10, f"{total_cost:,.2f}", 10, "F2")
-    text(350, y - 10, f"{report['calculated_profit']:,.2f}", 10, "F2")
-    text(440, y - 10, f"{total_adjustment:,.2f}", 10, "F2")
-    text(520, y - 10, f"{total_profit:,.2f}", 10, "F2")
-
-    content = "\n".join(commands).encode("latin-1", errors="replace")
-
-    objects = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
-        b"<< /Length " + str(len(content)).encode("ascii") + b" >>\nstream\n" + content + b"\nendstream",
+    net_profit = float(report["total_profit"] or 0)
+    net_color = (0.86, 0.08, 0.24) if net_profit < 0 else None
+    columns = [
+        {"label": "MONTH", "width": 88, "get": lambda row, _i: row["month_name"], "align": "left"},
+        {"label": "REVENUE", "width": 91, "get": lambda row, _i: format_money(row["revenue"]), "align": "right"},
+        {"label": "COST", "width": 91, "get": lambda row, _i: format_money(row["cost"]), "align": "right"},
+        {
+            "label": "CALCULATED",
+            "width": 91,
+            "get": lambda row, _i: format_money(row["calculated_profit"]),
+            "align": "right",
+        },
+        {
+            "label": "ADJUSTMENT",
+            "width": 91,
+            "get": lambda row, _i: format_money(row["adjustment"]),
+            "align": "right",
+        },
+        {"label": "NET", "width": 91, "get": lambda row, _i: format_money(row["profit"]), "align": "right"},
     ]
-
-    pdf = BytesIO()
-    pdf.write(b"%PDF-1.4\n")
-    offsets = []
-
-    for index, obj in enumerate(objects, start=1):
-        offsets.append(pdf.tell())
-        pdf.write(f"{index} 0 obj\n".encode("ascii"))
-        pdf.write(obj)
-        pdf.write(b"\nendobj\n")
-
-    xref_offset = pdf.tell()
-    pdf.write(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
-    pdf.write(b"0000000000 65535 f \n")
-
-    for offset in offsets:
-        pdf.write(f"{offset:010d} 00000 n \n".encode("ascii"))
-
-    pdf.write(
-        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF".encode("ascii")
+    return build_invoice_style_report_pdf(
+        "Monthly Profit Report",
+        info_lines=[
+            f"Year: {report['selected_year']}",
+            f"Best Month: {best_name}",
+            "Sales, cost and profit are counted in proportion to cash received.",
+        ],
+        columns=columns,
+        rows=report["monthly_rows"],
+        summary_rows=[
+            {"label": "TOTAL REVENUE", "value": format_money(report["total_revenue"]), "highlight": True},
+            {"label": "TOTAL COST", "value": format_money(report["total_cost"])},
+            {"label": "CALCULATED", "value": format_money(report["calculated_profit"])},
+            {"label": "ADJUSTMENTS", "value": format_money(report["total_adjustment"])},
+            {
+                "label": "NET PROFIT",
+                "value": format_money(net_profit),
+                "highlight": True,
+                "color": net_color,
+            },
+        ],
     )
-    pdf.seek(0)
-    return pdf
 
 
 @profit_bp.route("/monthly", methods=["GET", "POST"])
