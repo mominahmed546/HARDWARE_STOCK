@@ -451,7 +451,7 @@ def build_invoice_style_report_pdf(
         footer_x = col_bounds[footer_idx]
         footer_w = (table_x + TABLE_W) - footer_x
 
-        def footer_row(label, amount_str, highlight=False, color=None):
+        def footer_row(label, amount_str, highlight=False, color=None, bold=False):
             nonlocal y
             if highlight:
                 filled_rect(footer_x, y - footer_h + 4, footer_w, footer_h, 0.88, 0.88, 0.88)
@@ -459,8 +459,8 @@ def build_invoice_style_report_pdf(
                 rect(footer_x, y - footer_h + 4, footer_w, footer_h)
             line(split_x, y - footer_h + 4, split_x, y + 4)
             mid_y = y - (footer_h / 2) + 2
-            font = "F2" if highlight else "F1"
-            size = 11 if highlight else 10
+            font = "F2" if highlight or bold else "F1"
+            size = 11 if highlight or bold else 10
             text(footer_x + 4, mid_y - 3, label, size, font, color=color)
             text_right(table_x + TABLE_W - 4, mid_y - 3, amount_str, size, font, color=color)
             y -= footer_h
@@ -472,6 +472,7 @@ def build_invoice_style_report_pdf(
                     item["value"],
                     highlight=bool(item.get("highlight")),
                     color=item.get("color"),
+                    bold=bool(item.get("bold")),
                 )
             else:
                 footer_row(item[0], item[1], highlight=len(item) > 2 and item[2])
