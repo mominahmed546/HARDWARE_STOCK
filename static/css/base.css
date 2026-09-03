@@ -573,11 +573,45 @@ a {
     vertical-align: top;
 }
 
+/* The invoices table is wider than most windows, so pin the actions column to
+   the right edge: every button stays reachable without scrolling sideways. */
+.invoices-table th.invoice-actions-col,
+.invoices-table td.invoice-actions-cell {
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    box-shadow: -8px 0 8px -8px rgba(15, 23, 42, 0.35);
+}
+
+.invoices-table th.invoice-actions-col {
+    z-index: 3;
+}
+
+/* Body cells are transparent by default, which would let the columns
+   scrolling underneath show through the pinned one. */
+.invoices-table td.invoice-actions-cell {
+    background: var(--surface);
+}
+
+/* On a phone the pinned column would cover half the visible table, so there
+   it goes back to scrolling with everything else. */
+@media (max-width: 700px) {
+    .invoices-table th.invoice-actions-col,
+    .invoices-table td.invoice-actions-cell {
+        position: static;
+        box-shadow: none;
+    }
+}
+
+.invoices-table tbody tr:hover td.invoice-actions-cell {
+    background: #f8fafc;
+}
+
 .invoice-actions {
     display: flex;
     flex-direction: column;
     gap: 0.3rem;
-    min-width: 14.5rem;
+    min-width: 12.5rem;
 }
 
 .invoice-actions-row {
@@ -605,12 +639,16 @@ a {
     width: 100%;
 }
 
-.invoice-status-form,
-.invoice-delete-form {
+/* `.data-table td form { display: inline }` further up outranks a lone class
+   selector, so these need the cell in the selector to lay out at all. */
+.data-table td .invoice-status-form,
+.data-table td .invoice-delete-form {
     display: flex;
     align-items: stretch;
     gap: 0.3rem;
     min-width: 0;
+    width: 100%;
+    margin: 0;
 }
 
 .invoice-status-form .btn,
@@ -618,9 +656,9 @@ a {
     flex: 1 1 auto;
 }
 
-/* Settlement method above its Mark Paid button: keeps the actions column
-   inside the table instead of forcing a horizontal scroll. */
-.invoice-status-stacked {
+/* Settlement method above its Mark Paid button, so the pair fits the column
+   instead of hanging off the right edge. */
+.data-table td .invoice-status-stacked {
     flex-direction: column;
 }
 
@@ -731,6 +769,9 @@ a {
     color: var(--text-muted);
 }
 [data-theme="dark"] .data-table tbody tr:hover {
+    background: #263548;
+}
+[data-theme="dark"] .invoices-table tbody tr:hover td.invoice-actions-cell {
     background: #263548;
 }
 [data-theme="dark"] .pay-status.paid {
