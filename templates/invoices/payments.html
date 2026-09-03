@@ -41,21 +41,49 @@
         gap: 1.5rem;
         align-items: start;
     }
-    .in-kind-table th,
-    .in-kind-table td {
+    /* In-kind rows wrap into as many columns as fit, so the item fields never
+       push the form wider than the page. */
+    .in-kind-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+        gap: 0.6rem;
+        padding: 0.75rem;
+        margin-bottom: 0.6rem;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+    }
+    .in-kind-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        min-width: 0;
+    }
+    .in-kind-field > label {
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-muted);
+    }
+    .in-kind-field input,
+    .in-kind-field select {
+        width: 100%;
+        min-width: 0;
         font-size: 0.85rem;
-        vertical-align: top;
     }
-    .in-kind-table input,
-    .in-kind-table select {
-        min-width: 120px;
-    }
+    .in-kind-field-wide { grid-column: span 2; }
+    .in-kind-field-sm { grid-column: span 1; }
+    .in-kind-remove { justify-content: flex-end; }
     .in-kind-actions {
         margin-top: 0.5rem;
     }
+    /* In-kind needs the width, so the form takes the full row and the payment
+       history drops underneath it. */
+    .payment-layout.in-kind-active { grid-template-columns: 1fr; }
     @media (max-width: 900px) {
         .payment-summary,
         .payment-layout { grid-template-columns: 1fr; }
+        .in-kind-field-wide { grid-column: span 1; }
     }
 </style>
 {% endblock %}
@@ -117,77 +145,72 @@
                 </div>
                 <div id="in-kind-fields" style="display:none;">
                     <label>In-kind items (you can add multiple rows)</label>
-                    <table class="data-table in-kind-table">
-                        <thead>
-                            <tr>
-                                <th>Type</th>
-                                <th>Existing Item</th>
-                                <th>New Item Name</th>
-                                <th>Category</th>
-                                <th>Qty</th>
-                                <th>Purchase Rate</th>
-                                <th>Sale Rate</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody id="in-kind-rows">
-                            {% for row in rows %}
-                            {% set row_idx = loop.index %}
-                            <tr class="in-kind-row">
-                                <td>
-                                    <select name="item_mode[]" class="item-mode">
-                                        <option value="existing" {% if row.item_mode == 'existing' %}selected{% endif %}>Existing</option>
-                                        <option value="new" {% if row.item_mode == 'new' %}selected{% endif %}>New</option>
-                                    </select>
-                                    {{ field_error(errors, 'item_mode_' ~ row_idx) }}
-                                </td>
-                                <td>
-                                    <select name="item_id[]" class="existing-item">
-                                        <option value="">Select item</option>
-                                        {% for item in in_kind_items %}
-                                        <option value="{{ item.ItemID }}"
-                                                data-purchase-rate="{{ item.PurchaseRate }}"
-                                                data-sale-rate="{{ item.SaleRate }}"
-                                                {% if row.item_id|string == item.ItemID|string %}selected{% endif %}>
-                                            {{ item.ItemName }} - {{ item.CategoryName or 'N/A' }} (Current Qty: {{ item.Qty }})
-                                        </option>
-                                        {% endfor %}
-                                    </select>
-                                    {{ field_error(errors, 'item_id_' ~ row_idx) }}
-                                </td>
-                                <td>
-                                    <input type="text" name="item_name[]" value="{{ row.item_name or '' }}" maxlength="100" class="new-item-name">
-                                    {{ field_error(errors, 'item_name_' ~ row_idx) }}
-                                </td>
-                                <td>
-                                    <select name="category_id[]" class="new-item-category">
-                                        <option value="">Select category</option>
-                                        {% for category in in_kind_categories %}
-                                        <option value="{{ category.CategoryID }}"
-                                                {% if row.category_id|string == category.CategoryID|string %}selected{% endif %}>
-                                            {{ category.CategoryName }}
-                                        </option>
-                                        {% endfor %}
-                                    </select>
-                                    {{ field_error(errors, 'category_id_' ~ row_idx) }}
-                                </td>
-                                <td>
-                                    <input type="number" name="quantity[]" min="1" step="1" value="{{ row.quantity or '' }}" class="row-qty">
-                                    {{ field_error(errors, 'quantity_' ~ row_idx) }}
-                                </td>
-                                <td>
-                                    <input type="number" name="purchase_rate[]" min="0.01" step="0.01" value="{{ row.purchase_rate or '' }}" class="row-prate">
-                                    {{ field_error(errors, 'purchase_rate_' ~ row_idx) }}
-                                </td>
-                                <td>
-                                    <input type="number" name="sale_rate[]" min="0.01" step="0.01" value="{{ row.sale_rate or '' }}" class="row-srate">
-                                    {{ field_error(errors, 'sale_rate_' ~ row_idx) }}
-                                </td>
-                                <td><button type="button" class="btn btn-sm btn-danger remove-row">X</button></td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                    <div id="in-kind-rows">
+                        {% for row in rows %}
+                        {% set row_idx = loop.index %}
+                        <div class="in-kind-row">
+                            <div class="in-kind-field">
+                                <label for="item_mode_{{ row_idx }}">Type</label>
+                                <select id="item_mode_{{ row_idx }}" name="item_mode[]" class="item-mode">
+                                    <option value="existing" {% if row.item_mode == 'existing' %}selected{% endif %}>Existing</option>
+                                    <option value="new" {% if row.item_mode == 'new' %}selected{% endif %}>New</option>
+                                </select>
+                                {{ field_error(errors, 'item_mode_' ~ row_idx) }}
+                            </div>
+                            <div class="in-kind-field in-kind-field-wide">
+                                <label>Existing item</label>
+                                <select name="item_id[]" class="existing-item">
+                                    <option value="">Select item</option>
+                                    {% for item in in_kind_items %}
+                                    <option value="{{ item.ItemID }}"
+                                            data-purchase-rate="{{ item.PurchaseRate }}"
+                                            data-sale-rate="{{ item.SaleRate }}"
+                                            {% if row.item_id|string == item.ItemID|string %}selected{% endif %}>
+                                        {{ item.ItemName }} - {{ item.CategoryName or 'N/A' }} (Current Qty: {{ item.Qty }})
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                {{ field_error(errors, 'item_id_' ~ row_idx) }}
+                            </div>
+                            <div class="in-kind-field in-kind-field-wide">
+                                <label>New item name</label>
+                                <input type="text" name="item_name[]" value="{{ row.item_name or '' }}" maxlength="100" class="new-item-name">
+                                {{ field_error(errors, 'item_name_' ~ row_idx) }}
+                            </div>
+                            <div class="in-kind-field">
+                                <label>Category</label>
+                                <select name="category_id[]" class="new-item-category">
+                                    <option value="">Select category</option>
+                                    {% for category in in_kind_categories %}
+                                    <option value="{{ category.CategoryID }}"
+                                            {% if row.category_id|string == category.CategoryID|string %}selected{% endif %}>
+                                        {{ category.CategoryName }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                {{ field_error(errors, 'category_id_' ~ row_idx) }}
+                            </div>
+                            <div class="in-kind-field in-kind-field-sm">
+                                <label>Qty</label>
+                                <input type="number" name="quantity[]" min="1" step="1" value="{{ row.quantity or '' }}" class="row-qty">
+                                {{ field_error(errors, 'quantity_' ~ row_idx) }}
+                            </div>
+                            <div class="in-kind-field in-kind-field-sm">
+                                <label>Purchase rate</label>
+                                <input type="number" name="purchase_rate[]" min="0.01" step="0.01" value="{{ row.purchase_rate or '' }}" class="row-prate">
+                                {{ field_error(errors, 'purchase_rate_' ~ row_idx) }}
+                            </div>
+                            <div class="in-kind-field in-kind-field-sm">
+                                <label>Sale rate</label>
+                                <input type="number" name="sale_rate[]" min="0.01" step="0.01" value="{{ row.sale_rate or '' }}" class="row-srate">
+                                {{ field_error(errors, 'sale_rate_' ~ row_idx) }}
+                            </div>
+                            <div class="in-kind-field in-kind-remove">
+                                <button type="button" class="btn btn-sm btn-danger remove-row">Remove</button>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
                     {{ field_error(errors, 'in_kind_rows') }}
                     <div class="in-kind-actions">
                         <button type="button" id="add-row" class="btn btn-sm btn-secondary">+ Add Item Row</button>
@@ -211,7 +234,7 @@
             {% endif %}
         </div>
 
-        <div>
+        <div class="table-wrap">
             <table class="data-table">
                 <thead>
                     <tr>
@@ -255,9 +278,14 @@
     const addRowBtn = document.getElementById('add-row');
     const amountInput = document.getElementById('amount');
 
+    const paymentLayout = document.querySelector('.payment-layout');
+
     function syncPaymentMode() {
         const isInKind = paymentMethod.value === 'In-Kind';
         inKindFields.style.display = isInKind ? 'block' : 'none';
+        if (paymentLayout) {
+            paymentLayout.classList.toggle('in-kind-active', isInKind);
+        }
 
         // Hidden in-kind rows still have min="0.01" quantity/rate inputs that
         // default to 0, so the browser considers them invalid and silently
