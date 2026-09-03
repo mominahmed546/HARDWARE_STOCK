@@ -959,6 +959,66 @@ def delete_ledger_entry(entry_id):
         cursor.close()
 
 
+@ledger_bp.route("/customer/<int:id>/delete", methods=["POST"])
+@login_required
+def delete_customer(id):
+    db = get_db_connection(app)
+    cursor = db.cursor()
+
+    try:
+        _prepare_ledger_schema(db, cursor)
+        cursor.execute(
+            f"""
+            SELECT CustomerID, CustomerName
+            FROM Customers
+            WHERE CustomerID = ? AND {owner_sql()}
+            """,
+            (id,),
+        )
+        customer = cursor.fetchone()
+        if not customer:
+            flash("Customer not found.", "danger")
+            return redirect(url_for("ledger.list_ledger"))
+
+        cursor.execute(
+            f"""
+            SELECT COUNT(*) AS InvoiceCount
+            FROM Invoices
+            WHERE CustomerID = ? AND {owner_sql()}
+            """,
+            (id,),
+        )
+        invoice_count = int(cursor.fetchone().InvoiceCount or 0)
+        if invoice_count > 0:
+            flash(
+                f"Cannot delete {customer.CustomerName}: they still have {invoice_count} invoice(s). "
+                "Delete or reassign those invoices first.",
+                "danger",
+            )
+            return redirect(url_for("ledger.list_ledger"))
+
+        # Manual ledger rows cascade via FK; delete customer row last.
+        cursor.execute(
+            f"DELETE FROM LedgerEntries WHERE CustomerID = ? AND {owner_sql()}",
+            (id,),
+        )
+        cursor.execute(
+            f"DELETE FROM Customers WHERE CustomerID = ? AND {owner_sql()}",
+            (id,),
+        )
+        db.commit()
+        flash(f"Customer {customer.CustomerName} deleted.", "success")
+        return redirect(url_for("ledger.list_ledger"))
+
+    except Exception as e:
+        db.rollback()
+        flash(f"Error deleting customer: {str(e)}", "danger")
+        return redirect(url_for("ledger.list_ledger"))
+
+    finally:
+        cursor.close()
+
+
 @ledger_bp.route("/customer/<int:id>")
 @login_required
 def customer_ledger(id):
