@@ -509,8 +509,8 @@ def _build_ledger_pdf(data):
         columns=columns,
         rows=data["entries"],
         summary_rows=[
-            {"label": "TOTAL DEBIT", "value": format_money(data["total_debit"])},
-            {"label": "TOTAL CREDIT", "value": format_money(data["total_credit"])},
+            {"label": "TOTAL DEBIT", "value": format_money(data["total_debit"]), "bold": True},
+            {"label": "TOTAL CREDIT", "value": format_money(data["total_credit"]), "bold": True},
             {
                 "label": "CLOSING BALANCE",
                 "value": f"{abs(closing):,.2f} {closing_side}",
