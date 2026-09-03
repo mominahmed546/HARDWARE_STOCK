@@ -1219,6 +1219,9 @@ def list_invoices():
                     "PaidAmount": row.PaidAmount,
                     "RemainingAmount": row.RemainingAmount,
                     "PaymentStatus": row.PaymentStatus,
+                    "PaidPercent": _paid_percent(
+                        row.TotalAmount, row.PaidAmount, row.PaymentStatus
+                    ),
                     "ReturnCount": int(ret.ReturnCount) if ret else 0,
                     "ReturnTotal": float(ret.ReturnTotal) if ret else 0.0,
                     "Profit": profit_by_id.get(inv_id, 0.0),
@@ -1406,6 +1409,23 @@ def drawer_receipts():
         cursor.close()
 
 
+def _paid_percent(total_amount, paid_amount, status=None):
+    """Whole-number share of an invoice that has been received.
+
+    Never rounds a part-paid invoice up to 100% or down to 0%, so the number
+    always agrees with the Paid / Due amounts beside it.
+    """
+    total_amount = float(total_amount or 0)
+    paid_amount = float(paid_amount or 0)
+    if str(status or "") == "Paid" or (total_amount > 0 and paid_amount >= total_amount):
+        return 100
+    if total_amount <= 0:
+        return 100 if paid_amount > 0 else 0
+    if paid_amount <= 0:
+        return 0
+    return min(99, max(1, int(paid_amount / total_amount * 100)))
+
+
 def _invoice_list_where_sql(search, selected_month, selected_year):
     where_sql = f"WHERE {owner_sql('i')}"
     params = []
@@ -1506,6 +1526,9 @@ def _fetch_invoices_for_pdf(cursor, search, selected_month, selected_year):
                 "PaidAmount": float(row.PaidAmount or 0),
                 "RemainingAmount": float(row.RemainingAmount or 0),
                 "PaymentStatus": row.PaymentStatus,
+                "PaidPercent": _paid_percent(
+                    row.TotalAmount, row.PaidAmount, row.PaymentStatus
+                ),
                 "ReturnCount": int(ret.ReturnCount) if ret else 0,
                 "ReturnTotal": float(ret.ReturnTotal) if ret else 0.0,
                 "Profit": profit_by_id.get(inv_id, 0.0),
@@ -1552,7 +1575,7 @@ def _build_invoices_list_pdf(invoices, subtitle_lines=None):
             "get": lambda row, _i: f"Rs {format_money(row['Profit'])}",
             "align": "right",
         },
-        {"label": "STATUS", "width": 45, "get": lambda row, _i: row["PaymentStatus"] or "Unpaid"},
+        {"label": "STATUS", "width": 45, "get": lambda row, _i: f"{row['PaidPercent']}% paid"},
     ]
     total_amount = sum(row["TotalAmount"] for row in invoices)
     total_paid = sum(row["PaidAmount"] for row in invoices)
