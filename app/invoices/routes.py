@@ -18,9 +18,11 @@ from app.payments import (
     ensure_invoice_payments_table,
     invoice_paid_total,
     list_invoice_payments,
+    live_previous_balance_sql,
     paid_ratio_sql,
     pay_invoice_remaining,
     normalize_payment_method,
+    recalculate_invoice_previous_balances,
     refresh_invoice_settlement,
     remaining_due,
 )
@@ -204,6 +206,7 @@ def _invoice_settlement(previous_balance, total_amount, paid_amount=0):
 
 
 def _load_invoice_record(cursor, invoice_id):
+    prev_sql = live_previous_balance_sql("i")
     cursor.execute(
         f"""
         SELECT
@@ -211,12 +214,12 @@ def _load_invoice_record(cursor, invoice_id):
             i.CustomerID,
             i.[Date] AS InvoiceDate,
             COALESCE(i.TotalAmount, 0) AS TotalAmount,
-            COALESCE(i.PreviousBalance, 0) AS PreviousBalance,
+            ({prev_sql}) AS PreviousBalance,
             COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus,
             COALESCE(i.CashReceived, 0) AS PaidAmount,
             COALESCE(i.CashReceived, 0) AS CashReceived,
             GREATEST(
-                COALESCE(i.PreviousBalance, 0)
+                ({prev_sql})
                     + COALESCE(i.TotalAmount, 0)
                     - COALESCE(i.CashReceived, 0),
                 0
@@ -965,6 +968,7 @@ def create_invoice():
                     f"UPDATE Customers SET PreviousBalance = ? WHERE CustomerID = ? AND {owner_sql()}",
                     (legacy_balance, customer_id),
                 )
+                recalculate_invoice_previous_balances(cursor, customer_id)
                 db.commit()
                 flash("Previous balance updated successfully.", "success")
 
@@ -1060,6 +1064,7 @@ def create_invoice():
                     (line["quantity"], line["item_id"]),
                 )
 
+            recalculate_invoice_previous_balances(cursor, data["customer_id"])
             db.commit()
             flash("Invoice created successfully.", "success")
             return redirect(url_for("invoices.invoice_pdf", id=invoice_id))
@@ -1143,6 +1148,7 @@ def list_invoices():
                 COALESCE(i.PaymentStatus, 'Unpaid') AS PaymentStatus,
                 COALESCE(i.CashReceived, 0) AS PaidAmount,
                 GREATEST(COALESCE(i.TotalAmount, 0) - COALESCE(i.CashReceived, 0), 0) AS RemainingAmount,
+                COALESCE(i.PreviousBalance, 0) AS PreviousBalance,
                 c.CustomerName
             FROM Invoices i
             JOIN Customers c ON i.CustomerID = c.CustomerID
@@ -1209,6 +1215,7 @@ def list_invoices():
                     "InvoiceDate": row.InvoiceDate,
                     "CustomerName": row.CustomerName,
                     "TotalAmount": row.TotalAmount,
+                    "PreviousBalance": float(row.PreviousBalance or 0),
                     "PaidAmount": row.PaidAmount,
                     "RemainingAmount": row.RemainingAmount,
                     "PaymentStatus": row.PaymentStatus,
@@ -1638,6 +1645,7 @@ def edit_invoice(id):
                     f"UPDATE Customers SET PreviousBalance = ? WHERE CustomerID = ? AND {owner_sql()}",
                     (legacy_balance, customer_id),
                 )
+                recalculate_invoice_previous_balances(cursor, customer_id)
                 db.commit()
                 flash("Previous balance updated successfully.", "success")
 
@@ -1736,6 +1744,8 @@ def edit_invoice(id):
                 )
 
             refresh_invoice_settlement(cursor, id)
+            if int(invoice.CustomerID) != int(data["customer_id"]):
+                recalculate_invoice_previous_balances(cursor, int(invoice.CustomerID))
             db.commit()
             flash("Invoice updated successfully.", "success")
             return redirect(url_for("invoices.invoice_pdf", id=id))
@@ -1821,6 +1831,7 @@ def delete_invoice(id):
         cursor.execute("DELETE FROM InvoiceDetails WHERE InvoiceID = ?", (id,))
         cursor.execute(f"DELETE FROM Invoices WHERE InvoiceID = ? AND {owner_sql()}", (id,))
 
+        recalculate_invoice_previous_balances(cursor, int(invoice.CustomerID))
         db.commit()
         flash("Invoice deleted successfully. Stock quantities were restored.", "success")
 
@@ -2159,8 +2170,9 @@ def invoice_payments(id):
                         in_kind_rows=in_kind_rows,
                     )
                 db.commit()
+                new_status = (result or {}).get("status", "updated")
                 flash(
-                    f"Recorded Rs {amount:,.2f} via {payment_method}. Invoice #{id} is now {result['status']}.",
+                    f"Recorded Rs {amount:,.2f} via {payment_method}. Invoice #{id} is now {new_status}.",
                     "success",
                 )
                 return redirect(url_for("invoices.invoice_payments", id=id))

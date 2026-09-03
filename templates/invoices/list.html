@@ -57,7 +57,10 @@
                 <td>{{ invoice.InvoiceID }}</td>
                 <td>{{ invoice.InvoiceDate|date_dmy }}</td>
                 <td>{{ invoice.CustomerName }}</td>
-                <td>Rs {{ "{:,.2f}".format(invoice.TotalAmount|default(0)) }}</td>
+                <td>
+                    Rs {{ "{:,.2f}".format(invoice.TotalAmount|default(0)) }}
+                    <div class="paid-due-sub">Prev Rs {{ "{:,.2f}".format(invoice.PreviousBalance|default(0)) }}</div>
+                </td>
                 <td>
                     Rs {{ "{:,.2f}".format(invoice.PaidAmount|default(0)) }}
                     <div class="paid-due-sub">Due Rs {{ "{:,.2f}".format(invoice.RemainingAmount|default(0)) }}</div>
