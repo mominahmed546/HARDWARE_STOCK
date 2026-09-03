@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% from "macros/pagination.html" import pager %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/items_list.css') }}">
+<style>
+    .drawer-summary {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.25rem;
+    }
+    .drawer-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1rem 1.15rem;
+        box-shadow: var(--shadow);
+    }
+    .drawer-card .label {
+        color: var(--text-muted);
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-weight: 600;
+    }
+    .drawer-card .value {
+        font-size: 1.3rem;
+        font-weight: 700;
+        margin-top: 0.25rem;
+    }
+    .drawer-card .value.cash { color: #166534; }
+    .drawer-card .value.bank { color: #1d4ed8; }
+    [data-theme="dark"] .drawer-card .value.cash { color: #4ade80; }
+    [data-theme="dark"] .drawer-card .value.bank { color: #93c5fd; }
+    .drawer-form {
+        display: flex;
+        gap: 0.4rem;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .drawer-form input[type="number"] { width: 7.5rem; }
+    .drawer-form input[type="date"] { width: 9.5rem; }
+    .drawer-form select { width: 6.5rem; }
+    @media (max-width: 700px) {
+        .drawer-summary { grid-template-columns: 1fr; }
+    }
+</style>
+{% endblock %}
+
+{% block title %}Add Cash to Drawer - Hardware Stock Management{% endblock %}
+{% block page_title %}Add Cash to Drawer{% endblock %}
+{% block page_subtitle %}
+<p>Enter an amount against any invoice to put that money into the cash drawer or bank</p>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="drawer-summary">
+        <div class="drawer-card">
+            <div class="label">Cash in drawer now</div>
+            <div class="value cash">Rs {{ "{:,.2f}".format(cash_in_hand|default(0)) }}</div>
+        </div>
+        <div class="drawer-card">
+            <div class="label">Bank account now</div>
+            <div class="value bank">Rs {{ "{:,.2f}".format(bank_balance|default(0)) }}</div>
+        </div>
+    </div>
+
+    <div class="list-header">
+        <div class="search-bar">
+            <form method="GET" class="search-form">
+                <input type="text" name="search" placeholder="Search invoice or customer..." value="{{ search }}">
+                <button type="submit" class="btn btn-primary">Search</button>
+            </form>
+        </div>
+        <div class="list-header-actions" style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <a href="{{ url_for('cash.cash_book', view='daily') }}" class="btn btn-secondary">Cash book</a>
+            <a href="{{ url_for('invoices.list_invoices') }}" class="btn btn-secondary">All invoices</a>
+        </div>
+    </div>
+
+    <div class="table-wrap">
+    <table class="data-table items-table">
+        <thead>
+            <tr>
+                <th>Invoice</th>
+                <th>Date</th>
+                <th>Customer</th>
+                <th>Total</th>
+                <th>Received</th>
+                <th>Still due</th>
+                <th>Add to drawer</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for invoice in invoices %}
+            <tr>
+                <td>{{ invoice.InvoiceID }}</td>
+                <td>{{ invoice.InvoiceDate|date_dmy }}</td>
+                <td>{{ invoice.CustomerName }}</td>
+                <td>Rs {{ "{:,.2f}".format(invoice.TotalAmount) }}</td>
+                <td>Rs {{ "{:,.2f}".format(invoice.PaidAmount) }}</td>
+                <td>Rs {{ "{:,.2f}".format(invoice.RemainingAmount) }}</td>
+                <td>
+                    <form method="POST"
+                          action="{{ url_for('invoices.drawer_receipts', search=search, page=pagination.page) }}"
+                          class="drawer-form">
+                        <input type="hidden" name="invoice_id" value="{{ invoice.InvoiceID }}">
+                        <input type="date" name="payment_date" value="{{ invoice.DateISO }}"
+                               title="Date this money was received" required>
+                        <input type="number" name="amount" min="0.01" step="0.01"
+                               max="{{ '%.2f'|format(invoice.RemainingAmount) }}"
+                               value="{{ '%.2f'|format(invoice.RemainingAmount) }}"
+                               title="Amount to add" required>
+                        <select name="payment_method" title="Where the money went">
+                            <option value="Cash">Cash</option>
+                            <option value="Bank">Bank</option>
+                        </select>
+                        <button type="submit" class="btn btn-sm btn-success">Add</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="7">
+                    {% if search %}
+                    No invoices with money still due match “{{ search }}”.
+                    {% else %}
+                    Every invoice is fully received, so there is nothing left to add.
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {{ pager(pagination, 'invoices.drawer_receipts', {'search': search}) }}
+</div>
+{% endblock %}
