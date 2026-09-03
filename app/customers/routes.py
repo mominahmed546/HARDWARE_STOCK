@@ -7,6 +7,7 @@ from flask_login import login_required
 from app import app
 
 from app.db import get_db_connection
+from app.payments import recalculate_invoice_previous_balances
 from app.perf import pagination_meta, parse_page, parse_page_size
 from app.tenancy import owner_sql, request_user_id
 
@@ -345,6 +346,8 @@ def edit_customer(id):
                 (data["customer_name"], data["contact_no"], previous_balance, id)
 
             )
+
+            recalculate_invoice_previous_balances(cursor, id)
 
 
 

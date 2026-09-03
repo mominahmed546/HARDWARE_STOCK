@@ -184,6 +184,9 @@ def ensure_invoice_payments_table(db, cursor):
                 _sync_invoices_with_payments(cursor)
             _mark_migration_applied(cursor, "invoice_payments_backfill")
     _reset_previous_balance_clean_slate(cursor)
+    if not _migration_applied(cursor, "recompute_invoice_previous_balance_live"):
+        _recompute_all_invoice_previous_balances(cursor)
+        _mark_migration_applied(cursor, "recompute_invoice_previous_balance_live")
     db.commit()
     _SCHEMA_READY["invoice_payments"] = True
 
@@ -456,6 +459,148 @@ def remaining_due(total_amount, paid_amount, epsilon=0.005):
     return remaining if remaining > epsilon else 0.0
 
 
+def live_previous_balance_sql(invoice_alias="i"):
+    """SQL for current previous balance: customer opening + earlier unpaid invoices.
+
+    Invoices.PreviousBalance is a create-time snapshot and goes stale after
+    Mark Paid / payments on older invoices. Use this wherever the PDF or
+    settlement must show what is still owed from before this invoice.
+    """
+    return f"""
+        COALESCE((
+            SELECT COALESCE(c_open.PreviousBalance, 0)
+            FROM Customers c_open
+            WHERE c_open.CustomerID = {invoice_alias}.CustomerID
+        ), 0)
+        + COALESCE((
+            SELECT SUM(
+                GREATEST(
+                    COALESCE(o.TotalAmount, 0) - COALESCE((
+                        SELECT SUM(p.Amount)
+                        FROM InvoicePayments p
+                        WHERE p.InvoiceID = o.InvoiceID
+                    ), 0),
+                    0
+                )
+            )
+            FROM Invoices o
+            WHERE o.CustomerID = {invoice_alias}.CustomerID
+              AND (
+                    o.[Date] < {invoice_alias}.[Date]
+                    OR (
+                        o.[Date] = {invoice_alias}.[Date]
+                        AND o.InvoiceID < {invoice_alias}.InvoiceID
+                    )
+              )
+        ), 0)
+    """
+
+
+def running_previous_balances(opening, invoices):
+    """Return previous-balance / settlement rows in invoice order.
+
+    Each previous balance is opening + remaining due of every earlier invoice.
+    `invoices` is an iterable of (invoice_id, total_amount, paid_amount).
+    """
+    earlier_unpaid = 0.0
+    opening = float(opening or 0)
+    rows = []
+    for invoice_id, total_amount, paid_amount in invoices:
+        total_amount = float(total_amount or 0)
+        paid_amount = float(paid_amount or 0)
+        previous_balance = opening + earlier_unpaid
+        status = payment_status(total_amount, paid_amount)
+        cash_received = paid_amount
+        net_balance = previous_balance + total_amount - cash_received
+        if net_balance < 0:
+            net_balance = 0.0
+        remaining = remaining_due(total_amount, paid_amount)
+        rows.append(
+            {
+                "invoice_id": int(invoice_id),
+                "status": status,
+                "paid_amount": paid_amount,
+                "cash_received": cash_received,
+                "net_balance": net_balance,
+                "remaining": remaining,
+                "previous_balance": previous_balance,
+            }
+        )
+        earlier_unpaid += remaining
+    return rows
+
+
+def recalculate_invoice_previous_balances(cursor, customer_id):
+    """Persist live previous balance and net on each invoice for a customer.
+
+    Call after Mark Paid, partial payments, invoice create/edit/delete, or a
+    customer opening-balance change so later invoices drop settled dues.
+    """
+    customer_id = int(customer_id)
+    cursor.execute(
+        """
+        SELECT COALESCE(PreviousBalance, 0) AS PreviousBalance
+        FROM Customers
+        WHERE CustomerID = ?
+        """,
+        (customer_id,),
+    )
+    customer = cursor.fetchone()
+    opening = float(customer.PreviousBalance or 0) if customer else 0.0
+
+    cursor.execute(
+        """
+        SELECT
+            i.InvoiceID,
+            COALESCE(i.TotalAmount, 0) AS TotalAmount,
+            COALESCE((
+                SELECT SUM(p.Amount)
+                FROM InvoicePayments p
+                WHERE p.InvoiceID = i.InvoiceID
+            ), 0) AS PaidAmount
+        FROM Invoices i
+        WHERE i.CustomerID = ?
+        ORDER BY i.[Date] ASC, i.InvoiceID ASC
+        """,
+        (customer_id,),
+    )
+    settlements = running_previous_balances(
+        opening,
+        ((row.InvoiceID, row.TotalAmount, row.PaidAmount) for row in cursor.fetchall()),
+    )
+
+    updated = {}
+    for settlement in settlements:
+        cursor.execute(
+            """
+            UPDATE Invoices
+            SET
+                PreviousBalance = ?,
+                CashReceived = ?,
+                PaymentStatus = ?,
+                NetBalance = ?
+            WHERE InvoiceID = ?
+            """,
+            (
+                settlement["previous_balance"],
+                settlement["cash_received"],
+                settlement["status"],
+                settlement["net_balance"],
+                settlement["invoice_id"],
+            ),
+        )
+        updated[settlement["invoice_id"]] = settlement
+    return updated
+
+
+def _recompute_all_invoice_previous_balances(cursor):
+    """One-time repair: recompute previous balance for every stored invoice."""
+    cursor.execute("SELECT DISTINCT CustomerID FROM Invoices")
+    customer_ids = [int(row.CustomerID) for row in cursor.fetchall()]
+    for cid in customer_ids:
+        recalculate_invoice_previous_balances(cursor, cid)
+
+
 def invoice_paid_total(cursor, invoice_id):
     cursor.execute(
         """
@@ -487,40 +632,18 @@ def refresh_invoice_settlement(cursor, invoice_id):
     invalidate_balance_cache()
     cursor.execute(
         """
-        SELECT
-            COALESCE(TotalAmount, 0) AS TotalAmount,
-            COALESCE(PreviousBalance, 0) AS PreviousBalance
+        SELECT CustomerID
         FROM Invoices
         WHERE InvoiceID = ?
         """,
         (invoice_id,),
     )
     invoice = cursor.fetchone()
-    if not invoice:
+    if not invoice or invoice.CustomerID is None:
         return None
 
-    paid_amount = invoice_paid_total(cursor, invoice_id)
-    status = payment_status(invoice.TotalAmount, paid_amount)
-    cash_received = paid_amount
-    net_balance = float(invoice.PreviousBalance or 0) + float(invoice.TotalAmount or 0) - cash_received
-    if net_balance < 0:
-        net_balance = 0.0
-
-    cursor.execute(
-        """
-        UPDATE Invoices
-        SET PaymentStatus = ?, CashReceived = ?, NetBalance = ?
-        WHERE InvoiceID = ?
-        """,
-        (status, cash_received, net_balance, invoice_id),
-    )
-    return {
-        "status": status,
-        "paid_amount": paid_amount,
-        "cash_received": cash_received,
-        "net_balance": net_balance,
-        "remaining": remaining_due(invoice.TotalAmount, paid_amount),
-    }
+    updated = recalculate_invoice_previous_balances(cursor, int(invoice.CustomerID))
+    return updated.get(int(invoice_id))
 
 
 def add_invoice_payment(cursor, invoice, amount, payment_date, notes="", payment_method="Cash"):
