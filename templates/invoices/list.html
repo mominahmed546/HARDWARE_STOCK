@@ -89,25 +89,30 @@
                         <a href="{{ url_for('invoices.invoice_whatsapp', id=invoice.InvoiceID) }}" class="btn btn-sm btn-whatsapp invoice-action-wide">Send PDF on WhatsApp</a>
                         <a href="{{ url_for('invoices.invoice_payments', id=invoice.InvoiceID) }}" class="btn btn-sm btn-primary invoice-action-wide">Receive Partial Payment</a>
                         <a href="{{ url_for('invoices.sales_return', id=invoice.InvoiceID) }}" class="btn btn-sm btn-secondary invoice-action-wide">Sales Return</a>
+                        {% if status == 'Paid' %}
                         <div class="invoice-actions-row">
                             <form method="POST" action="{{ url_for('invoices.update_invoice_status', id=invoice.InvoiceID) }}" class="invoice-status-form">
-                                {% if status == 'Paid' %}
                                 <input type="hidden" name="status" value="Unpaid">
                                 <button type="submit" class="btn btn-sm btn-secondary">Mark Unpaid</button>
-                                {% else %}
-                                <input type="hidden" name="status" value="Paid">
-                                <select name="payment_method" class="pay-method-select" title="Settlement method">
-                                    <option value="Cash">Cash</option>
-                                    <option value="Bank">Bank</option>
-                                    <option value="In-Kind">In-Kind</option>
-                                </select>
-                                <button type="submit" class="btn btn-sm btn-success">Mark Paid</button>
-                                {% endif %}
                             </form>
                             <form method="POST" action="{{ url_for('invoices.delete_invoice', id=invoice.InvoiceID) }}" class="invoice-delete-form">
                                 <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this invoice? Stock quantities will be restored.')">Delete</button>
                             </form>
                         </div>
+                        {% else %}
+                        <form method="POST" action="{{ url_for('invoices.update_invoice_status', id=invoice.InvoiceID) }}" class="invoice-status-form invoice-status-stacked">
+                            <input type="hidden" name="status" value="Paid">
+                            <select name="payment_method" class="pay-method-select" title="Settlement method">
+                                <option value="Cash">Cash</option>
+                                <option value="Bank">Bank</option>
+                                <option value="In-Kind">In-Kind</option>
+                            </select>
+                            <button type="submit" class="btn btn-sm btn-success">Mark Paid</button>
+                        </form>
+                        <form method="POST" action="{{ url_for('invoices.delete_invoice', id=invoice.InvoiceID) }}" class="invoice-delete-form">
+                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this invoice? Stock quantities will be restored.')">Delete</button>
+                        </form>
+                        {% endif %}
                     </div>
                 </td>
             </tr>

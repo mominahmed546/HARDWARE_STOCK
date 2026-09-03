@@ -618,20 +618,23 @@ a {
     flex: 1 1 auto;
 }
 
-.invoice-status-form:has(.pay-method-select) {
-    grid-column: 1 / -1;
-}
-
-.invoice-actions-row:has(.invoice-status-form:has(.pay-method-select)) {
-    grid-template-columns: 1fr;
+/* Settlement method above its Mark Paid button: keeps the actions column
+   inside the table instead of forcing a horizontal scroll. */
+.invoice-status-stacked {
+    flex-direction: column;
 }
 
 .invoice-status-form .pay-method-select {
-    flex: 0 0 4.75rem;
     margin-right: 0;
     padding: 0.42rem 0.4rem;
     font-size: 0.82rem;
     border-radius: 6px;
+}
+
+.invoice-status-stacked .pay-method-select,
+.invoice-status-stacked .btn {
+    flex: 0 0 auto;
+    width: 100%;
 }
 
 .data-table .invoice-actions-cell .btn + .btn,
