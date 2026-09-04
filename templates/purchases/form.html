@@ -6,6 +6,7 @@
 
 {% block content %}
 {% set fd = form_data or {} %}
+{% set lines = purchase_lines or [{'item_mode': 'existing', 'item_id': '', 'item_name': '', 'category_id': '', 'brand': '', 'quantity': '1', 'purchase_rate': '0', 'sale_rate': '0'}] %}
 <div class="container">
     <div class="upload-panel">
         <div class="upload-panel-header">
@@ -24,7 +25,7 @@
     </div>
 
     <div class="card">
-        <form method="POST" class="form" data-validate novalidate>
+        <form method="POST" class="form purchase-create-form" data-validate novalidate>
             <div class="form-group">
                 <label for="purchase_date">Purchase Date</label>
                 <input type="date" id="purchase_date" name="purchase_date"
@@ -57,93 +58,104 @@
                 </select>
             </div>
 
-            <div class="form-group">
-                <label for="item_mode">Item Type</label>
-                <select id="item_mode" name="item_mode"
-                        class="{% if errors and errors.get('item_mode') %}is-invalid{% endif %}">
-                    <option value="existing" {% if fd.get('item_mode', 'existing') == 'existing' %}selected{% endif %}>
-                        Existing item
-                    </option>
-                    <option value="new" {% if fd.get('item_mode') == 'new' %}selected{% endif %}>
-                        New item
-                    </option>
-                </select>
-                {{ field_error(errors, 'item_mode') }}
+            <h3>Purchase Items</h3>
+            {{ field_error(errors, 'item_id[]') }}
+            {{ field_error(errors, 'item_name[]') }}
+            {{ field_error(errors, 'quantity[]') }}
+            {{ field_error(errors, 'purchase_rate[]') }}
+            {{ field_error(errors, 'sale_rate[]') }}
+            {{ field_error(errors, 'category_id[]') }}
+
+            <div id="purchase-lines" class="purchase-lines">
+                {% for line in lines %}
+                <div class="purchase-line">
+                    <div class="purchase-line-head">
+                        <span class="purchase-line-title">Item {{ loop.index }}</span>
+                        <button type="button" class="btn btn-sm btn-danger remove-purchase-item">Remove</button>
+                    </div>
+
+                    <div class="purchase-field">
+                        <label>Item Type</label>
+                        <select name="item_mode[]" class="purchase-item-mode">
+                            <option value="existing" {% if line.get('item_mode', 'existing') == 'existing' %}selected{% endif %}>Existing item</option>
+                            <option value="new" {% if line.get('item_mode') == 'new' %}selected{% endif %}>New item</option>
+                        </select>
+                    </div>
+
+                    <div class="purchase-field purchase-field-wide existing-item-field">
+                        <label>Existing Item</label>
+                        <select name="item_id[]" class="purchase-item-id {% if errors and errors.get('item_id[]') %}is-invalid{% endif %}">
+                            <option value="">Select item</option>
+                            {% for item in items %}
+                            <option value="{{ item.ItemID }}"
+                                    data-purchase-rate="{{ item.PurchaseRate }}"
+                                    data-sale-rate="{{ item.SaleRate }}"
+                                    data-brand="{{ item.Brand or '' }}"
+                                    {% if line.get('item_id')|string == item.ItemID|string %}selected{% endif %}>
+                                {{ item.ItemName }}{% if item.Brand %} ({{ item.Brand }}){% endif %} - {{ item.CategoryName or 'N/A' }} (Current Qty: {{ item.Qty }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="purchase-field purchase-field-wide new-item-field">
+                        <label>New Item Name</label>
+                        <input type="text" name="item_name[]" maxlength="100"
+                               value="{{ line.get('item_name', '') }}"
+                               class="purchase-item-name {% if errors and errors.get('item_name[]') %}is-invalid{% endif %}">
+                    </div>
+
+                    <div class="purchase-field new-item-field">
+                        <label>Category</label>
+                        <select name="category_id[]" class="purchase-category-id {% if errors and errors.get('category_id[]') %}is-invalid{% endif %}">
+                            <option value="">Select category</option>
+                            {% for category in categories %}
+                            <option value="{{ category.CategoryID }}"
+                                    {% if line.get('category_id')|string == category.CategoryID|string %}selected{% endif %}>
+                                {{ category.CategoryName }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="purchase-field">
+                        <label>Brand</label>
+                        <input type="text" name="brand[]" class="purchase-brand"
+                               value="{{ line.get('brand', '') }}" maxlength="100" placeholder="Optional">
+                    </div>
+
+                    <div class="purchase-field">
+                        <label>Quantity</label>
+                        <input type="number" name="quantity[]" min="1" step="1" required
+                               value="{{ line.get('quantity', '1') }}"
+                               class="purchase-quantity {% if errors and errors.get('quantity[]') %}is-invalid{% endif %}">
+                    </div>
+
+                    <div class="purchase-field">
+                        <label>Purchase Rate</label>
+                        <input type="number" name="purchase_rate[]" min="0" step="5" required
+                               value="{{ line.get('purchase_rate', '0') }}"
+                               class="purchase-rate {% if errors and errors.get('purchase_rate[]') %}is-invalid{% endif %}">
+                    </div>
+
+                    <div class="purchase-field">
+                        <label>Sale Rate</label>
+                        <input type="number" name="sale_rate[]" min="0" step="5" required
+                               value="{{ line.get('sale_rate', '0') }}"
+                               class="purchase-sale-rate {% if errors and errors.get('sale_rate[]') %}is-invalid{% endif %}">
+                    </div>
+
+                    <div class="purchase-line-total">
+                        <label>Line Total</label>
+                        <div class="amount">Rs 0.00</div>
+                    </div>
+                </div>
+                {% endfor %}
             </div>
 
-            <div class="form-group existing-item-field">
-                <label for="item_id">Existing Item</label>
-                <select id="item_id" name="item_id"
-                        class="{% if errors and errors.get('item_id') %}is-invalid{% endif %}">
-                    <option value="">Select item</option>
-                    {% for item in items %}
-                    <option value="{{ item.ItemID }}"
-                            data-purchase-rate="{{ item.PurchaseRate }}"
-                            data-sale-rate="{{ item.SaleRate }}"
-                            data-brand="{{ item.Brand or '' }}"
-                            {% if fd.get('item_id')|string == item.ItemID|string %}selected{% endif %}>
-                        {{ item.ItemName }}{% if item.Brand %} ({{ item.Brand }}){% endif %} - {{ item.CategoryName or 'N/A' }} (Current Qty: {{ item.Qty }})
-                    </option>
-                    {% endfor %}
-                </select>
-                {{ field_error(errors, 'item_id') }}
-            </div>
-
-            <div class="form-group new-item-field">
-                <label for="item_name">New Item Name</label>
-                <input type="text" id="item_name" name="item_name"
-                       value="{{ fd.get('item_name', '') }}"
-                       maxlength="100" minlength="1"
-                       class="{% if errors and errors.get('item_name') %}is-invalid{% endif %}">
-                {{ field_error(errors, 'item_name') }}
-            </div>
-
-            <div class="form-group new-item-field">
-                <label for="category_id">Category</label>
-                <select id="category_id" name="category_id"
-                        class="{% if errors and errors.get('category_id') %}is-invalid{% endif %}">
-                    <option value="">Select category</option>
-                    {% for category in categories %}
-                    <option value="{{ category.CategoryID }}"
-                            {% if fd.get('category_id')|string == category.CategoryID|string %}selected{% endif %}>
-                        {{ category.CategoryName }}
-                    </option>
-                    {% endfor %}
-                </select>
-                {{ field_error(errors, 'category_id') }}
-            </div>
-
-            <div class="form-group">
-                <label for="brand">Brand</label>
-                <input type="text" id="brand" name="brand"
-                       value="{{ fd.get('brand', '') }}"
-                       maxlength="100" placeholder="Optional"
-                       class="{% if errors and errors.get('brand') %}is-invalid{% endif %}">
-                {{ field_error(errors, 'brand') }}
-            </div>
-
-            <div class="form-group">
-                <label for="quantity">Quantity</label>
-                <input type="number" id="quantity" name="quantity" min="1" step="1"
-                       value="{{ fd.get('quantity', '1') }}" required
-                       class="{% if errors and errors.get('quantity') %}is-invalid{% endif %}">
-                {{ field_error(errors, 'quantity') }}
-            </div>
-
-            <div class="form-group">
-                <label for="purchase_rate">Purchase Rate</label>
-                <input type="number" step="5" id="purchase_rate" name="purchase_rate" min="0"
-                       value="{{ fd.get('purchase_rate', '0') }}" required
-                       class="{% if errors and errors.get('purchase_rate') %}is-invalid{% endif %}">
-                {{ field_error(errors, 'purchase_rate') }}
-            </div>
-
-            <div class="form-group">
-                <label for="sale_rate">Sale Rate</label>
-                <input type="number" step="5" id="sale_rate" name="sale_rate" min="0"
-                       value="{{ fd.get('sale_rate', '0') }}" required
-                       class="{% if errors and errors.get('sale_rate') %}is-invalid{% endif %}">
-                {{ field_error(errors, 'sale_rate') }}
+            <div class="purchase-line-actions">
+                <button type="button" class="btn btn-secondary" id="add-purchase-item">+ Add Item</button>
+                <strong class="purchase-grand-total">Grand Total: <span id="purchase-grand-total">Rs 0.00</span></strong>
             </div>
 
             <div class="form-actions">
@@ -154,61 +166,128 @@
     </div>
 </div>
 <script>
-    const itemMode = document.getElementById('item_mode');
-    const existingItemField = document.querySelector('.existing-item-field');
-    const newItemFields = document.querySelectorAll('.new-item-field');
-    const itemSelect = document.getElementById('item_id');
-    const itemName = document.getElementById('item_name');
-    const categorySelect = document.getElementById('category_id');
-    const purchaseRate = document.getElementById('purchase_rate');
-    const saleRate = document.getElementById('sale_rate');
-    const brandInput = document.getElementById('brand');
+    const purchaseLines = document.getElementById('purchase-lines');
+    const addPurchaseItem = document.getElementById('add-purchase-item');
+    const grandTotal = document.getElementById('purchase-grand-total');
 
-    function syncItemMode() {
-        const isExisting = itemMode.value === 'existing';
-
-        existingItemField.style.display = isExisting ? 'block' : 'none';
-        newItemFields.forEach(function (field) {
-            field.style.display = isExisting ? 'none' : 'block';
-        });
-
-        itemSelect.required = isExisting;
-        itemSelect.disabled = !isExisting;
-        itemName.required = !isExisting;
-        itemName.disabled = isExisting;
-        categorySelect.required = !isExisting;
-        categorySelect.disabled = isExisting;
-
-        if (isExisting) {
-            fillFromExistingItem();
-        }
+    function formatMoney(value) {
+        return 'Rs ' + value.toFixed(2);
     }
 
-    function fillFromExistingItem() {
+    function updateTotals() {
+        let total = 0;
+        purchaseLines.querySelectorAll('.purchase-line').forEach(function (row) {
+            const quantity = parseFloat(row.querySelector('.purchase-quantity').value) || 0;
+            const rate = parseFloat(row.querySelector('.purchase-rate').value) || 0;
+            const lineTotal = quantity * rate;
+            row.querySelector('.purchase-line-total .amount').textContent = formatMoney(lineTotal);
+            total += lineTotal;
+        });
+        grandTotal.textContent = formatMoney(total);
+    }
+
+    function renumberLines() {
+        purchaseLines.querySelectorAll('.purchase-line').forEach(function (row, index) {
+            row.querySelector('.purchase-line-title').textContent = 'Item ' + (index + 1);
+        });
+    }
+
+    function syncRemoveButtons() {
+        const rows = purchaseLines.querySelectorAll('.purchase-line');
+        rows.forEach(function (row) {
+            row.querySelector('.remove-purchase-item').disabled = rows.length === 1;
+        });
+    }
+
+    function fillFromExistingItem(row) {
+        const itemSelect = row.querySelector('.purchase-item-id');
         const selected = itemSelect.options[itemSelect.selectedIndex];
         if (!selected) {
             return;
         }
-
         const existingPurchaseRate = selected.getAttribute('data-purchase-rate');
         const existingSaleRate = selected.getAttribute('data-sale-rate');
         const existingBrand = selected.getAttribute('data-brand');
-
         if (existingPurchaseRate) {
-            purchaseRate.value = existingPurchaseRate;
+            row.querySelector('.purchase-rate').value = existingPurchaseRate;
         }
-
         if (existingSaleRate) {
-            saleRate.value = existingSaleRate;
+            row.querySelector('.purchase-sale-rate').value = existingSaleRate;
         }
+        if (existingBrand !== null) {
+            row.querySelector('.purchase-brand').value = existingBrand || '';
+        }
+        updateTotals();
+    }
 
-        if (existingBrand !== null && brandInput) {
-            brandInput.value = existingBrand || '';
+    function syncItemMode(row) {
+        const isExisting = row.querySelector('.purchase-item-mode').value === 'existing';
+        row.querySelectorAll('.existing-item-field').forEach(function (field) {
+            field.style.display = isExisting ? '' : 'none';
+        });
+        row.querySelectorAll('.new-item-field').forEach(function (field) {
+            field.style.display = isExisting ? 'none' : '';
+        });
+
+        const itemSelect = row.querySelector('.purchase-item-id');
+        const itemName = row.querySelector('.purchase-item-name');
+        const categorySelect = row.querySelector('.purchase-category-id');
+
+        itemSelect.required = isExisting;
+        itemName.required = !isExisting;
+        categorySelect.required = !isExisting;
+
+        if (isExisting) {
+            fillFromExistingItem(row);
         }
     }
 
-    itemMode.addEventListener('change', syncItemMode);
-    itemSelect.addEventListener('change', fillFromExistingItem);
-    syncItemMode();
+    function bindRow(row) {
+        row.querySelector('.purchase-item-mode').addEventListener('change', function () {
+            syncItemMode(row);
+        });
+        row.querySelector('.purchase-item-id').addEventListener('change', function () {
+            fillFromExistingItem(row);
+        });
+        row.querySelector('.purchase-quantity').addEventListener('input', updateTotals);
+        row.querySelector('.purchase-rate').addEventListener('input', updateTotals);
+        row.querySelector('.remove-purchase-item').addEventListener('click', function () {
+            const rows = purchaseLines.querySelectorAll('.purchase-line');
+            if (rows.length === 1) {
+                return;
+            }
+            row.remove();
+            renumberLines();
+            syncRemoveButtons();
+            updateTotals();
+        });
+        syncItemMode(row);
+    }
+
+    function resetRow(row) {
+        row.querySelector('.purchase-item-mode').value = 'existing';
+        row.querySelector('.purchase-item-id').selectedIndex = 0;
+        row.querySelector('.purchase-item-name').value = '';
+        row.querySelector('.purchase-category-id').selectedIndex = 0;
+        row.querySelector('.purchase-brand').value = '';
+        row.querySelector('.purchase-quantity').value = '1';
+        row.querySelector('.purchase-rate').value = '0';
+        row.querySelector('.purchase-sale-rate').value = '0';
+    }
+
+    purchaseLines.querySelectorAll('.purchase-line').forEach(bindRow);
+    addPurchaseItem.addEventListener('click', function () {
+        const first = purchaseLines.querySelector('.purchase-line');
+        const clone = first.cloneNode(true);
+        resetRow(clone);
+        purchaseLines.appendChild(clone);
+        bindRow(clone);
+        renumberLines();
+        syncRemoveButtons();
+        updateTotals();
+        clone.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    syncRemoveButtons();
+    updateTotals();
 </script>
 {% endblock %}

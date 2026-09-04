@@ -105,33 +105,202 @@ def _purchase_record(cursor, purchase_id):
 
 
 
-def _validate_purchase_form(form, errors):
-    item_mode = (form.get("item_mode") or "existing").strip()
+def _default_purchase_lines():
+    return [
+        {
+            "item_mode": "existing",
+            "item_id": "",
+            "item_name": "",
+            "category_id": "",
+            "brand": "",
+            "quantity": "1",
+            "purchase_rate": "0",
+            "sale_rate": "0",
+        }
+    ]
 
-    if item_mode not in {"existing", "new"}:
-        errors.add("item_mode", "Select whether this is an existing or new item.")
 
-    data = {
+def _purchase_lines_from_form(form):
+    modes = form.getlist("item_mode[]")
+    item_ids = form.getlist("item_id[]")
+    item_names = form.getlist("item_name[]")
+    category_ids = form.getlist("category_id[]")
+    brands = form.getlist("brand[]")
+    quantities = form.getlist("quantity[]")
+    purchase_rates = form.getlist("purchase_rate[]")
+    sale_rates = form.getlist("sale_rate[]")
+
+    line_count = max(
+        len(modes),
+        len(item_ids),
+        len(item_names),
+        len(category_ids),
+        len(brands),
+        len(quantities),
+        len(purchase_rates),
+        len(sale_rates),
+        1,
+    )
+    lines = []
+    for index in range(line_count):
+        lines.append(
+            {
+                "item_mode": (modes[index] if index < len(modes) else "existing") or "existing",
+                "item_id": item_ids[index] if index < len(item_ids) else "",
+                "item_name": item_names[index] if index < len(item_names) else "",
+                "category_id": category_ids[index] if index < len(category_ids) else "",
+                "brand": brands[index] if index < len(brands) else "",
+                "quantity": quantities[index] if index < len(quantities) else "",
+                "purchase_rate": purchase_rates[index] if index < len(purchase_rates) else "",
+                "sale_rate": sale_rates[index] if index < len(sale_rates) else "",
+            }
+        )
+    return lines
+
+
+def _line_is_empty(line):
+    mode = (line.get("item_mode") or "existing").strip()
+    if mode == "new":
+        return not (line.get("item_name") or "").strip() and not (line.get("category_id") or "").strip()
+    return not (line.get("item_id") or "").strip()
+
+
+def _validate_purchase_header(form, errors):
+    return {
         "purchase_date": clean_date(form.get("purchase_date"), "purchase_date", errors, label="Purchase date"),
         "supplier_id": clean_select_id(form.get("supplier_id"), "supplier_id", errors, label="Supplier"),
-        "brand": clean_optional_string(form.get("brand"), "brand", errors, max_len=100, label="Brand"),
-        "item_mode": item_mode,
-        "quantity": clean_positive_int(form.get("quantity"), "quantity", errors, min_val=1, label="Quantity"),
-        "purchase_rate": clean_positive_decimal(form.get("purchase_rate"), "purchase_rate", errors, label="Purchase rate"),
-        "sale_rate": clean_positive_decimal(form.get("sale_rate"), "sale_rate", errors, label="Sale rate"),
         "payment_method": normalize_purchase_payment_method(form.get("payment_method")),
     }
 
-    if item_mode == "existing":
-        data["item_id"] = clean_select_id(form.get("item_id"), "item_id", errors, label="Item")
-        data["item_name"] = None
-        data["category_id"] = None
-    else:
-        data["item_id"] = None
-        data["item_name"] = clean_string(form.get("item_name"), "item_name", errors, max_len=100, label="Item name")
-        data["category_id"] = clean_select_id(form.get("category_id"), "category_id", errors, label="Category")
 
-    return data
+def _validate_purchase_lines(form, errors):
+    lines = _purchase_lines_from_form(form)
+    valid_lines = []
+
+    if not any(not _line_is_empty(line) for line in lines):
+        errors.add("item_id[]", "Add at least one item to this purchase.")
+        return lines, valid_lines
+
+    for line in lines:
+        if _line_is_empty(line):
+            continue
+
+        item_mode = (line.get("item_mode") or "existing").strip()
+        if item_mode not in {"existing", "new"}:
+            errors.add("item_mode[]", "Select whether each line is an existing or new item.")
+            break
+
+        quantity = clean_positive_int(line.get("quantity"), "quantity[]", errors, min_val=1, label="Quantity")
+        purchase_rate = clean_positive_decimal(
+            line.get("purchase_rate"), "purchase_rate[]", errors, label="Purchase rate"
+        )
+        sale_rate = clean_positive_decimal(line.get("sale_rate"), "sale_rate[]", errors, label="Sale rate")
+        brand = clean_optional_string(line.get("brand"), "brand[]", errors, max_len=100, label="Brand")
+
+        parsed = {
+            "item_mode": item_mode,
+            "brand": brand,
+            "quantity": quantity,
+            "purchase_rate": purchase_rate,
+            "sale_rate": sale_rate,
+            "item_id": None,
+            "item_name": None,
+            "category_id": None,
+        }
+
+        if item_mode == "existing":
+            parsed["item_id"] = clean_select_id(line.get("item_id"), "item_id[]", errors, label="Item")
+        else:
+            parsed["item_name"] = clean_string(
+                line.get("item_name"), "item_name[]", errors, max_len=100, label="Item name"
+            )
+            parsed["category_id"] = clean_select_id(
+                line.get("category_id"), "category_id[]", errors, label="Category"
+            )
+
+        if not errors.valid:
+            break
+
+        valid_lines.append(parsed)
+
+    if errors.valid and not valid_lines:
+        errors.add("item_id[]", "Add at least one item to this purchase.")
+
+    return lines, valid_lines
+
+
+def _apply_purchase_line(cursor, line):
+    """Create or update stock for one purchase line. Returns (item_id, item_name)."""
+    if line["item_mode"] == "existing":
+        cursor.execute(
+            f"SELECT ItemName FROM Item WHERE ItemID = ? AND {owner_sql()}",
+            (line["item_id"],),
+        )
+        item_row = cursor.fetchone()
+        if not item_row:
+            return None, None
+
+        item_id = line["item_id"]
+        item_name = item_row[0]
+        cursor.execute(
+            f"""
+            UPDATE Item
+            SET Qty = Qty + ?, PurchaseRate = ?, SaleRate = ?,
+                Brand = COALESCE(?, Brand)
+            WHERE ItemID = ? AND {owner_sql()}
+            """,
+            (line["quantity"], line["purchase_rate"], line["sale_rate"], line.get("brand"), item_id),
+        )
+        return item_id, item_name
+
+    item_name = line["item_name"]
+    cursor.execute(
+        f"""
+        SELECT TOP 1 ItemID, ItemName
+        FROM Item
+        WHERE LOWER(LTRIM(RTRIM(ItemName))) = LOWER(LTRIM(RTRIM(?)))
+          AND CategoryID = ?
+          AND {owner_sql()}
+        ORDER BY Qty DESC, ItemID ASC
+        """,
+        (item_name, line["category_id"]),
+    )
+    existing_item = cursor.fetchone()
+
+    if existing_item:
+        item_id = existing_item.ItemID
+        item_name = existing_item.ItemName
+        cursor.execute(
+            f"""
+            UPDATE Item
+            SET Qty = Qty + ?, PurchaseRate = ?, SaleRate = ?,
+                Brand = COALESCE(?, Brand)
+            WHERE ItemID = ? AND {owner_sql()}
+            """,
+            (line["quantity"], line["purchase_rate"], line["sale_rate"], line.get("brand"), item_id),
+        )
+        return item_id, item_name
+
+    next_item_id = next_table_id(cursor, "Item", "ItemID")
+    next_item_no = next_owner_no(cursor, "Item", "ItemNo")
+    cursor.execute(
+        """
+        INSERT INTO Item (ItemID, ItemNo, ItemName, Brand, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            next_item_id,
+            next_item_no,
+            item_name,
+            line.get("brand"),
+            line["category_id"],
+            line["purchase_rate"],
+            line["sale_rate"],
+            line["quantity"],
+            request_user_id(),
+        ),
+    )
+    return next_item_id, item_name
 
 
 
@@ -204,8 +373,9 @@ def create_purchase():
         if request.method == "POST":
 
             form_data = request.form.to_dict()
-
-            data = _validate_purchase_form(request.form, errors)
+            purchase_lines = _purchase_lines_from_form(request.form)
+            data = _validate_purchase_header(request.form, errors)
+            purchase_lines, valid_lines = _validate_purchase_lines(request.form, errors)
 
 
 
@@ -223,6 +393,8 @@ def create_purchase():
 
                     categories=categories,
 
+                    purchase_lines=purchase_lines,
+
                     errors=errors.errors,
 
                     form_data=form_data,
@@ -231,90 +403,28 @@ def create_purchase():
 
 
 
-            total = data["quantity"] * data["purchase_rate"]
+            total = 0
+            saved_lines = []
+            for line in valid_lines:
+                item_id, item_name = _apply_purchase_line(cursor, line)
+                if not item_id:
+                    errors.add("item_id[]", "Selected item was not found.")
+                    break
+                total += line["quantity"] * line["purchase_rate"]
+                saved_lines.append((item_id, item_name, line["quantity"], line["purchase_rate"]))
 
-            if data["item_mode"] == "existing":
-                cursor.execute(
-                    f"SELECT ItemName FROM Item WHERE ItemID = ? AND {owner_sql()}",
-                    (data["item_id"],),
+            if not errors.valid:
+                db.rollback()
+                flash(errors.first(), "danger")
+                return render_template(
+                    "purchases/form.html",
+                    suppliers=suppliers,
+                    items=items,
+                    categories=categories,
+                    purchase_lines=purchase_lines,
+                    errors=errors.errors,
+                    form_data=form_data,
                 )
-                item_row = cursor.fetchone()
-
-                if not item_row:
-                    errors.add("item_id", "Selected item was not found.")
-                    flash(errors.first(), "danger")
-                    return render_template(
-                        "purchases/form.html",
-                        suppliers=suppliers,
-                        items=items,
-                        categories=categories,
-                        errors=errors.errors,
-                        form_data=form_data,
-                    )
-
-                item_id = data["item_id"]
-                item_name = item_row[0]
-
-                cursor.execute(
-                    f"""
-                    UPDATE Item
-                    SET Qty = Qty + ?, PurchaseRate = ?, SaleRate = ?,
-                        Brand = COALESCE(?, Brand)
-                    WHERE ItemID = ? AND {owner_sql()}
-                    """,
-                    (data["quantity"], data["purchase_rate"], data["sale_rate"], data.get("brand"), item_id),
-                )
-            else:
-                item_name = data["item_name"]
-
-                cursor.execute(
-                    f"""
-                    SELECT TOP 1 ItemID, ItemName
-                    FROM Item
-                    WHERE LOWER(LTRIM(RTRIM(ItemName))) = LOWER(LTRIM(RTRIM(?)))
-                      AND CategoryID = ?
-                      AND {owner_sql()}
-                    ORDER BY Qty DESC, ItemID ASC
-                    """,
-                    (item_name, data["category_id"]),
-                )
-                existing_item = cursor.fetchone()
-
-                if existing_item:
-                    item_id = existing_item.ItemID
-                    item_name = existing_item.ItemName
-                    cursor.execute(
-                        f"""
-                        UPDATE Item
-                        SET Qty = Qty + ?, PurchaseRate = ?, SaleRate = ?,
-                            Brand = COALESCE(?, Brand)
-                        WHERE ItemID = ? AND {owner_sql()}
-                        """,
-                        (data["quantity"], data["purchase_rate"], data["sale_rate"], data.get("brand"), item_id),
-                    )
-                else:
-                    next_item_id = next_table_id(cursor, "Item", "ItemID")
-                    next_item_no = next_owner_no(cursor, "Item", "ItemNo")
-                    cursor.execute(
-                        """
-                        INSERT INTO Item (ItemID, ItemNo, ItemName, Brand, CategoryID, PurchaseRate, SaleRate, Qty, UserID)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            next_item_id,
-                            next_item_no,
-                            item_name,
-                            data.get("brand"),
-                            data["category_id"],
-                            data["purchase_rate"],
-                            data["sale_rate"],
-                            data["quantity"],
-                            request_user_id(),
-                        ),
-                    )
-                    item_id = next_item_id
-
-
 
             next_purchase_id = next_table_id(cursor, "Purchases", "PurchaseID")
 
@@ -334,27 +444,17 @@ def create_purchase():
                 ),
             )
 
-
-
             purchase_id = int(cursor.fetchone()[0])
 
-
-
-            cursor.execute(
-
-                """
-
-                INSERT INTO PurchaseDetails
-
-                (PurchaseID, ItemID, Particulars, Qty, PurchaseRate)
-
-                VALUES (?, ?, ?, ?, ?)
-
-                """,
-
-                (purchase_id, item_id, item_name, data["quantity"], data["purchase_rate"]),
-
-            )
+            for item_id, item_name, quantity, purchase_rate in saved_lines:
+                cursor.execute(
+                    """
+                    INSERT INTO PurchaseDetails
+                    (PurchaseID, ItemID, Particulars, Qty, PurchaseRate)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (purchase_id, item_id, item_name, quantity, purchase_rate),
+                )
 
             if data["payment_method"] in {"Cash", "Bank"} and float(total or 0) > 0:
                 add_purchase_payment(
@@ -368,30 +468,20 @@ def create_purchase():
             else:
                 refresh_purchase_settlement(cursor, purchase_id)
 
-
-
             db.commit()
 
             flash("Purchase created successfully", "success")
 
             return redirect(url_for("purchases.list_purchases"))
 
-
-
         return render_template(
-
             "purchases/form.html",
-
             suppliers=suppliers,
-
             items=items,
-
             categories=categories,
-
+            purchase_lines=purchase_lines if request.method == "POST" else _default_purchase_lines(),
             errors=errors.errors,
-
             form_data=form_data,
-
         )
 
 
@@ -422,6 +512,8 @@ def create_purchase():
             items=items,
 
             categories=categories,
+
+            purchase_lines=_purchase_lines_from_form(request.form) if request.method == "POST" else _default_purchase_lines(),
 
             errors=errors.errors,
 
