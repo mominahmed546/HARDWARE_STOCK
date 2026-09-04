@@ -269,3 +269,102 @@
         max-height: 45vh;
     }
 }
+
+.card .form.purchase-create-form {
+    max-width: 920px;
+}
+
+.purchase-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.purchase-line {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 0.65rem;
+    padding: 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg);
+}
+
+.purchase-line-head {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.purchase-line-title {
+    font-weight: 700;
+    color: var(--text);
+    font-size: 0.92rem;
+}
+
+.purchase-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    min-width: 0;
+}
+
+.purchase-field > label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+
+.purchase-field input,
+.purchase-field select {
+    width: 100%;
+    min-width: 0;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.92rem;
+    background: var(--surface);
+    color: var(--text);
+}
+
+.purchase-field-wide {
+    grid-column: span 2;
+}
+
+.purchase-line-total {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 0.3rem;
+    min-width: 0;
+}
+
+.purchase-line-total .amount {
+    font-weight: 700;
+    color: var(--text);
+    padding: 0.65rem 0;
+}
+
+.purchase-line-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+
+.purchase-grand-total {
+    font-size: 1.05rem;
+}
+
+@media (max-width: 700px) {
+    .purchase-field-wide {
+        grid-column: span 1;
+    }
+}
